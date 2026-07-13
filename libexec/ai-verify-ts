@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Verify only the TypeScript files in a change (thin wrapper over `agent-kit verify`).
+#
+# Convenience shim: delegates every real action to the canonical ai-verify
+# implementation with `--language ts`. --help and --introspect are answered
+# statically here and never run the verify logic.
+#
+# Usage:
+#   agent-kit verify-ts [ROOT] [flags]        verify TS files under ROOT (default: cwd)
+#
+# Example:
+#   agent-kit verify-ts --help                # see what the TS verify wrapper does, safely
+#   agent-kit verify-ts .                     # verify the TypeScript files in the current project
+set -euo pipefail
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    _self="${BASH_SOURCE[0]}"; _here="$(cd "$(dirname "$_self")" && pwd)"
+    [[ -x "$_here/sh-introspect" ]] && exec bash "$_here/sh-introspect" --format=help "$_self"
+    sed -n '2,24p' "$_self" | sed 's/^# \{0,1\}//'; exit 0
+fi
+if [[ "${1:-}" == "--introspect" ]]; then
+    _self="${BASH_SOURCE[0]}"; _here="$(cd "$(dirname "$_self")" && pwd)"
+    exec env AI_OUTPUT=json bash "$_here/sh-introspect" "$_self"
+fi
+
+_ai_wrap_dir="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+_ai_impl="$_ai_wrap_dir/ai-verify"
+
+exec "${BASH:-bash}" "$_ai_impl" --language ts "$@"

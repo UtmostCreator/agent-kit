@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# List every toolkit command with its one-line summary (a discoverable map).
+#
+# Enumerates the sibling libexec/ commands and prints each name with the first
+# line of its header comment, so humans and agents can survey the whole surface
+# at a glance. Add --json for a machine-readable array. The listed scripts are
+# parsed statically (via sh-introspect), never executed.
+#
+# Usage:
+#   repo-tool-inventory            human-readable table
+#   repo-tool-inventory --json     JSON array of {name, summary}
+#
+# Example:
+#   agent-kit repo-tool-inventory                 # see every command and what it does
+#   agent-kit repo-tool-inventory --json | jq .   # feed the catalog to an agent
+#
+# Requires: jq
+
+set -euo pipefail
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INTROSPECT="$SELF_DIR/sh-introspect"
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    exec "${BASH:-bash}" "$INTROSPECT" --format=help "${BASH_SOURCE[0]}"
+fi
+if [[ "${1:-}" == "--introspect" ]]; then
+    exec env AI_OUTPUT=json "${BASH:-bash}" "$INTROSPECT" "${BASH_SOURCE[0]}"
+fi
+
+if [[ "${1:-}" == "--json" || "${AI_OUTPUT:-}" == "json" ]]; then
+    find "$SELF_DIR" -maxdepth 1 -type f | sort | while IFS= read -r f; do
+        "${BASH:-bash}" "$INTROSPECT" --format=json "$f" | jq -c '{name, summary: (.description // "")}'
+    done | jq -sc '{schema:"ai.repo-tool-inventory/v1", status:"ok", tool:"repo-tool-inventory", commands: .}'
+    exit 0
+fi
+
+exec "${BASH:-bash}" "$INTROSPECT" --list "$SELF_DIR"

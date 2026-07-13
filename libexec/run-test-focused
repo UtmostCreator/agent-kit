@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# Run a FOCUSED PHPUnit selection (a --filter pattern or a single test file).
+#
+# Runs just the tests you name, bounded by a hard timeout. Distinct from
+# `agent-kit run-repo-tests` (whole suite) and `agent-kit test-select` (selects tests but does
+# not run them). Read-only with respect to the repo (writes no tracked files).
+#
+# Usage:
+#   agent-kit run-test-focused --filter <Pattern>
+#   agent-kit run-test-focused <path/to/SomeTest.php>
+#   agent-kit run-test-focused <path/to/SomeTest.php> --filter <method>
+#
+# Example:
+#   agent-kit run-test-focused --help                 # see accepted forms before running (safe)
+#   agent-kit run-test-focused --filter MyThingTest   # run only tests matching MyThingTest
+
+set -euo pipefail
+
+# Early --help/-h and --introspect guards: answer statically via the pure-Bash
+# sh-introspect sibling and exit BEFORE running phpunit. The target script is
+# parsed as text, never executed.
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    _self="${BASH_SOURCE[0]}"; _here="$(cd "$(dirname "$_self")" && pwd)"
+    [[ -x "$_here/sh-introspect" ]] && exec bash "$_here/sh-introspect" --format=help "$_self"
+    sed -n '2,24p' "$_self" | sed 's/^# \{0,1\}//'; exit 0
+fi
+if [[ "${1:-}" == "--introspect" ]]; then
+    _self="${BASH_SOURCE[0]}"; _here="$(cd "$(dirname "$_self")" && pwd)"
+    exec env AI_OUTPUT=json bash "$_here/sh-introspect" "$_self"
+fi
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$ROOT" || exit 1
+
+TEST_TIMEOUT="${TEST_TIMEOUT:-120}"
+PHP_BIN="${PHP_BIN:-}"
+
+if [[ "$#" -eq 0 ]]; then
+    echo "ERROR: run-test-focused requires a --filter <pattern> or a test file path" >&2
+    echo "       e.g. scripts/ai/run-test-focused.sh --filter ToolGatewayTest" >&2
+    exit 2
+fi
+
+if [[ -z "$PHP_BIN" ]]; then
+    if command -v php >/dev/null 2>&1; then
+        PHP_BIN="php"
+    elif command -v php.exe >/dev/null 2>&1; then
+        PHP_BIN="php.exe"
+    else
+        PHP_BIN="php"
+    fi
+fi
+
+if [[ ! -x vendor/bin/phpunit ]]; then
+    echo "ERROR: vendor/bin/phpunit not found; run composer install first" >&2
+    exit 1
+fi
+
+# Resolve a hard-timeout launcher so a hung/focused run is killed, not hung forever.
+TIMEOUT_BIN=""
+if command -v timeout >/dev/null 2>&1; then
+    TIMEOUT_BIN="timeout"
+elif command -v gtimeout >/dev/null 2>&1; then
+    TIMEOUT_BIN="gtimeout"
+fi
+
+# Pass all caller args straight through to phpunit (a --filter pattern, a single
+# file path, or both). phpunit itself validates them, keeping this wrapper thin.
+set -- --configuration phpunit.xml.dist "$@"
+
+echo "==> focused tests: phpunit $* (timeout ${TEST_TIMEOUT}s)"
+if [[ -n "$TIMEOUT_BIN" ]]; then
+    exec "$TIMEOUT_BIN" --kill-after=10s "$TEST_TIMEOUT" "$PHP_BIN" vendor/bin/phpunit "$@"
+fi
+
+echo "==> warn: no timeout/gtimeout binary; running WITHOUT a time limit" >&2
+exec "$PHP_BIN" vendor/bin/phpunit "$@"

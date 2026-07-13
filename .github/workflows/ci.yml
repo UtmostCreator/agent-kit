@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: checks
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout exact event revision without external actions
+        env:
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          COMMIT_SHA: ${{ github.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${REPOSITORY}.git"
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            git fetch --no-tags --depth=1 origin "refs/pull/${PR_NUMBER}/merge"
+          else
+            git fetch --no-tags --depth=1 origin "${COMMIT_SHA}"
+          fi
+          git checkout --detach FETCH_HEAD
+
+      - name: Install validation tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends shellcheck jq ripgrep
+
+      - name: Validate publication boundary
+        run: ./scripts/check-publishable.sh
+
+      - name: Run lint and tests
+        run: ./scripts/check.sh
+
+  required:
+    name: required
+    if: ${{ always() }}
+    needs: [checks]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Confirm matrix success
+        env:
+          RESULT: ${{ needs.checks.result }}
+        run: |
+          set -euo pipefail
+          [[ "$RESULT" == "success" ]]

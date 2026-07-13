@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# hooks/agent/watch-loop — thin hook-slot shim delegating to
+# libexec/watch-loop. Kept as a separate path so agent runtimes that
+# discover hooks under hooks/agent/ (rather than libexec/) can find this
+# command without duplicating its implementation.
+set -euo pipefail
+exec bash "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../libexec" && pwd)/watch-loop" "$@"

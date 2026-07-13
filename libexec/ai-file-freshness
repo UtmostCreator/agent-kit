@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# shellcheck source=scripts/ai/common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
+
+# Show which docs/config files have uncommitted changes (git status of key paths).
+#
+# Reports the short `git status` for docs/, .github/, .opencode/, and AGENTS.md so
+# you can quickly see which agent-facing files are stale or edited but not committed.
+#
+# Usage:
+#   ai-file-freshness
+#
+# Example:
+#   agent-kit file-freshness   # list uncommitted changes under docs/, .github/, AGENTS.md
+
+git status --short docs .github .opencode AGENTS.md 2>/dev/null || true

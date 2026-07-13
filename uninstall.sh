@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+    cat <<'EOF'
+Usage: ./uninstall.sh [--prefix PATH] [--bindir PATH]
+EOF
+}
+
+prefix=${XDG_DATA_HOME:-$HOME/.local/share}/agent-kit
+bindir=$HOME/.local/bin
+
+while (($# > 0)); do
+    case "$1" in
+        --prefix)
+            (($# >= 2)) || { printf 'error: --prefix requires a path\n' >&2; exit 2; }
+            prefix=$2
+            shift 2
+            ;;
+        --bindir)
+            (($# >= 2)) || { printf 'error: --bindir requires a path\n' >&2; exit 2; }
+            bindir=$2
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            printf 'error: unknown argument: %s\n' "$1" >&2
+            exit 2
+            ;;
+    esac
+done
+
+marker="$prefix/.agent-kit-install"
+if [[ ! -f "$marker" ]] || [[ $(<"$marker") != 'agent-kit' ]]; then
+    printf 'error: refusing to remove unmarked path: %s\n' "$prefix" >&2
+    exit 1
+fi
+
+wrapper="$bindir/agent-kit"
+# Identify our wrapper by its stable marker, not by the exec path: install.sh
+# writes that path `printf %q`-escaped, so a literal path match fails whenever
+# the prefix contains spaces or shell metacharacters.
+if [[ -f "$wrapper" ]] && grep -Fq -- '# agent-kit-wrapper' "$wrapper"; then
+    rm -f -- "$wrapper"
+fi
+rm -rf -- "$prefix"
+printf 'Removed AgentKit from %s\n' "$prefix"

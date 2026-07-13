@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Count the files Git currently tracks in this repository.
+#
+# Usage:
+#   agent-kit repo-stats
+#
+# Example:
+#   agent-kit repo-stats   # print how many files Git currently tracks in this repository
+
+set -euo pipefail
+
+# Early --help/-h guard: emit this script's human-readable contract (the static
+# introspector's compact --format=help view) and exit before running any logic.
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    _self="${BASH_SOURCE[0]}"
+    _here="$(cd "$(dirname "$_self")" && pwd)"
+    [[ -x "$_here/sh-introspect" ]] && exec bash "$_here/sh-introspect" --format=help "$_self"
+    sed -n '2,24p' "$_self" | sed 's/^# \{0,1\}//'
+    exit 0
+fi
+
+# Early --introspect guard: emit this script's machine-readable JSON contract
+# (static parse via sh-introspect) and exit before running any logic. The
+# target script is parsed as text, never executed.
+if [[ "${1:-}" == "--introspect" ]]; then
+    _self="${BASH_SOURCE[0]}"
+    _here="$(cd "$(dirname "$_self")" && pwd)"
+    exec env AI_OUTPUT=json bash "$_here/sh-introspect" "$_self"
+fi
+
+git ls-files | wc -l

@@ -1,0 +1,50 @@
+# Generated agent/session data
+.ai-logs/
+.ai-sessions/
+.ai-context/
+.ai-snapshots/
+.ai-tmp/
+
+# Context and analysis outputs
+repomix-output.*
+*.context-pack
+*.context.json
+*.session.jsonl
+*.edit-session.json
+combined_output.txt
+combined_output.txt.bak.*
+
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Runtime and test output
+.tmp/
+tmp/
+.cache/
+coverage/
+artifacts/
+*.log
+
+# Node / npm packaging (distribution wrapper)
+node_modules/
+npm-debug.log*
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Repo-local working material that must never be published
+.claude/
+release-plan/
+
+# Release build output
+dist/

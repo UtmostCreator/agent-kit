@@ -1,0 +1,244 @@
+#!/usr/bin/env bash
+# Universal shell-script introspector (static, pure-Bash parser).
+#
+# Statically parses a Bash/Zsh script and reports its callable surface —
+# description, usage, examples, flags, environment inputs, and required
+# commands — WITHOUT ever executing the target. It is the backend for every
+# `--help` and `--introspect` in this toolkit, replacing the former PHP tool so
+# the runtime stays Bash + Git + ripgrep + jq only.
+#
+# Usage:
+#   sh-introspect FILE                 human-readable report (default)
+#   sh-introspect --format=help FILE   compact --help view (used by scripts)
+#   sh-introspect --format=json FILE   JSON contract
+#   AI_OUTPUT=json sh-introspect FILE  JSON contract (env form)
+#   sh-introspect --list [DIR]         list every command with its one-line summary
+#
+# Example:
+#   sh-introspect libexec/ai-search            # see what ai-search accepts, safely
+#   sh-introspect --format=json libexec/ai-edit | jq .   # machine-readable contract
+#   sh-introspect --list libexec               # a discoverable map of every command
+#
+# Convention it reads (put these in a script's leading comment block):
+#   # <one-line description>
+#   #
+#   # Usage:
+#   #   <invocation lines>
+#   #
+#   # Example:
+#   #   <command>        # what it does, for new users
+#   #
+#   # Requires: rg jq           (optional; else inferred from `command -v`)
+#
+# Scope: parses ONLY the given file — it does not follow `source`d modules. For
+#   thin-loader entrypoints (e.g. ai-search, ai-edit) whose flags live in sourced
+#   modules, the human --help stays complete (usage/examples come from the header)
+#   but the JSON `flags` list reflects the entrypoint file alone. `flags` is read
+#   from `--foo)` case labels, so flags matched via `[[ $1 == --foo ]]` are not
+#   listed. These are conservative under-reports, never wrong claims.
+#
+# Exit codes: 0 parsed ok; 2 path/argument error. The target is NEVER executed.
+
+set -euo pipefail
+
+usage() {
+    sed -n '2,33p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+}
+
+# --- self description (so `sh-introspect --help` works without recursion) ------
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    usage
+    exit 0
+fi
+if [[ "${1:-}" == "--introspect" ]]; then
+    exec "${BASH_SOURCE[0]}" --format=json "${BASH_SOURCE[0]}"
+fi
+
+format="text"
+[[ "${AI_OUTPUT:-}" == "json" ]] && format="json"
+list_dir=""
+
+# --- argument parsing ---------------------------------------------------------
+args=()
+while (($# > 0)); do
+    case "$1" in
+        --format=*) format="${1#--format=}"; shift ;;
+        --format) format="${2:-text}"; shift 2 ;;
+        --list) list_dir="${2:-.}"; shift; [[ "${1:-}" == "$list_dir" ]] && shift || true ;;
+        --json) format="json"; shift ;;
+        *) args+=("$1"); shift ;;
+    esac
+done
+
+fail() {
+    # Emit a JSON error envelope when json output is requested, else plain text.
+    local msg="$1"
+    if [[ "$format" == "json" ]]; then
+        jq -nc --arg tool "sh-introspect" --arg error "$msg" \
+            '{schema:"ai.sh-introspect/v1", status:"error", tool:$tool, error:$error}'
+    else
+        printf 'sh-introspect: %s\n' "$msg" >&2
+    fi
+    exit 2
+}
+
+# --- section extractors (all text-only; the script is never sourced/executed) -
+
+# Description: first non-empty comment line(s) after the shebang, up to the first
+# structured heading (Usage/Example/...) or the first blank comment line.
+extract_description() {
+    local f="${1:-$target}"
+    awk '
+        NR==1 && /^#!/ { next }
+        # Skip shell preamble before the doc comment (set -e, blanks, simple opts).
+        !started && /^[[:space:]]*(set[[:space:]]|export[[:space:]]|shopt[[:space:]]|$)/ { next }
+        /^#/ {
+            line=$0; sub(/^#[[:space:]]?/, "", line)
+            # Skip editor/lint directives that are not human documentation.
+            if (!started && line ~ /^(shellcheck|shfmt|vim:|Emacs:|-\*-)/) next
+            if (line ~ /^(Usage|Usage:|Example|Examples|Example:|Examples:|Requires|Environment|Environment:|Flags|Flags:)/) exit
+            if (line == "") { if (started) exit; else next }
+            started=1; print line
+        }
+        started && /^[^#]/ { exit }
+    ' "$f"
+}
+
+# A named heading block from the leading comment: prints the indented body lines
+# under `# <Heading>:` until the comment block breaks or another heading starts.
+extract_comment_section() {
+    local heading="$1"
+    awk -v h="$heading" '
+        function is_heading(s) { return (s ~ /^(Usage|Examples?|Requires|Environment|Flags)[: ]?$/ || s ~ /^(Usage|Examples?|Requires|Environment|Flags):/) }
+        /^#/ {
+            line=$0; sub(/^#[[:space:]]?/, "", line)
+            if (ingrab) {
+                # A blank comment line ends the section once we have content,
+                # so an Example/Usage block never bleeds into later comments
+                # (e.g. a following `# shellcheck` directive).
+                if (line == "") { if (printed) exit; else next }
+                if (is_heading(line)) { exit }
+                sub(/^[[:space:]]+/, "", line); print line; printed=1; next
+            }
+            if (tolower(line) ~ ("^" tolower(h) ":?$") || tolower(line) ~ ("^" tolower(h) ":")) {
+                ingrab=1
+                rest=line; sub(/^[^:]*:?[[:space:]]*/, "", rest)
+                if (rest != "" && rest != line) print rest
+            }
+            next
+        }
+        /^[^#]/ { if (ingrab) exit; else next }
+    ' "$target"
+}
+
+# Fallback Usage from a `usage() { cat <<EOF ... EOF }` heredoc body.
+extract_usage_heredoc() {
+    awk '
+        /^usage\(\)[[:space:]]*\{/ { infn=1 }
+        infn && /<<[-]?['"'"'"]?[A-Za-z_]+['"'"'"]?/ { inhd=1; next }
+        inhd && /^[[:space:]]*[A-Za-z_]+[[:space:]]*$/ && seen { inhd=0; infn=0; exit }
+        inhd { if ($0 ~ /^(EOF|USAGE|HELP)[[:space:]]*$/) { inhd=0; infn=0; exit } print; seen=1 }
+    ' "$target"
+}
+
+# Flags: long-option case labels like `--foo)` or `--foo | -f)`.
+extract_flags() {
+    grep -oE '^[[:space:]]*(-[A-Za-z] \| )?--[a-z][a-z-]*(\|-[A-Za-z]| \| -[A-Za-z])?\)' "$target" 2>/dev/null \
+        | sed -E 's/^[[:space:]]*//; s/\)$//' | sort -u
+}
+
+# Environment inputs: AI_* and other referenced UPPER_SNAKE variables.
+extract_env() {
+    grep -oE '\$\{?[A-Z][A-Z0-9_]{2,}' "$target" 2>/dev/null \
+        | sed -E 's/^\$\{?//' \
+        | grep -vE '^(BASH|BASH_SOURCE|FUNCNAME|PWD|OLDPWD|HOME|PATH|SHELL|IFS|RANDOM|SECONDS|LINENO|PPID|UID|EUID|HOSTNAME|OSTYPE|MACHTYPE|EOF|USAGE|HELP)$' \
+        | sort -u
+}
+
+# Required commands: explicit `# Requires:` wins; else infer from `command -v X`.
+extract_requires() {
+    local declared
+    declared="$(extract_comment_section Requires | tr ' ' '\n' | grep -vE '^$' || true)"
+    if [[ -n "$declared" ]]; then
+        printf '%s\n' "$declared" | sort -u
+        return
+    fi
+    grep -oE 'command -v [A-Za-z][A-Za-z0-9_-]*' "$target" 2>/dev/null \
+        | awk '{print $3}' | sort -u
+}
+
+# --list DIR — enumerate commands + one-line summary, then exit. Uses the SAME
+# extract_description as the per-file path so the human listing and the JSON
+# contract never disagree.
+if [[ -n "$list_dir" ]]; then
+    [[ -d "$list_dir" ]] || { printf 'sh-introspect: not a directory: %s\n' "$list_dir" >&2; exit 2; }
+    find "$list_dir" -maxdepth 1 -type f | sort | while IFS= read -r f; do
+        printf '  %-24s %s\n' "$(basename "$f")" "$(extract_description "$f" | head -n1)"
+    done
+    exit 0
+fi
+
+target="${args[0]:-}"
+[[ -n "$target" ]] || fail "missing FILE argument"
+[[ -f "$target" ]] || fail "no such file: $target"
+name="$(basename "$target")"
+
+description="$(extract_description || true)"
+usage_lines="$(extract_comment_section Usage || true)"
+[[ -z "$usage_lines" ]] && usage_lines="$(extract_usage_heredoc || true)"
+example_lines="$(extract_comment_section Example || true)"
+[[ -z "$example_lines" ]] && example_lines="$(extract_comment_section Examples || true)"
+flags="$(extract_flags || true)"
+env_vars="$(extract_env || true)"
+requires="$(extract_requires || true)"
+
+# --- renderers ----------------------------------------------------------------
+render_text() {
+    printf '%s\n' "$name"
+    [[ -n "$description" ]] && { printf '\n'; printf '%s\n' "$description"; }
+    if [[ -n "$usage_lines" ]]; then printf '\nUsage:\n'; printf '%s\n' "$usage_lines" | sed 's/^/  /'; fi
+    if [[ -n "$example_lines" ]]; then printf '\nExample:\n'; printf '%s\n' "$example_lines" | sed 's/^/  /'; fi
+    if [[ -n "$flags" ]]; then printf '\nFlags:\n'; printf '%s\n' "$flags" | sed 's/^/  /'; fi
+    if [[ -n "$env_vars" ]]; then printf '\nEnvironment:\n'; printf '%s\n' "$env_vars" | sed 's/^/  /'; fi
+    if [[ -n "$requires" ]]; then printf '\nRequires:\n'; printf '  %s\n' "$(printf '%s ' $requires)"; fi
+    printf '\n(static introspection — target not executed)\n'
+}
+
+render_help() {
+    # Compact contract embedded in a script's own --help.
+    [[ -n "$description" ]] && printf '%s\n' "$description"
+    if [[ -n "$usage_lines" ]]; then printf '\nUsage:\n'; printf '%s\n' "$usage_lines" | sed 's/^/  /'; fi
+    if [[ -n "$example_lines" ]]; then printf '\nExample:\n'; printf '%s\n' "$example_lines" | sed 's/^/  /'; fi
+    if [[ -n "$flags" ]]; then printf '\nFlags: %s\n' "$(printf '%s ' $flags)"; fi
+    if [[ -n "$requires" ]]; then printf 'Requires: %s\n' "$(printf '%s ' $requires)"; fi
+}
+
+to_arr() { if [[ -z "$1" ]]; then printf '[]'; else printf '%s\n' "$1" | jq -R . | jq -sc .; fi; }
+
+render_json() {
+    jq -nc \
+        --arg tool "sh-introspect" \
+        --arg target "$target" \
+        --arg name "$name" \
+        --arg description "$description" \
+        --argjson usage "$(to_arr "$usage_lines")" \
+        --argjson examples "$(to_arr "$example_lines")" \
+        --argjson flags "$(to_arr "$flags")" \
+        --argjson env "$(to_arr "$env_vars")" \
+        --argjson requires "$(to_arr "$requires")" \
+        '{schema:"ai.sh-introspect/v1", status:"ok", tool:$tool, target:$target,
+          name:$name, meta:{target_executed:false},
+          description:$description, usage:$usage, examples:$examples,
+          flags:$flags, env:$env, requires:$requires}'
+}
+
+# Render into a single buffer, then emit with ONE write. Callers frequently pipe
+# our output into `grep -q`/`head`, which closes the pipe after the first match;
+# a single small write lands in the pipe buffer atomically, so the reader gets
+# everything and we never take a SIGPIPE on a follow-up write.
+case "$format" in
+    json) _rendered="$(render_json)" ;;
+    help) _rendered="$(render_help)" ;;
+    text|*) _rendered="$(render_text)" ;;
+esac
+printf '%s\n' "$_rendered"

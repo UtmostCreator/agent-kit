@@ -1,0 +1,10 @@
+Agent Repo Toolkit
+Copyright 2026 Utmost Creator
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+It is a pure-Bash command toolkit that gives AI coding agents a safety-first
+repository interface (scoped search, context packing, guarded edits, rollback,
+test selection, and verification). It shells out to optional third-party tools
+when present — Git, ripgrep, jq, fd, GitHub CLI, Repomix, scc, and ShellCheck —
+each of which remains under its own license.

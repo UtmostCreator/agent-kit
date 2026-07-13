@@ -1,0 +1,59 @@
+{
+  "name": "@utmostcreator/agent-kit",
+  "version": "0.1.0",
+  "description": "Safety-first CLI toolkit for coding agents: scoped search, context packing, guarded edits, rollback, test selection, and repository verification.",
+  "bin": {
+    "agent-kit": "npm/cli.js"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "bin/",
+    "lib/",
+    "libexec/",
+    "share/",
+    "hooks/",
+    "npm/cli.js",
+    "VERSION",
+    "AGENTS.md",
+    "docs/",
+    "README.md",
+    "INSTALL.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "engines": {
+    "node": ">=14"
+  },
+  "os": [
+    "linux",
+    "darwin"
+  ],
+  "keywords": [
+    "ai-agents",
+    "coding-agents",
+    "agentic-ai",
+    "developer-tools",
+    "cli",
+    "bash",
+    "code-search",
+    "context-engineering",
+    "ai-safety",
+    "claude-code",
+    "github-copilot",
+    "opencode",
+    "repomix",
+    "ripgrep"
+  ],
+  "homepage": "https://github.com/UtmostCreator/agent-kit#readme",
+  "bugs": {
+    "url": "https://github.com/UtmostCreator/agent-kit/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/UtmostCreator/agent-kit.git"
+  },
+  "author": "Utmost Creator",
+  "license": "Apache-2.0"
+}
