@@ -26,6 +26,35 @@ test_repo_stats() {
 }
 run_test "repo-stats prints a numeric count" test_repo_stats
 
+# repo-stats --help: emits the sh-introspect --format=help contract, exit 0.
+test_repo_stats_help() {
+    local out _rc=0
+    out="$("$BASH_BIN" "$REPO_ROOT/libexec/repo-stats" --help 2>&1)" || _rc=$?
+    [[ "$_rc" -eq 0 && "$out" == *"repo-stats"* ]]
+}
+run_test "repo-stats --help prints contract, exit 0" test_repo_stats_help
+
+# repo-stats -h: same short-flag path.
+test_repo_stats_help_short() {
+    local out _rc=0
+    out="$("$BASH_BIN" "$REPO_ROOT/libexec/repo-stats" -h 2>&1)" || _rc=$?
+    [[ "$_rc" -eq 0 && -n "$out" ]]
+}
+run_test "repo-stats -h prints contract, exit 0" test_repo_stats_help_short
+
+# repo-stats --introspect: emits the machine-readable JSON contract, exit 0.
+test_repo_stats_introspect() {
+    local out _rc=0
+    out="$("$BASH_BIN" "$REPO_ROOT/libexec/repo-stats" --introspect 2>&1)" || _rc=$?
+    [[ "$_rc" -eq 0 ]] || return 1
+    if command -v jq >/dev/null 2>&1; then
+        printf '%s' "$out" | jq -e '.schema == "ai.sh-introspect/v1"' >/dev/null
+    else
+        [[ "$out" == *"schema"* ]]
+    fi
+}
+run_test "repo-stats --introspect emits JSON contract, exit 0" test_repo_stats_introspect
+
 # ai-file-freshness: read-only git status wrapper, exit 0.
 test_file_freshness() {
     "$BASH_BIN" "$REPO_ROOT/libexec/ai-file-freshness" >/dev/null 2>&1
