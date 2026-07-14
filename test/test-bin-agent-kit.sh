@@ -40,6 +40,83 @@ test_prefix_resolution() {
 }
 run_test "resolves via the ai- prefix fallback" test_prefix_resolution
 
+# `agent-kit search capabilities` routes through ai-search to the compatibility
+# introspection implementation.
+test_search_capabilities() {
+    local out
+    out="$($BASH_BIN "$AI" search capabilities 2>/dev/null || true)"
+    printf '%s' "$out" | grep -q 'FULL CAPABILITY MAP'
+}
+run_test "routes search capabilities to introspection" test_search_capabilities
+
+# `agent-kit search batch` routes through ai-search to the ai-search-multi
+# batch implementation.
+test_search_batch() {
+    local out
+    out="$(AI_OUTPUT=json "$BASH_BIN" "$AI" search batch changed-files . 2>/dev/null || true)"
+    printf '%s' "$out" | jq -e 'type=="array"' >/dev/null 2>&1
+}
+run_test "routes search batch to ai-search-multi" test_search_batch
+
+# `agent-kit context estimate` routes through ai-context to query-usage.
+test_context_estimate() {
+    local out
+    out="$($BASH_BIN "$AI" context estimate README.md 2>/dev/null || true)"
+    printf '%s' "$out" | grep -q 'query_usage:'
+}
+run_test "routes context estimate to query-usage" test_context_estimate
+
+# `agent-kit repo stats` routes through ai-repo to repo-stats.
+test_repo_stats() {
+    local out
+    out="$($BASH_BIN "$AI" repo stats 2>/dev/null || true)"
+    [[ "$out" =~ ^[0-9]+$ ]]
+}
+run_test "routes repo stats to repo-stats" test_repo_stats
+
+# `agent-kit inspect shell` routes through ai-inspect to sh-introspect.
+test_inspect_shell() {
+    local out
+    out="$($BASH_BIN "$AI" inspect shell libexec/ai-search 2>/dev/null || true)"
+    printf '%s' "$out" | grep -q 'static introspection'
+}
+run_test "routes inspect shell to sh-introspect" test_inspect_shell
+
+# `agent-kit session checkpoint --help` routes through ai-session to
+# session-checkpoint (using --help avoids creating a real snapshot). --help is
+# intercepted by lib/common.sh's universal guard before session-checkpoint's
+# own usage(), so assert on the script's header description instead.
+test_session_checkpoint() {
+    local out
+    out="$($BASH_BIN "$AI" session checkpoint --help 2>/dev/null || true)"
+    printf '%s' "$out" | grep -q 'repository-local checkpoint'
+}
+run_test "routes session checkpoint to session-checkpoint" test_session_checkpoint
+
+# `agent-kit git origin --help` routes through ai-git to the fused origin module.
+test_git_origin() {
+    local out
+    out="$($BASH_BIN "$AI" git origin --help 2>/dev/null || true)"
+    printf '%s' "$out" | grep -q 'Detects the branch'
+}
+run_test "routes git origin to the ai-git origin module" test_git_origin
+
+# `agent-kit verify refs --help` routes through the fused ai-verify to the file-refs module.
+test_verify_refs() {
+    local out
+    out="$($BASH_BIN "$AI" verify refs --help 2>&1 || true)"
+    printf '%s' "$out" | grep -q 'orphaned'
+}
+run_test "routes verify refs to the fused file-refs module" test_verify_refs
+
+# `agent-kit test select changed` routes through the fused ai-test to the select module.
+test_test_select() {
+    local out
+    out="$(AI_OUTPUT=json $BASH_BIN "$AI" test select json 2>/dev/null || true)"
+    printf '%s' "$out" | jq -e 'type=="object" or type=="array"' >/dev/null 2>&1
+}
+run_test "routes test select to the fused ai-test select module" test_test_select
+
 # --version prints the VERSION file content and exits 0.
 test_version() {
     local out

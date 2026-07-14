@@ -8,6 +8,7 @@ set -euo pipefail
 #   run_search ARGS...            -> capture JSON envelope into $LAST_JSON
 #   run_search_strict ARGS...     -> capture JSON envelope with AI_SEARCH_STRICT=1
 #   run_multi ARGS...             -> capture JSON array from ai-search-multi.sh
+#   run_search_batch ARGS...      -> capture JSON array from `ai-search batch` (canonical route)
 #   expect_status NAME STATUS     -> assert .status == STATUS
 #   expect_count  NAME OP N       -> assert (.matches|length) OP N
 #   expect_jq     NAME FILTER     -> assert jq -e FILTER on $LAST_JSON
@@ -38,9 +39,25 @@ run_search_strict() {
     set -e
 }
 
+run_search_text() {
+    set +e
+    LAST_JSON="$($BASH_BIN "$SCRIPT" "$@" 2>&1)"
+    LAST_RC=$?
+    set -e
+}
+
 run_multi() {
     set +e
     LAST_JSON="$(AI_OUTPUT=json "$BASH_BIN" "$MULTI_SCRIPT" "$@" 2>&1)"
+    LAST_RC=$?
+    set -e
+}
+
+# run_search_batch ARGS... -> capture JSON array via `ai-search batch`, the
+# canonical route that delegates to ai-search-multi.sh.
+run_search_batch() {
+    set +e
+    LAST_JSON="$(AI_OUTPUT=json "$BASH_BIN" "$SCRIPT" batch "$@" 2>&1)"
     LAST_RC=$?
     set -e
 }
@@ -376,6 +393,32 @@ printf '[phase0] baseline status contract\n'
 
 run_search doctor
 expect_status "doctor -> ok" "ok"
+
+run_search_text capabilities
+if [[ "$LAST_RC" -eq 0 && "$LAST_JSON" == *"FULL CAPABILITY MAP"* ]]; then
+    printf '  PASS capabilities -> introspection report\n'
+else
+    printf '  FAIL capabilities -> introspection report (rc=%s)\n' "$LAST_RC" >&2
+    printf '       output: %s\n' "$LAST_JSON" >&2
+    exit 1
+fi
+
+run_search_text capabilities --probe
+if [[ "$LAST_RC" -eq 0 && "$LAST_JSON" == *"RUNTIME PROBE"* ]]; then
+    printf '  PASS capabilities --probe -> runtime probe report\n'
+else
+    printf '  FAIL capabilities --probe -> runtime probe report (rc=%s)\n' "$LAST_RC" >&2
+    printf '       output: %s\n' "$LAST_JSON" >&2
+    exit 1
+fi
+
+run_search_batch changed-files "$phase2_repo"
+expect_jq "batch changed-files returns one envelope" 'type=="array" and length==1'
+expect_jq "batch changed-files status ok" '.[0].status == "ok"'
+expect_jq "batch changed-files returns Changed.php" '.[0].matches == ["app/Changed.php"]'
+
+run_search_batch text foo bar "$phase2_repo" --fixed
+expect_jq "batch text foo bar -> two envelopes" 'type=="array" and length==2'
 
 run_search text AGENTS.md . --dry-run
 expect_status "text --dry-run -> dry_run" "dry_run"

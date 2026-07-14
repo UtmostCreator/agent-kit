@@ -8,10 +8,15 @@
 #
 # Usage:
 #   agent-kit verify [ROOT] [--language LANG]    verify changes under ROOT (default: cwd)
+#   agent-kit verify docs [all|markdownlint|links|drift] [paths...]
+#                                                 verify documentation quality (lint/links/drift)
+#   agent-kit verify refs [path] [flags]         find tracked files nothing else references
 #
 # Example:
 #   agent-kit verify --help                      # see accepted args before running (safe)
 #   agent-kit verify .                           # verify the change in the current project
+#   agent-kit verify docs links README.md        # check links in one doc file (read-only)
+#   agent-kit verify refs docs --ext md           # find orphaned markdown docs under docs/
 #
 # Requires: git
 
@@ -26,6 +31,38 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 # (the monolith resolved that from this file's own location, so this targets the
 # same file). Absolute resolution makes the path cwd-independent.
 _ai_verify_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Sibling subcommand dispatch: `agent-kit verify docs ...` / `agent-kit verify
+# refs ...`. Handled here, before the main --language/scope pipeline below is
+# loaded, mirroring the early subcommand blocks in libexec/ai-search
+# ("capabilities"/"batch": a small `if [[ "${1:-}" == "..." ]]` check that
+# fully owns its own argument parsing and exits before any of the main
+# pipeline's env-var defaults or module sourcing happens). Unlike ai-search's
+# batch/capabilities dispatch (which execs a SIBLING SCRIPT), these two source
+# a lib/ai-verify/*.sh module into THIS process and call its entry function
+# directly -- see lib/ai-verify/docs-check.sh and lib/ai-verify/file-refs.sh
+# header comments for why every helper defined there is prefixed
+# (ai_verify_docs_*/ai_verify_refs_*): sourcing an unprefixed same-named
+# helper here could otherwise silently override a same-named function already
+# defined by another lib/ai-verify/*.sh module sourced later in this process
+# (e.g. run_step, already defined by lib/ai-verify/step-runner.sh below).
+if [[ "${1:-}" == "docs" ]]; then
+    shift
+    # shellcheck source=lib/ai-verify/docs-check.sh
+    source "$_ai_verify_dir/../lib/ai-verify/docs-check.sh"
+    _ai_verify_docs_rc=0
+    ai_verify_docs_main "$@" || _ai_verify_docs_rc=$?
+    exit "$_ai_verify_docs_rc"
+fi
+
+if [[ "${1:-}" == "refs" ]]; then
+    shift
+    # shellcheck source=lib/ai-verify/file-refs.sh
+    source "$_ai_verify_dir/../lib/ai-verify/file-refs.sh"
+    _ai_verify_refs_rc=0
+    ai_verify_refs_main "$@" || _ai_verify_refs_rc=$?
+    exit "$_ai_verify_refs_rc"
+fi
 
 # Parse positional args plus an optional `--language <lang>` flag. Both
 # argument orders are supported (`--language php .` and `. --language php`)

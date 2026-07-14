@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# ai-git — canonical git-inspection command group (thin loader).
+#
+# Fuses the former git-branch-origin, git-forensics, and gh-pr-context engines
+# into one canonical entrypoint. All logic lives in lib/ai-git/*.sh, sourced
+# here in load order; each mode is dispatched to its module's *_main function.
+#
+# Usage:
+#   agent-kit git origin [--json] [--field name|base|count|all]
+#   agent-kit git history MODE TARGET [file] [--json]   (MODE: S|G|L)
+#   agent-kit git blame LINES FILE [--json]
+#   agent-kit git pr-context NUMBER [--diff] [--checks] [--reviews] [--pack] [--json]
+#
+# Example:
+#   agent-kit git origin                          # print the branch your branch was created from
+#   agent-kit git history S "TODO" README.md      # find commits that added/removed "TODO"
+#   agent-kit git blame 1,20 README.md            # annotate who last changed lines 1-20
+#   agent-kit git pr-context 123 --checks         # show PR #123 metadata plus CI check status
+
+set -euo pipefail
+
+AI_GIT_LIBEXEC_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+export AI_GIT_LIBEXEC_DIR
+
+# shellcheck source=lib/common.sh
+source "$AI_GIT_LIBEXEC_DIR/../lib/common.sh"
+
+_ai_git_dir="$AI_GIT_LIBEXEC_DIR/../lib/ai-git"
+
+# shellcheck source=lib/ai-git/origin.sh
+source "$_ai_git_dir/origin.sh"
+# shellcheck source=lib/ai-git/forensics.sh
+source "$_ai_git_dir/forensics.sh"
+# shellcheck source=lib/ai-git/pr-context.sh
+source "$_ai_git_dir/pr-context.sh"
+
+ai_git_usage() {
+    sed -n '2,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+}
+
+case "${1:-}" in
+origin)
+    shift
+    ai_git_origin_main "$@"
+    ;;
+history)
+    shift
+    ai_git_forensics_main "$@"
+    ;;
+blame)
+    shift
+    ai_git_forensics_main blame "$@"
+    ;;
+pr-context)
+    shift
+    ai_git_pr_context_main "$@"
+    ;;
+--help | -h | "")
+    ai_git_usage
+    exit 0
+    ;;
+*)
+    echo "agent-kit git: unknown mode '$1' (expected origin|history|blame|pr-context)" >&2
+    exit 2
+    ;;
+esac

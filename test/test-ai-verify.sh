@@ -34,6 +34,20 @@ skip_test() {
     printf '  \033[0;33m⊘\033[0m %s (skipped: %s)\n' "$1" "$2"
 }
 
+# Shared cleanup for the longer-lived fixture directories used by the `verify
+# docs`/`verify refs` sections below (ported from test-ai-doc-check.sh /
+# test-check-file-refs.sh, which each had their own single-purpose `trap ...
+# EXIT`). A single array + single trap avoids one trap silently replacing the
+# other now that both suites share one process.
+_test_tmp_dirs=()
+cleanup_test_tmp_dirs() {
+    local d
+    for d in "${_test_tmp_dirs[@]+${_test_tmp_dirs[@]}}"; do
+        rm -rf "$d"
+    done
+}
+trap cleanup_test_tmp_dirs EXIT
+
 printf 'ai-verify.sh\n'
 
 # Script runs and produces output
@@ -644,6 +658,260 @@ test_linecount_custom_thresholds() {
     return "$rc"
 }
 run_test "line-count honors custom LINECOUNT_ERROR threshold" test_linecount_custom_thresholds
+
+# ── verify docs (fused from the former libexec/ai-doc-check) ────────────────
+# Ported 1:1 from test/test-ai-doc-check.sh: same assertions, updated to call
+# `libexec/ai-verify docs ...` instead of the old standalone
+# `libexec/ai-doc-check`, and to source lib/ai-verify/docs-check.sh's
+# prefixed ai_verify_docs_* helpers instead of ai-doc-check.sh's bare
+# usage()/is_excluded_doc_path() (see that module's header comment for why).
+AI_VERIFY_DOCS_TEST_TMP="$(mktemp -d)"
+_test_tmp_dirs+=("$AI_VERIFY_DOCS_TEST_TMP")
+
+test_docs_module_sources() {
+    "$BASH_BIN" -c 'source lib/common.sh 2>/dev/null; source lib/ai-verify/docs-check.sh 2>/dev/null; ai_verify_docs_usage' >/dev/null 2>&1
+}
+run_test "verify docs: docs-check module sources and ai_verify_docs_usage runs" test_docs_module_sources
+
+test_docs_unknown_mode_fails() {
+    ! AI_LOG_DIR="$AI_VERIFY_DOCS_TEST_TMP/logs" AI_EVENT_LOG="$AI_VERIFY_DOCS_TEST_TMP/logs/ev.jsonl" \
+        "$BASH_BIN" "$SCRIPT" docs nonexistent 2>/dev/null
+}
+run_test "verify docs: unknown mode fails" test_docs_unknown_mode_fails
+
+test_docs_all_mode_runs() {
+    "$BASH_BIN" "$SCRIPT" docs all 2>&1 || true
+    # Just needs to not crash
+}
+run_test "verify docs: all mode runs" test_docs_all_mode_runs
+
+# Generated docs are excluded from link checks (gitignored aggregation artifacts).
+test_docs_excludes_generated() {
+    "$BASH_BIN" -c '
+        source lib/common.sh 2>/dev/null
+        source lib/ai-verify/docs-check.sh 2>/dev/null
+        ai_verify_docs_is_excluded_path "docs/ai/generated/advisor-context.md" || exit 1
+        ai_verify_docs_is_excluded_path "./docs/ai/generated/repo-structure.md" || exit 1
+        ! ai_verify_docs_is_excluded_path "docs/ai/project-context.md" || exit 1
+        ! ai_verify_docs_is_excluded_path "README.md" || exit 1
+    '
+}
+run_test "verify docs: excludes docs/ai/generated from doc checks" test_docs_excludes_generated
+
+run_docs_with_fake_lychee() {
+    local tmpbin record
+    tmpbin="$(mktemp -d)"
+    record="$tmpbin/lychee.calls"
+    cat >"$tmpbin/lychee" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >>"$record"
+exit 0
+EOF
+    chmod +x "$tmpbin/lychee"
+
+    local work="$tmpbin/work"
+    mkdir -p "$work/docs"
+    printf '# t\n' >"$work/README.md"
+    printf '# t\n' >"$work/docs/test.md"
+    (
+        cd "$work"
+        PATH="$tmpbin:$PATH" AI_LOG_DIR="$AI_VERIFY_DOCS_TEST_TMP/logs-links" \
+            AI_EVENT_LOG="$AI_VERIFY_DOCS_TEST_TMP/logs-links/ev.jsonl" \
+            "$@" "$BASH_BIN" "$SCRIPT" docs links >/dev/null 2>&1 || true
+    )
+    cat "$record" 2>/dev/null || true
+    rm -rf "$tmpbin"
+}
+
+test_docs_links_offline_by_default() {
+    local calls
+    calls="$(run_docs_with_fake_lychee env)"
+    [[ "$calls" == *"--offline"* ]]
+}
+run_test "verify docs: links mode runs lychee offline by default" test_docs_links_offline_by_default
+
+test_docs_links_network_opt_in_still_offline() {
+    local calls
+    calls="$(run_docs_with_fake_lychee env VERIFY_LINKS_NETWORK=1)"
+    [[ "$calls" == *"--offline"* ]]
+}
+run_test "verify docs: VERIFY_LINKS_NETWORK=1 still runs lychee offline" test_docs_links_network_opt_in_still_offline
+
+# markdownlint mode
+if command -v markdownlint >/dev/null 2>&1; then
+    test_docs_markdownlint_mode_runs() {
+        local out
+        out="$(AI_LOG_DIR="$AI_VERIFY_DOCS_TEST_TMP/logs3" AI_EVENT_LOG="$AI_VERIFY_DOCS_TEST_TMP/logs3/ev.jsonl" \
+            "$BASH_BIN" "$SCRIPT" docs markdownlint 2>&1 || true)"
+        [[ "$out" == *"markdownlint"* ]] || [[ "$out" == *"not installed"* ]]
+    }
+    run_test "verify docs: markdownlint mode runs" test_docs_markdownlint_mode_runs
+else
+    skip_test "verify docs: markdownlint mode runs" "markdownlint not installed"
+fi
+
+# ── verify refs (fused from the former libexec/check-file-refs) ─────────────
+# Ported 1:1 from test/test-check-file-refs.sh: same assertions, updated to
+# call `libexec/ai-verify refs ...` instead of the old standalone
+# `libexec/check-file-refs`.
+test_refs_help_flag_works() { "$BASH_BIN" "$SCRIPT" refs --help 2>&1 | grep -q 'Usage'; }
+run_test "verify refs: help flag works" test_refs_help_flag_works
+
+test_refs_unknown_option_fails() {
+    ! "$BASH_BIN" "$SCRIPT" refs --bogus >/dev/null 2>&1
+}
+run_test "verify refs: unknown option fails" test_refs_unknown_option_fails
+
+test_refs_bad_format_fails() {
+    ! "$BASH_BIN" "$SCRIPT" refs . --format toml >/dev/null 2>&1
+}
+run_test "verify refs: invalid --format fails" test_refs_bad_format_fails
+
+# Isolated repo: orphan detection.
+AI_VERIFY_REFS_TEST_TMP="$(mktemp -d)"
+_test_tmp_dirs+=("$AI_VERIFY_REFS_TEST_TMP")
+(
+    cd "$AI_VERIFY_REFS_TEST_TMP"
+    git init -q
+    git config user.email t@t
+    git config user.name t
+    echo "see [guide](guide.md)" >README.md
+    echo "# referenced" >guide.md
+    echo "# nobody links me" >orphan.md
+    git add -A
+    git commit -qm init
+)
+
+test_refs_detects_orphan() {
+    local out
+    out="$(cd "$AI_VERIFY_REFS_TEST_TMP" && "$BASH_BIN" "$SCRIPT" refs . --ext md)"
+    [[ "$out" == *"orphan.md"* ]]
+}
+run_test "verify refs: detects unreferenced orphan" test_refs_detects_orphan
+
+test_refs_skips_referenced() {
+    local out
+    out="$(cd "$AI_VERIFY_REFS_TEST_TMP" && "$BASH_BIN" "$SCRIPT" refs . --ext md)"
+    [[ "$out" != *"guide.md"* ]]
+}
+run_test "verify refs: does not flag referenced file" test_refs_skips_referenced
+
+test_refs_skips_readme_entrypoint() {
+    local out
+    out="$(cd "$AI_VERIFY_REFS_TEST_TMP" && "$BASH_BIN" "$SCRIPT" refs . --ext md)"
+    [[ "$out" != *"README.md"* ]]
+}
+run_test "verify refs: skips implicit entrypoint README.md" test_refs_skips_readme_entrypoint
+
+test_refs_json_contract() {
+    local out
+    out="$(cd "$AI_VERIFY_REFS_TEST_TMP" && "$BASH_BIN" "$SCRIPT" refs . --ext md --format json)"
+    printf '%s' "$out" | jq -e '
+        .schema == "1"
+        and .tool == "check-file-refs"
+        and (.orphans | type == "array")
+        and (.count | type == "number")
+        and (.orphans | index("orphan.md") != null)
+    ' >/dev/null
+}
+run_test "verify refs: json output matches documented contract" test_refs_json_contract
+
+# Regression: graphify-out/** must be excluded unconditionally (not gated by
+# --all). It is a third-party, machine-generated knowledge-graph cache tracked
+# in git; its content-addressed cache blobs have random hash basenames that
+# are never referenced elsewhere by design, so scanning them only produces
+# noise and multiplies the per-candidate rg cost.
+test_refs_excludes_graphify_out() {
+    local out
+    (
+        cd "$AI_VERIFY_REFS_TEST_TMP"
+        mkdir -p graphify-out/cache/ast
+        echo '{}' >graphify-out/cache/ast/deadbeefcafe0123456789.json
+        echo '{}' >graphify-out/GRAPH_REPORT.json
+        git add -A
+        git commit -qm "add graphify-out fixture"
+    )
+    out="$(cd "$AI_VERIFY_REFS_TEST_TMP" && "$BASH_BIN" "$SCRIPT" refs .)"
+    [[ "$out" != *"graphify-out"* ]]
+}
+run_test "verify refs: excludes graphify-out/** unconditionally" test_refs_excludes_graphify_out
+
+test_refs_excludes_graphify_out_even_with_all() {
+    local out
+    out="$(cd "$AI_VERIFY_REFS_TEST_TMP" && "$BASH_BIN" "$SCRIPT" refs . --all)"
+    [[ "$out" != *"graphify-out"* ]]
+}
+run_test "verify refs: excludes graphify-out/** even with --all" test_refs_excludes_graphify_out_even_with_all
+
+# Regression: generalized --exclude flag for project-specific noise (hashed
+# build output, migrations, vendored-but-tracked assets).
+(
+    cd "$AI_VERIFY_REFS_TEST_TMP"
+    mkdir -p build/assets database/migrations
+    echo "// hashed" >build/assets/app-a1b2c3d4.js
+    echo "<?php" >database/migrations/2024_01_01_create_users.php
+    git add -A
+    git commit -qm "add noisy-directory fixture"
+)
+
+test_refs_exclude_flag_removes_noise() {
+    local out
+    out="$(cd "$AI_VERIFY_REFS_TEST_TMP" && "$BASH_BIN" "$SCRIPT" refs . --exclude 'build/**' --exclude 'database/migrations/**')"
+    [[ "$out" != *"app-a1b2c3d4.js"* && "$out" != *"create_users.php"* ]]
+}
+run_test "verify refs: --exclude removes matched noise from output" test_refs_exclude_flag_removes_noise
+
+test_refs_without_exclude_noise_present() {
+    local out
+    out="$(cd "$AI_VERIFY_REFS_TEST_TMP" && "$BASH_BIN" "$SCRIPT" refs .)"
+    [[ "$out" == *"app-a1b2c3d4.js"* ]]
+}
+run_test "verify refs: without --exclude the noise is still reported (baseline)" test_refs_without_exclude_noise_present
+
+test_refs_exclude_repeatable() {
+    local out
+    # Only excluding one of the two noisy dirs must still flag the other.
+    out="$(cd "$AI_VERIFY_REFS_TEST_TMP" && "$BASH_BIN" "$SCRIPT" refs . --exclude 'build/**')"
+    [[ "$out" != *"app-a1b2c3d4.js"* && "$out" == *"create_users.php"* ]]
+}
+run_test "verify refs: --exclude is repeatable and independently scoped" test_refs_exclude_repeatable
+
+test_refs_exclude_json_contract_unaffected() {
+    local out
+    out="$(cd "$AI_VERIFY_REFS_TEST_TMP" && "$BASH_BIN" "$SCRIPT" refs . --exclude 'build/**' --exclude 'database/migrations/**' --ext md --format json)"
+    printf '%s' "$out" | jq -e '.schema == "1" and .tool == "check-file-refs"' >/dev/null
+}
+run_test "verify refs: --exclude does not break the JSON contract" test_refs_exclude_json_contract_unaffected
+
+# Regression: 50+ orphans triggers a stderr noise-heuristic hint (not stdout,
+# not exit code) suggesting --exclude for the noisiest leading path segment.
+test_refs_noise_hint_fires_at_threshold() {
+    local tmp2 out err
+    tmp2="$(mktemp -d)"
+    (
+        cd "$tmp2"
+        git init -q
+        git config user.email t@t
+        git config user.name t
+        mkdir -p noisy
+        for i in $(seq 1 55); do echo "x" >"noisy/chunk-$i.js"; done
+        git add -A
+        git commit -qm init
+    )
+    out="$(cd "$tmp2" && "$BASH_BIN" "$SCRIPT" refs . 2>/tmp/ai_verify_refs_hint_stderr.$$)"
+    err="$(cat "/tmp/ai_verify_refs_hint_stderr.$$")"
+    rm -f "/tmp/ai_verify_refs_hint_stderr.$$"
+    rm -rf "$tmp2"
+    [[ "$out" == *"noisy/chunk-1.js"* && "$err" == *"noisy"* && "$err" == *"--exclude"* ]]
+}
+run_test "verify refs: 50+ orphans prints a stderr --exclude hint naming the noisy dir" test_refs_noise_hint_fires_at_threshold
+
+test_refs_noise_hint_does_not_fire_below_threshold() {
+    local err
+    err="$(cd "$AI_VERIFY_REFS_TEST_TMP" && "$BASH_BIN" "$SCRIPT" refs . --exclude 'build/**' --exclude 'database/migrations/**' --ext md 2>&1 >/dev/null)"
+    [[ "$err" != *"--exclude"* ]]
+}
+run_test "verify refs: hint does not fire below the 50-orphan threshold" test_refs_noise_hint_does_not_fire_below_threshold
 
 printf '\n=== Results ===\n'
 printf '  Passed: %d  Failed: %d  Skipped: %d\n' "$PASS" "$FAIL" "$SKIP"

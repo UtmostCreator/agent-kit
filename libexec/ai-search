@@ -41,15 +41,36 @@ set -euo pipefail
 #   file-list modes (no query):   files changed-files staged-files
 #   curated modes (no query):     todo unsafe-patterns
 #   special:                      doctor
+#   batch:                        agent-kit search batch MODE QUERY [QUERY ...] [root] [flags]
 #
 # Example:
-#   agent-kit search text "TODO" .        # find every TODO across the tree
-#   agent-kit search todo .               # list curated TODO/FIXME/HACK/XXX markers
-#   agent-kit search files config .       # find files whose name contains "config"
-#   agent-kit search-introspect           # full mode/flag/env capability map
-#   agent-kit search doctor               # check which search backends are available
+#   agent-kit search text "TODO" .                          # find every TODO across the tree (human output)
+#   AI_OUTPUT=json agent-kit search text "emit_json" libexec # same search as the stable JSON envelope agents consume
+#   agent-kit search tracked "ai_search_main" .             # search only git-tracked files (git grep, not rg)
+#   agent-kit search changed-text "export" .                # grep ONLY the files you changed in the worktree
+#   agent-kit search diff "emit_json" . --base main         # search this branch's diff against main
+#   agent-kit search history "AgentKit" . --messages        # pickaxe commit history for a string
+#   agent-kit search text "function" libexec --count        # per-file match counts + summary{}
+#   agent-kit search text "emit_json" libexec -C 2          # add 2 lines of context around each match
+#   agent-kit search files config .                         # find files whose NAME contains "config" (fd)
+#   agent-kit search todo .                                 # list curated TODO/FIXME/HACK/XXX markers
+#   agent-kit search doctor                                 # check which search backends are available
+#   agent-kit search capabilities                           # full mode/flag/env capability map
+#   agent-kit search batch text foo bar .                   # run one MODE against several queries
 AI_SEARCH_ENTRYPOINT="${BASH_SOURCE[0]}"
 export AI_SEARCH_ENTRYPOINT
+
+if [[ "${1:-}" == "capabilities" ]]; then
+    shift
+    _search_here="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+    exec "${BASH:-bash}" "$_search_here/ai-search-introspect" "$@"
+fi
+
+if [[ "${1:-}" == "batch" ]]; then
+    shift
+    _search_here="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+    exec "${BASH:-bash}" "$_search_here/ai-search-multi" "$@"
+fi
 
 _search_dir="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/../lib/ai-search"
 

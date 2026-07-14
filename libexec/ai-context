@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# ai-context — canonical context-building command group (thin loader).
+#
+# Fuses diff, pack, file, status, ensure, and estimate into one canonical
+# entrypoint (real function-call fusion, like libexec/ai-git). generate and
+# tree stay routed to isolated subprocess engines under libexec/internal/ on
+# purpose: repomix-context-tree's and repomix-scc-router's own lib/*/helpers.sh
+# each locally redefine die()/log()/estimate_tokens(), shadowing lib/common.sh's
+# real versions for their OWN throwaway process only — fusing their internals
+# into this shared process would let whichever module's helpers.sh sourced last
+# silently corrupt the other modes for the rest of the invocation. See
+# lib/ai-context/generate.sh for the full rationale. repomix-scc-router itself
+# has no public subcommand here (private routing engine only).
+#
+# Usage:
+#   agent-kit context diff <since|unstaged|pr|recent|touched> [options]  (fused)
+#   agent-kit context pack [auto|repomix|files-to-prompt|code2prompt] [args]  (fused)
+#   agent-kit context file [ROOT] FILE [options]                        (fused)
+#   agent-kit context generate [root] [options]                         (isolated engine)
+#   agent-kit context tree <analyze|plan|pack|all|clean|purge> [root] [options]  (isolated engine)
+#   agent-kit context status [root]                                     (fused)
+#   agent-kit context ensure [root] [--regen|--no-regen]                (fused)
+#   agent-kit context estimate [path] [options]                         (fused)
+#
+# Example:
+#   agent-kit context diff unstaged --dry-run             # preview a bundle for uncommitted changes
+#   agent-kit context pack auto --include "docs/**/*.md"  # bundle docs into one context file
+#   agent-kit context status .                            # check whether the generated bundle is stale
+#   agent-kit context estimate README.md                  # estimate the token cost of a file
+
+set -euo pipefail
+
+AI_CONTEXT_LIBEXEC_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+export AI_CONTEXT_LIBEXEC_DIR
+
+# shellcheck source=lib/common.sh
+source "$AI_CONTEXT_LIBEXEC_DIR/../lib/common.sh"
+
+_ai_context_dir="$AI_CONTEXT_LIBEXEC_DIR/../lib/ai-context"
+
+# shellcheck source=lib/ai-context/diff.sh
+source "$_ai_context_dir/diff.sh"
+# shellcheck source=lib/ai-context/pack.sh
+source "$_ai_context_dir/pack.sh"
+# shellcheck source=lib/ai-context/file.sh
+source "$_ai_context_dir/file.sh"
+# shellcheck source=lib/ai-context/generate.sh
+source "$_ai_context_dir/generate.sh"
+# shellcheck source=lib/ai-context/tree.sh
+source "$_ai_context_dir/tree.sh"
+# shellcheck source=lib/ai-context/status.sh
+source "$_ai_context_dir/status.sh"
+# shellcheck source=lib/ai-context/ensure.sh
+source "$_ai_context_dir/ensure.sh"
+# shellcheck source=lib/ai-context/estimate.sh
+source "$_ai_context_dir/estimate.sh"
+
+ai_context_usage() {
+    sed -n '2,27p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+}
+
+case "${1:-}" in
+diff)
+    shift
+    ai_context_diff_main "$@"
+    ;;
+pack)
+    shift
+    ai_context_pack_main "$@"
+    ;;
+file)
+    shift
+    ai_context_file_main "$@"
+    ;;
+generate)
+    shift
+    ai_context_generate_main "$@"
+    ;;
+tree)
+    shift
+    ai_context_tree_main "$@"
+    ;;
+status)
+    shift
+    ai_context_status_main "$@"
+    ;;
+ensure)
+    shift
+    ai_context_ensure_main "$@"
+    ;;
+estimate)
+    shift
+    ai_context_estimate_main "$@"
+    ;;
+--help | -h | "")
+    ai_context_usage
+    exit 0
+    ;;
+*)
+    echo "agent-kit context: unknown mode '$1' (expected diff|pack|file|generate|tree|status|ensure|estimate)" >&2
+    exit 2
+    ;;
+esac

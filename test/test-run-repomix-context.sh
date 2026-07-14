@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Tests for libexec/run-repomix-context
+# Tests for libexec/internal/run-repomix-context
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-SCRIPT="$REPO_ROOT/libexec/run-repomix-context"
+SCRIPT="$REPO_ROOT/libexec/internal/run-repomix-context"
 cd "$REPO_ROOT"
 BASH_BIN="${BASH_BIN:-$(command -v bash)}"
 

@@ -2,14 +2,17 @@
 # Batch wrapper around ai-search.sh: run one safe search MODE against several
 # queries in a single approved invocation.
 #
+# Compatibility command: prefer `agent-kit search batch`, which routes to this
+# same implementation.
+#
 # Security model: this script never interprets shell metacharacters from its
 # arguments. Each QUERY is passed to ai-search.sh as a single quoted positional
 # argument via a normal process call (no eval, no `sh -c`, no string building).
 #
 # Example:
-#   agent-kit search-multi text foo bar .          # search two terms in one pass
-#   agent-kit search-multi files niri vicinae .    # find files matching either name
-#   agent-kit search-multi changed-files .         # list files changed but not staged
+#   agent-kit search batch text foo bar .          # search two terms in one pass
+#   agent-kit search batch files niri vicinae .    # find files matching either name
+#   agent-kit search batch changed-files .         # list files changed but not staged
 
 set -euo pipefail
 

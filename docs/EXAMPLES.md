@@ -16,29 +16,24 @@ The canonical command is `agent-kit` — if you have not set the alias, replace
 
 > Regenerate this file with: `bash scripts/gen-examples.sh > docs/EXAMPLES.md`
 
-### `akit diff-context`
-Pack changed or targeted files into AI context bundles.
-(thin loader — implementation under scripts/ai/internal/ai-diff-context/)
+### `akit context`
+ai-context — canonical context-building command group (thin loader).
 
 ```bash
-akit diff-context unstaged --dry-run       # preview which changed files would be packed
-akit diff-context since HEAD~1 --dry-run   # preview a bundle for the last commit's changes
-```
-
-### `akit doc-check`
-Verify documentation quality (lint, links, drift) for AI agents.
-
-```bash
-akit doc-check --help             # see modes and env before running (safe)
-akit doc-check links README.md    # check links in one file (read-only)
+akit context diff unstaged --dry-run             # preview a bundle for uncommitted changes
+akit context pack auto --include "docs/**/*.md"  # bundle docs into one context file
+akit context status .                            # check whether the generated bundle is stale
+akit context estimate README.md                  # estimate the token cost of a file
 ```
 
 ### `akit edit`
 Guarded edit wrapper for broad repository modifications (thin loader).
 
 ```bash
-akit edit --help                            # see every mode and flag, safely
-akit edit sd OldName NewName . --dry-run     # preview a rename, changing nothing
+akit edit --help                                 # see every mode and flag, safely
+akit edit sd OldName NewName . --dry-run          # preview a rename, changing nothing
+akit edit apply sd OldName NewName . --dry-run    # same, with explicit "apply" prefix
+akit edit rollback list                           # list rollback snapshots (routes to ai-rollback)
 ```
 
 ### `akit file-freshness`
@@ -46,6 +41,35 @@ Show which docs/config files have uncommitted changes (git status of key paths).
 
 ```bash
 akit file-freshness   # list uncommitted changes under docs/, .github/, AGENTS.md
+```
+
+### `akit git`
+ai-git — canonical git-inspection command group (thin loader).
+
+```bash
+akit git origin                          # print the branch your branch was created from
+akit git history S "TODO" README.md      # find commits that added/removed "TODO"
+akit git blame 1,20 README.md            # annotate who last changed lines 1-20
+akit git pr-context 123 --checks         # show PR #123 metadata plus CI check status
+```
+
+### `akit inspect`
+Canonical read-only inspection command group (thin router).
+
+```bash
+akit inspect file README.md --range 1:40         # show only lines 1-40 of a file
+akit inspect data json package.json '.scripts'   # print the "scripts" section with jq
+akit inspect shell libexec/ai-search             # see what a script accepts, safely
+```
+
+### `akit repo`
+Canonical repository-metadata command group (thin router).
+
+```bash
+akit repo tasks list    # list every task this project already defines
+akit repo stats         # count files Git currently tracks
+akit repo tools         # see every command and what it does
+akit repo status        # list uncommitted changes under docs/, .github/, AGENTS.md
 ```
 
 ### `akit rollback`
@@ -60,11 +84,19 @@ akit rollback show SNAPSHOT_ID           # preview one snapshot's files (id from
 ai-search.sh — unified repository search entrypoint (thin facade).
 
 ```bash
-akit search text "TODO" .        # find every TODO across the tree
-akit search todo .               # list curated TODO/FIXME/HACK/XXX markers
-akit search files config .       # find files whose name contains "config"
-akit search-introspect           # full mode/flag/env capability map
-akit search doctor               # check which search backends are available
+akit search text "TODO" .                          # find every TODO across the tree (human output)
+AI_OUTPUT=json akit search text "emit_json" libexec # same search as the stable JSON envelope agents consume
+akit search tracked "ai_search_main" .             # search only git-tracked files (git grep, not rg)
+akit search changed-text "export" .                # grep ONLY the files you changed in the worktree
+akit search diff "emit_json" . --base main         # search this branch's diff against main
+akit search history "AgentKit" . --messages        # pickaxe commit history for a string
+akit search text "function" libexec --count        # per-file match counts + summary{}
+akit search text "emit_json" libexec -C 2          # add 2 lines of context around each match
+akit search files config .                         # find files whose NAME contains "config" (fd)
+akit search todo .                                 # list curated TODO/FIXME/HACK/XXX markers
+akit search doctor                                 # check which search backends are available
+akit search capabilities                           # full mode/flag/env capability map
+akit search batch text foo bar .                   # run one MODE against several queries
 ```
 
 ### `akit search-introspect`
@@ -81,9 +113,17 @@ Batch wrapper around ai-search.sh: run one safe search MODE against several
 queries in a single approved invocation.
 
 ```bash
-akit search-multi text foo bar .          # search two terms in one pass
-akit search-multi files niri vicinae .    # find files matching either name
-akit search-multi changed-files .         # list files changed but not staged
+akit search batch text foo bar .          # search two terms in one pass
+akit search batch files niri vicinae .    # find files matching either name
+akit search batch changed-files .         # list files changed but not staged
+```
+
+### `akit session`
+Canonical agent-session command group (thin router).
+
+```bash
+akit session checkpoint before-refactor        # save a labelled snapshot you can find later
+akit session watch "akit verify"          # re-run verify whenever files change (Ctrl-C to stop)
 ```
 
 ### `akit structured`
@@ -104,12 +144,13 @@ akit task test             # print the command to run this repo's tests
 akit task verify           # print the recommended "verify" command to run
 ```
 
-### `akit test-select`
-Select focused tests for AI-driven changes (lists tests; never runs them).
+### `akit test`
+ai-test — canonical test-selection/execution command group (thin loader).
 
 ```bash
-akit test-select changed          # list tests for your current changes (read-only)
-akit test-select json | jq .      # feed the selection to another tool
+akit test select changed          # list tests for your current changes (read-only)
+akit test run --filter FooTest    # run only tests matching FooTest
+akit test all --help              # see options and defaults before running (safe)
 ```
 
 ### `akit verify`
@@ -118,46 +159,8 @@ Project-aware verification gate for AI-driven changes (thin loader).
 ```bash
 akit verify --help                      # see accepted args before running (safe)
 akit verify .                           # verify the change in the current project
-```
-
-### `akit verify-html`
-Verify only the HTML files in a change (thin wrapper over `agent-kit verify`).
-
-```bash
-akit verify-html --help              # see what the HTML verify wrapper does, safely
-akit verify-html .                   # verify the HTML files in the current project
-```
-
-### `akit verify-js`
-Verify only the JavaScript files in a change (thin wrapper over `agent-kit verify`).
-
-```bash
-akit verify-js --help                # see what the JS verify wrapper does, safely
-akit verify-js .                     # verify the JavaScript files in the current project
-```
-
-### `akit verify-php`
-Verify only the PHP files in a change (thin wrapper over `agent-kit verify`).
-
-```bash
-akit verify-php --help               # see what the PHP verify wrapper does, safely
-akit verify-php .                    # verify the PHP files in the current project
-```
-
-### `akit verify-ts`
-Verify only the TypeScript files in a change (thin wrapper over `agent-kit verify`).
-
-```bash
-akit verify-ts --help                # see what the TS verify wrapper does, safely
-akit verify-ts .                     # verify the TypeScript files in the current project
-```
-
-### `akit verify-vue`
-Verify only the Vue files in a change (thin wrapper over `agent-kit verify`).
-
-```bash
-akit verify-vue --help               # see what the Vue verify wrapper does, safely
-akit verify-vue .                    # verify the Vue files in the current project
+akit verify docs links README.md        # check links in one doc file (read-only)
+akit verify refs docs --ext md           # find orphaned markdown docs under docs/
 ```
 
 ### `akit all-f-into-one`
@@ -171,55 +174,12 @@ akit all-f-into-one --help        # see what this does without combining anythin
 akit all-f-into-one --introspect  # print the machine-readable JSON contract
 ```
 
-### `akit check-file-refs`
-Find tracked files that are not referenced anywhere else in the repository.
-Read-only: surfaces orphaned docs and unused assets. No mutation.
-
-```bash
-akit check-file-refs .              # list tracked files nothing else references
-akit check-file-refs docs --ext md  # find orphaned markdown docs under docs/
-```
-
 ### `akit fd-files`
 Repo-aware file discovery wrapper.
 
 ```bash
 akit fd-files README .              # find files whose name contains "README"
 akit fd-files config docs --type md # find markdown files under docs/ matching "config"
-```
-
-### `akit gh-pr-context`
-Full PR context wrapper for review and context packing.
-
-```bash
-akit gh-pr-context 123                  # show PR #123 metadata, files, and description
-akit gh-pr-context 123 --checks --reviews  # add CI check status and review summaries
-akit gh-pr-context 123 --json           # emit the full PR context as JSON for tools
-```
-
-### `akit git-branch-origin`
-Detect the branch the current branch was most likely created from ("branched off").
-
-```bash
-akit git-branch-origin                # print the branch your branch was created from
-akit git-branch-origin --field all    # show name, merge-base sha, and commit distance
-akit git-branch-origin --json         # same detection as a JSON envelope for tools
-```
-
-### `akit git-forensics`
-Repo-aware git history and blame wrapper.
-
-```bash
-akit git-forensics S "TODO" README.md       # find commits that added/removed "TODO" in README.md
-akit git-forensics G "function foo" README.md  # search history by regex in one file
-akit git-forensics blame 1,20 README.md      # annotate who last changed lines 1-20
-```
-
-### `akit pack-context`
-Safe context packer wrapper.
-
-```bash
-akit pack-context auto --include "docs/**/*.md"   # bundle the docs into one AI context file
 ```
 
 ### `akit preview-file`
@@ -230,47 +190,6 @@ preview-file.sh — safely preview a slice of a text file with guardrails
 akit preview-file README.md                # show the first 200 lines, safely
 akit preview-file README.md --range 1:40   # show only lines 1-40 of the file
 akit preview-file README.md --dry-run      # check a file is previewable (no content)
-```
-
-### `akit query-usage`
-Estimate the context/token cost of a file or directory (read-only budgeting).
-
-```bash
-akit query-usage libexec            # estimate the token cost of the libexec/ directory
-akit query-usage README.md          # estimate the token cost of a single file
-akit query-usage . --multiplier 2   # weight the whole-repo estimate by 2x
-```
-
-### `akit repomix-context-tree`
-Plan and pack a repository into ranked Repomix context bundles, grouped by folder tree.
-
-```bash
-akit repomix-context-tree analyze .   # analyze the repo and write a bundle plan without packing anything
-akit repomix-context-tree all .       # analyze, then pack every route the plan marks for packing
-```
-
-### `akit repomix-ensure-fresh`
-Ensure the Repomix context bundle is fresh before an agent relies on it.
-
-```bash
-akit repomix-ensure-fresh .           # check bundle freshness and only report (never regenerates)
-akit repomix-ensure-fresh . --regen   # check, and regenerate the bundle if it is stale, expired, or missing
-```
-
-### `akit repomix-freshness`
-Check freshness of the generated Repomix context bundle.
-
-```bash
-akit repomix-freshness .                  # report how old the generated context bundle is
-AI_OUTPUT=json akit repomix-freshness .   # same freshness check as machine-readable JSON
-```
-
-### `akit repomix-scc-router`
-Rank a repository's folders by scc code metrics and pack them into Repomix bundles.
-
-```bash
-akit repomix-scc-router stats .   # run scc analysis and write per-file and per-folder code metrics
-akit repomix-scc-router all .     # run stats, build a ranked bundle plan, then pack the bundles
 ```
 
 ### `akit repo-stats`
@@ -295,38 +214,6 @@ Production-grade code search wrapper with repo-aware defaults.
 akit rg-code "TODO" .                 # find every TODO under the current directory
 akit rg-code "function" src --files   # list files under src/ that contain "function"
 akit rg-code "config" . --mode php    # search only PHP files for "config"
-```
-
-### `akit run-repomix-context`
-Generate repository context tree through the safer shared wrapper path.
-
-```bash
-akit run-repomix-context .                     # pack the whole current repo into an LLM-ready context bundle
-akit run-repomix-context . --depth 2 --top 0   # same, but tune folder depth and pack all ranked routes
-```
-
-### `akit run-repomix-file`
-Exact single-file Repomix wrapper.
-
-```bash
-akit run-repomix-file . README.md                              # pack a single file into a compressed context bundle
-akit run-repomix-file . src/app.js --style json --no-compress  # pack one file as uncompressed JSON output
-```
-
-### `akit run-repo-tests`
-Run the repository's existing test suites with parallel-first defaults.
-
-```bash
-akit run-repo-tests --help           # see options and defaults before running (safe)
-PARATEST_PROCS=8 akit run-repo-tests # run the full suite with 8 parallel workers
-```
-
-### `akit run-test-focused`
-Run a FOCUSED PHPUnit selection (a --filter pattern or a single test file).
-
-```bash
-akit run-test-focused --help                 # see accepted forms before running (safe)
-akit run-test-focused --filter MyThingTest   # run only tests matching MyThingTest
 ```
 
 ### `akit session-checkpoint`

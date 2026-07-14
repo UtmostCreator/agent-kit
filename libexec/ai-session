@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Canonical agent-session command group (thin router).
+#
+# Routes `agent-kit session <mode> ...` to the underlying session-support
+# engine for that mode. Every engine stays a complete, directly-runnable
+# script under libexec/; this router only removes the need to remember which
+# top-level name saves a recoverable snapshot vs. re-runs a command on change.
+#
+# Usage:
+#   agent-kit session checkpoint [label]                 (session-checkpoint)
+#   agent-kit session watch <command> [extensions]        (watch-loop)
+#
+# Example:
+#   agent-kit session checkpoint before-refactor        # save a labelled snapshot you can find later
+#   agent-kit session watch "agent-kit verify"          # re-run verify whenever files change (Ctrl-C to stop)
+
+set -euo pipefail
+
+_sess_here="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+_sess_route() {
+    local target="$1"
+    shift
+    exec "${BASH:-bash}" "$_sess_here/$target" "$@"
+}
+
+case "${1:-}" in
+checkpoint)
+    shift
+    _sess_route session-checkpoint "$@"
+    ;;
+watch)
+    shift
+    _sess_route watch-loop "$@"
+    ;;
+--help | -h | "")
+    sed -n '2,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    exit 0
+    ;;
+*)
+    echo "agent-kit session: unknown mode '$1' (expected checkpoint|watch)" >&2
+    exit 2
+    ;;
+esac

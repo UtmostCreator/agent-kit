@@ -30,8 +30,12 @@ fi
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 search="$here/ai-search"
 multi="$here/ai-search-multi"
+search_lib="$here/../lib/ai-search"
+search_contract="$search_lib/contract.sh"
+search_modes="$search_lib/modes.sh"
+search_flags="$search_lib/parse-flags.sh"
 
-for f in "$search" "$multi"; do
+for f in "$search" "$multi" "$search_contract" "$search_modes" "$search_flags"; do
     [[ -f "$f" ]] || {
         echo "ERROR: missing source file: $f" >&2
         exit 1
@@ -87,15 +91,15 @@ echo
 echo "== MODES (grouped by family, parsed from ai-search.sh) =="
 hr
 printf 'Content-search (QUERY required): %s\n' \
-    "$(extract_modes_from_family is_content_mode "$search" | sort -u | tr '\n' ' ')"
+    "$(extract_modes_from_family is_content_mode "$search_modes" | sort -u | tr '\n' ' ')"
 printf 'File-list (no QUERY):            %s\n' \
-    "$(extract_modes_from_family is_file_list_mode "$search" | sort -u | tr '\n' ' ')"
+    "$(extract_modes_from_family is_file_list_mode "$search_modes" | sort -u | tr '\n' ' ')"
 printf 'No-query curated:                %s\n' \
-    "$(extract_modes_from_family is_no_query_mode "$search" | sort -u | tr '\n' ' ')"
+    "$(extract_modes_from_family is_no_query_mode "$search_modes" | sort -u | tr '\n' ' ')"
 printf 'Surface-scoped (subset of above):%s\n' \
-    " $(extract_modes_from_family is_surface_mode "$search" | sort -u | tr '\n' ' ')"
+    " $(extract_modes_from_family is_surface_mode "$search_modes" | sort -u | tr '\n' ' ')"
 printf 'Structural / ast-grep:           %s\n' \
-    "$(extract_modes_from_family is_ast_mode "$search" | sort -u | tr '\n' ' ')"
+    "$(extract_modes_from_family is_ast_mode "$search_modes" | sort -u | tr '\n' ' ')"
 printf 'Special:                         doctor unsafe-all\n'
 printf 'Deprecated aliases:              changed staged  (warn; AI_SEARCH_STRICT=1 -> error)\n'
 
@@ -106,9 +110,9 @@ echo
 echo "== FLAGS (every parser case in ai-search.sh, with inline help) =="
 hr
 # Isolate the usage() heredoc so flag descriptions never match code elsewhere.
-usage_block="$(awk "/^usage\\(\\) \\{/{u=1} u; /^EOF\$/{if(u){exit}}" "$search")"
+usage_block="$(awk "/^usage\\(\\) \\{/{u=1} u; /^EOF\$/{if(u){exit}}" "$search_contract")"
 # Pull the canonical flag list straight from the parser case branches.
-grep -oE '^\s+--[a-z][a-z-]*( \| -[A-Za-z])?\)' "$search" |
+grep -oE '^\s+--[a-z][a-z-]*( \| -[A-Za-z])?\)' "$search_flags" |
     sed -E 's/^[[:space:]]+//; s/\)$//' | sort -u | while IFS= read -r flag; do
     primary="${flag%% *}" # e.g. "--context" from "--context | -C"
     # Match the documented line for this exact flag inside the usage() block only.
@@ -181,7 +185,7 @@ echo
 echo "== ENVIRONMENT VARIABLES (referenced in both scripts) =="
 hr
 grep -hoE '\b(AI_OUTPUT|AI_LANG|AI_SEARCH_STRICT|AI_SEARCH_MULTI_MAX|XDG_CONFIG_HOME)\b' \
-    "$search" "$multi" | sort -u | while IFS= read -r v; do
+    "$search" "$multi" "$search_lib"/*.sh | sort -u | while IFS= read -r v; do
     case "$v" in
     AI_OUTPUT) printf '  %-22s set to "json" to emit the JSON envelope\n' "$v" ;;
     AI_LANG) printf '  %-22s fallback language for struct when --lang is absent (default php)\n' "$v" ;;
@@ -217,10 +221,10 @@ if [[ "$probe" -eq 1 ]]; then
     echo "== RUNTIME PROBE (each mode invoked; shows accepted status) =="
     hr
     all_modes="$({
-        extract_modes_from_family is_content_mode "$search"
-        extract_modes_from_family is_file_list_mode "$search"
-        extract_modes_from_family is_no_query_mode "$search"
-        extract_modes_from_family is_ast_mode "$search"
+        extract_modes_from_family is_content_mode "$search_modes"
+        extract_modes_from_family is_file_list_mode "$search_modes"
+        extract_modes_from_family is_no_query_mode "$search_modes"
+        extract_modes_from_family is_ast_mode "$search_modes"
         printf 'doctor\nunsafe-all\nchanged\nstaged\n'
     } | sort -u)"
     while IFS= read -r m; do

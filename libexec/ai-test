@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# ai-test — canonical test-selection/execution command group (thin loader).
+#
+# Fuses the former ai-test-select, run-test-focused, and run-repo-tests engines
+# into one canonical entrypoint. All logic lives in lib/ai-test/*.sh, sourced
+# here in load order; each mode is dispatched to its module's *_main function.
+#
+# Usage:
+#   agent-kit test select changed          tests touched by the current diff
+#   agent-kit test select file PATH        tests related to one file
+#   agent-kit test select symbol SYMBOL    tests related to a symbol
+#   agent-kit test select json             machine-readable selection
+#   agent-kit test run --filter <Pattern>  run a focused PHPUnit selection
+#   agent-kit test run <path/to/Test.php>  run a focused PHPUnit selection
+#   agent-kit test all                     run every discovered suite (heavy)
+#
+# Example:
+#   agent-kit test select changed          # list tests for your current changes (read-only)
+#   agent-kit test run --filter FooTest    # run only tests matching FooTest
+#   agent-kit test all --help              # see options and defaults before running (safe)
+
+set -euo pipefail
+
+AI_TEST_LIBEXEC_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+export AI_TEST_LIBEXEC_DIR
+
+# shellcheck source=lib/common.sh
+source "$AI_TEST_LIBEXEC_DIR/../lib/common.sh"
+
+_ai_test_dir="$AI_TEST_LIBEXEC_DIR/../lib/ai-test"
+
+# shellcheck source=lib/ai-test/select.sh
+source "$_ai_test_dir/select.sh"
+# shellcheck source=lib/ai-test/run-focused.sh
+source "$_ai_test_dir/run-focused.sh"
+# shellcheck source=lib/ai-test/run-all.sh
+source "$_ai_test_dir/run-all.sh"
+
+ai_test_usage() {
+    sed -n '2,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+}
+
+case "${1:-}" in
+select)
+    shift
+    ai_test_select_main "$@"
+    ;;
+run)
+    shift
+    ai_test_run_main "$@"
+    ;;
+all)
+    shift
+    ai_test_all_main "$@"
+    ;;
+--help | -h | "")
+    ai_test_usage
+    exit 0
+    ;;
+*)
+    echo "agent-kit test: unknown mode '$1' (expected select|run|all)" >&2
+    exit 2
+    ;;
+esac

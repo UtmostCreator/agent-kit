@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Tests for libexec/repomix-scc-router
+# Tests for libexec/internal/repomix-scc-router
 set -euo pipefail
 BASH_BIN="${BASH_BIN:-$(command -v bash)}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-SCRIPT="$REPO_ROOT/libexec/repomix-scc-router"
+SCRIPT="$REPO_ROOT/libexec/internal/repomix-scc-router"
 # The scope/ignore/collection helpers live in a load-ordered module (the root
 # script is a thin loader); the sed-extraction tests below read function bodies
 # from this module rather than the root file.

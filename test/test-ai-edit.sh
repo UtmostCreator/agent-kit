@@ -180,6 +180,32 @@ if need_sd_plan; then
         jq -e '.schema=="ai.edit/v1" and .status=="dry_run"' <<<"$out" >/dev/null
     }
     run_test "AI_OUTPUT=json emits JSON" test_ai_output_json_env
+
+    # "agent-kit edit apply MODE ARGS..." is a thin routing alias: the leading
+    # "apply" token is dropped and the rest flows into the same unchanged
+    # mode-dispatch logic as the bare "agent-kit edit MODE ARGS..." form.
+    # Prove the two forms plan identically (status + plannedChanges) and that
+    # neither mutates the working tree in dry-run.
+    test_sd_apply_prefix_matches_bare_mode() {
+        local work_bare="$TMP/apply-prefix-bare" work_alias="$TMP/apply-prefix-alias"
+        local out_bare out_alias status_bare status_alias changes_bare changes_alias
+        make_repo "$work_bare"
+        make_repo "$work_alias"
+
+        out_bare="$(run_edit "$work_bare" sd OldName NewName . --format json)"
+        out_alias="$(run_edit "$work_alias" apply sd OldName NewName . --format json)"
+
+        status_bare="$(jq -r '.status' <<<"$out_bare")"
+        status_alias="$(jq -r '.status' <<<"$out_alias")"
+        changes_bare="$(jq -c '.plannedChanges' <<<"$out_bare")"
+        changes_alias="$(jq -c '.plannedChanges' <<<"$out_alias")"
+
+        [[ "$status_bare" == "dry_run" && "$status_alias" == "dry_run" ]]
+        [[ "$changes_bare" == "$changes_alias" ]]
+        grep -q 'OldName' "$work_alias/a.txt"
+        ! grep -q 'NewName' "$work_alias/a.txt"
+    }
+    run_test "edit apply sd behaves identically to bare sd (dry-run)" test_sd_apply_prefix_matches_bare_mode
 else
     skip_test "sd no matches returns no_matches JSON" "requires rg, jq"
     skip_test "sd dry-run plans exact change and does not modify" "requires rg, jq"
@@ -187,7 +213,22 @@ else
     skip_test "sd max-replacements blocks before mutation" "requires rg, jq"
     skip_test "sd --exclude prevents replacement planning" "requires rg, jq"
     skip_test "AI_OUTPUT=json emits JSON" "requires rg, jq"
+    skip_test "edit apply sd behaves identically to bare sd (dry-run)" "requires rg, jq"
 fi
+
+# "agent-kit edit rollback ARGS..." execs straight into the sibling,
+# unmodified libexec/ai-rollback script (routing only, never logic fusion).
+# Prove the routed invocation produces byte-identical output to calling
+# ai-rollback directly, using a snapshot dir that does not exist so the
+# check stays read-only and side-effect-free.
+test_rollback_routes_to_ai_rollback() {
+    local snap_dir="$TMP/rollback-list-route"
+    local out_via_edit out_direct
+    out_via_edit="$(AI_SNAPSHOT_DIR="$snap_dir" "$BASH_BIN" "$SCRIPT" rollback list 2>&1)"
+    out_direct="$(AI_SNAPSHOT_DIR="$snap_dir" "$BASH_BIN" "$REPO_ROOT/libexec/ai-rollback" list 2>&1)"
+    [[ "$out_via_edit" == "$out_direct" ]]
+}
+run_test "edit rollback list routes to unchanged ai-rollback (identical output)" test_rollback_routes_to_ai_rollback
 
 if need_sd_apply; then
     test_sd_apply_json_modifies_file() {

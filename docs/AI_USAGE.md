@@ -8,13 +8,14 @@ Give the agent this instruction:
 
 ## Recommended sequence
 
-1. **Discover:** use `agent-kit search` or `agent-kit search-multi` instead of recursively loading the repository.
-2. **Bound context:** use `pack-context`, `agent-kit diff-context`, or Repomix helpers only for relevant files.
+1. **Discover:** use `agent-kit search` or `agent-kit search batch` instead of recursively loading the repository.
+2. **Bound context:** use `agent-kit context pack` or `agent-kit context diff` (or the Repomix helpers under `agent-kit context`) only for relevant files.
 3. **Plan:** define allowed paths, blocked paths, deletion policy, and verification steps.
 4. **Change:** use guarded editing and preserve snapshots.
-5. **Test:** use `agent-kit test-select` or focused tests before the full suite.
-6. **Verify:** run `agent-kit verify` and retain exact evidence.
-7. **Recover:** use `agent-kit rollback` when a guarded edit must be reverted.
+5. **Test:** use `agent-kit test select` or `agent-kit test run` (focused) before `agent-kit test all` (the full suite).
+6. **Verify:** run `agent-kit verify` (add `docs`/`refs` for documentation or orphaned-file checks) and retain exact evidence.
+7. **Recover:** use `agent-kit rollback` (or `agent-kit edit rollback`) when a guarded edit must be reverted.
+8. **Checkpoint:** use `agent-kit session checkpoint` before a risky guarded edit.
 
 ## Human review
 

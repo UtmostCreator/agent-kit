@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Tests for libexec/repomix-context-tree
+# Tests for libexec/internal/repomix-context-tree
 set -euo pipefail
 BASH_BIN="${BASH_BIN:-$(command -v bash)}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-SCRIPT="$REPO_ROOT/libexec/repomix-context-tree"
+SCRIPT="$REPO_ROOT/libexec/internal/repomix-context-tree"
 cd "$REPO_ROOT"
 
 PASS=0 FAIL=0 SKIP=0

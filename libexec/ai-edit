@@ -2,17 +2,21 @@
 # Guarded edit wrapper for broad repository modifications (thin loader).
 #
 # The implementation lives in numbered, load-ordered modules under
-# scripts/ai/internal/ai-edit/; this root file stays the public, registered
-# entrypoint and its behavior is byte-for-byte identical to the previous
-# monolithic version. Mutations run only inside ai_edit_main's apply branches.
+# lib/ai-edit/; this root file stays the public, registered entrypoint and
+# its behavior is byte-for-byte identical to the previous monolithic
+# version. Mutations run only inside ai_edit_main's apply branches.
 #
 # Usage:
-#   agent-kit edit MODE ARGS... [root] [flags]   modes: ast-grep | comby | sd | patch
+#   agent-kit edit MODE ARGS... [root] [flags]         modes: ast-grep | comby | sd | patch
+#   agent-kit edit apply MODE ARGS... [root] [flags]   same as above with an explicit "apply" prefix
+#   agent-kit edit rollback ARGS...                    routes to ai-rollback (list|show|apply|prune)
 #   flags: --dry-run (default, preview) | --apply | --verify
 #
 # Example:
-#   agent-kit edit --help                            # see every mode and flag, safely
-#   agent-kit edit sd OldName NewName . --dry-run     # preview a rename, changing nothing
+#   agent-kit edit --help                                 # see every mode and flag, safely
+#   agent-kit edit sd OldName NewName . --dry-run          # preview a rename, changing nothing
+#   agent-kit edit apply sd OldName NewName . --dry-run    # same, with explicit "apply" prefix
+#   agent-kit edit rollback list                           # list rollback snapshots (routes to ai-rollback)
 #
 # Requires: git
 
@@ -30,6 +34,28 @@ if [[ "${1:-}" == "--introspect" ]]; then
     fi
 fi
 
+# Early "rollback" routing guard: `agent-kit edit rollback ...` execs straight
+# into the sibling, independently-runnable ai-rollback script as a separate
+# process (same pattern as ai-search's "capabilities" shim). ai-rollback is
+# this toolkit's safety-recovery mechanism and stays a fully separate engine
+# on purpose; this is dispatch only, never logic fusion. Everything after
+# "rollback" is ai-rollback's own native argument grammar (list|show|apply|prune),
+# unchanged.
+if [[ "${1:-}" == "rollback" ]]; then
+    shift
+    _ai_edit_here="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+    exec "${BASH:-bash}" "$_ai_edit_here/ai-rollback" "$@"
+fi
+
+# Early "apply" prefix guard: `agent-kit edit apply MODE ARGS...` is an
+# additive alias of the existing `agent-kit edit MODE ARGS...` form. Dropping
+# the leading "apply" token here lets the rest of the arguments flow into the
+# unchanged mode-dispatch logic below exactly as before; the bare MODE form
+# (no "apply" prefix) keeps working unchanged too.
+if [[ "${1:-}" == "apply" ]]; then
+    shift
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
@@ -39,6 +65,8 @@ ai-edit.sh — guarded repository edit entrypoint
 
 Usage:
   ai-edit.sh MODE ARGS... [root] [flags]
+  ai-edit.sh apply MODE ARGS... [root] [flags]   alias of the form above
+  ai-edit.sh rollback ARGS...                    routes to ai-rollback (list|show|apply|prune)
   ai-edit.sh ast-grep LANG PATTERN REWRITE [root] [flags]
   ai-edit.sh comby MATCH REWRITE [root] [flags]
   ai-edit.sh sd FROM TO [root] [flags]
@@ -92,10 +120,13 @@ Tools:
 
 Examples:
   agent-kit edit sd OldName NewName . --dry-run
+  agent-kit edit apply sd OldName NewName . --dry-run
   agent-kit edit sd OldName NewName . --apply --verify
   agent-kit edit ast-grep php 'old($A)' 'new($A)' . --dry-run
   agent-kit edit patch /tmp/agent.patch . --dry-run
   agent-kit edit patch - . --apply --verify < /tmp/agent.patch
+  agent-kit edit rollback list
+  agent-kit edit rollback show SNAPSHOT_ID
 
 Machine contract: agent-kit edit --introspect
 EOF

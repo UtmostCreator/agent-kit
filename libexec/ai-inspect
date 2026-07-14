@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Canonical read-only inspection command group (thin router).
+#
+# Routes `agent-kit inspect <mode> ...` to the underlying inspection engine
+# for that mode. Every engine stays a complete, directly-runnable script under
+# libexec/; this router only removes the need to remember which top-level name
+# previews raw file content vs. queries structured data vs. statically parses
+# a shell script's contract.
+#
+# Usage:
+#   agent-kit inspect file PATH [options]           (preview-file)
+#   agent-kit inspect data json FILE QUERY           (ai-structured json)
+#   agent-kit inspect data yaml FILE QUERY           (ai-structured yaml)
+#   agent-kit inspect data validate-json FILE        (ai-structured validate-json)
+#   agent-kit inspect data validate-yaml FILE        (ai-structured validate-yaml)
+#   agent-kit inspect data csv FILE [--head N]       (ai-structured csv)
+#   agent-kit inspect data xml FILE [XPATH]          (ai-structured xml)
+#   agent-kit inspect shell SCRIPT                   (sh-introspect)
+#
+# Example:
+#   agent-kit inspect file README.md --range 1:40         # show only lines 1-40 of a file
+#   agent-kit inspect data json package.json '.scripts'   # print the "scripts" section with jq
+#   agent-kit inspect shell libexec/ai-search             # see what a script accepts, safely
+
+set -euo pipefail
+
+_insp_here="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+_insp_route() {
+    local target="$1"
+    shift
+    exec "${BASH:-bash}" "$_insp_here/$target" "$@"
+}
+
+case "${1:-}" in
+file)
+    shift
+    _insp_route preview-file "$@"
+    ;;
+data)
+    shift
+    _insp_route ai-structured "$@"
+    ;;
+shell)
+    shift
+    _insp_route sh-introspect "$@"
+    ;;
+--help | -h | "")
+    sed -n '2,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    exit 0
+    ;;
+*)
+    echo "agent-kit inspect: unknown mode '$1' (expected file|data|shell)" >&2
+    exit 2
+    ;;
+esac
