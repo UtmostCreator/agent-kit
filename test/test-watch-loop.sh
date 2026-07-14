@@ -57,6 +57,130 @@ test_watcher_check() {
 }
 run_test "requires watchexec or entr" test_watcher_check
 
+# --- Deeper coverage: build a filtered PATH without watchexec/entr, plus
+# fake watchexec/entr shims that exec the wrapped command instead of
+# blocking forever. This lets us drive every branch of the script
+# deterministically regardless of what's installed on the host.
+
+BINBASE="$TMP/binbase"
+mkdir -p "$BINBASE"
+build_binbase() {
+    local IFS=':'
+    local d f base
+    # shellcheck disable=SC2153  # PATH is intentionally the ambient var here
+    for d in $PATH; do
+        [[ -d "$d" ]] || continue
+        for f in "$d"/*; do
+            [[ -f "$f" && -x "$f" ]] || continue
+            base="$(basename "$f")"
+            [[ "$base" == "watchexec" || "$base" == "entr" ]] && continue
+            [[ -e "$BINBASE/$base" ]] && continue
+            ln -s "$f" "$BINBASE/$base" 2>/dev/null || true
+        done
+    done
+}
+build_binbase
+
+# Neither watchexec nor entr on PATH: script should print an error and exit 1.
+test_no_watcher_fails() {
+    local out
+    out="$(PATH="$BINBASE" AI_LOG_DIR="$TMP/logs-none" "$BASH_BIN" "$SCRIPT" "echo test" 2>&1)" && return 1
+    [[ "$out" == *"No file watcher found"* ]]
+}
+run_test "no watcher on PATH: fails with message" test_no_watcher_fails
+
+FAKE_WATCHEXEC_DIR="$TMP/fake-watchexec"
+mkdir -p "$FAKE_WATCHEXEC_DIR"
+cat >"$FAKE_WATCHEXEC_DIR/watchexec" <<'FAKE'
+#!/usr/bin/env bash
+# Fake watchexec: record invocation args, then run the trailing command once
+# (instead of watching forever) so tests can assert the wiring.
+printf '%s\n' "$@" >"$FAKE_WATCHEXEC_ARGS_FILE"
+found=0
+args=()
+for a in "$@"; do
+    if [[ "$found" == 1 ]]; then
+        args+=("$a")
+    fi
+    [[ "$a" == "--" ]] && found=1
+done
+exec "${args[@]}"
+FAKE
+chmod +x "$FAKE_WATCHEXEC_DIR/watchexec"
+
+# watchexec branch: dispatches to watchexec with debounce/extension flags,
+# runs the wrapped command, logs a watch.start.watchexec event, exits 0.
+test_watchexec_branch() {
+    local marker="$TMP/watchexec-ran"
+    local args_file="$TMP/watchexec-args.txt"
+    rm -f "$marker" "$args_file"
+    PATH="$FAKE_WATCHEXEC_DIR:$BINBASE" \
+        AI_LOG_DIR="$TMP/logs-watchexec" \
+        WATCH_DEBOUNCE_MS=777 \
+        FAKE_WATCHEXEC_ARGS_FILE="$args_file" \
+        "$BASH_BIN" "$SCRIPT" "touch '$marker'" "sh,md" || return 1
+    [[ -f "$marker" ]] || return 1
+    grep -q -- "--debounce" "$args_file" || return 1
+    grep -q "777" "$args_file" || return 1
+    grep -q "sh,md" "$args_file" || return 1
+    local log_file="$TMP/logs-watchexec/watch-loop.jsonl"
+    [[ -f "$log_file" ]] || return 1
+    jq -e '.event == "watch.start.watchexec" and (.debounceMs == 777)' "$log_file" >/dev/null
+}
+run_test "watchexec branch runs command and logs event" test_watchexec_branch
+
+FAKE_ENTR_DIR="$TMP/fake-entr"
+mkdir -p "$FAKE_ENTR_DIR"
+cat >"$FAKE_ENTR_DIR/entr" <<'FAKE'
+#!/usr/bin/env bash
+# Fake entr: drain the piped file list, record args, run the trailing
+# command once instead of watching forever.
+cat >/dev/null
+printf '%s\n' "$@" >"$FAKE_ENTR_ARGS_FILE"
+found=0
+args=()
+for a in "$@"; do
+    if [[ "$found" == 1 ]]; then
+        args+=("$a")
+    fi
+    [[ "$a" == "-r" ]] && found=1
+done
+exec "${args[@]}"
+FAKE
+chmod +x "$FAKE_ENTR_DIR/entr"
+
+# entr branch: only reachable when watchexec is absent. Feeds `rg --files`
+# output to entr, runs the wrapped command, logs a watch.start.entr event.
+test_entr_branch() {
+    local marker="$TMP/entr-ran"
+    local args_file="$TMP/entr-args.txt"
+    rm -f "$marker" "$args_file"
+    PATH="$FAKE_ENTR_DIR:$BINBASE" \
+        AI_LOG_DIR="$TMP/logs-entr" \
+        FAKE_ENTR_ARGS_FILE="$args_file" \
+        "$BASH_BIN" "$SCRIPT" "touch '$marker'" || return 1
+    [[ -f "$marker" ]] || return 1
+    grep -q -- "-r" "$args_file" || return 1
+    local log_file="$TMP/logs-entr/watch-loop.jsonl"
+    [[ -f "$log_file" ]] || return 1
+    jq -e '.event == "watch.start.entr"' "$log_file" >/dev/null
+}
+run_test "entr branch runs command and logs event (watchexec absent)" test_entr_branch
+
+# Default extensions (no 2nd arg) are recorded in the watch log.
+test_default_extensions_logged() {
+    local marker="$TMP/watchexec-defaults-ran"
+    local args_file="$TMP/watchexec-defaults-args.txt"
+    rm -f "$marker" "$args_file"
+    PATH="$FAKE_WATCHEXEC_DIR:$BINBASE" \
+        AI_LOG_DIR="$TMP/logs-defaults" \
+        FAKE_WATCHEXEC_ARGS_FILE="$args_file" \
+        "$BASH_BIN" "$SCRIPT" "touch '$marker'" || return 1
+    local log_file="$TMP/logs-defaults/watch-loop.jsonl"
+    jq -e '.extensions == "md,json,sh,lua,php,yml,yaml"' "$log_file" >/dev/null
+}
+run_test "default extensions logged when omitted" test_default_extensions_logged
+
 printf '\n=== Results ===\n'
 printf '  Passed: %d  Failed: %d  Skipped: %d\n' "$PASS" "$FAIL" "$SKIP"
 # shellcheck disable=SC2015  # intentional pass/fail reporter; the || branch always exits non-zero
