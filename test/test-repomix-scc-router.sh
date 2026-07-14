@@ -454,6 +454,24 @@ if command -v scc >/dev/null 2>&1 && command -v repomix >/dev/null 2>&1; then
     }
     run_test "pack_group packs both the _root group (stdin list) and folder groups (--include)" test_pack_group_produces_root_and_folder_bundles
 
+    # pack_group's optional repomix_args branches (INCLUDE_IGNORED,
+    # INCLUDE_REPOMIXIGNORED, COMPRESS, SPLIT_SIZE, INCLUDE_LOGS,
+    # INCLUDE_DIFFS) are only appended to repomix_args when their matching
+    # flag is set; every pack test above uses bare defaults, so none of those
+    # `if` bodies ever run. --no-ignore sets both INCLUDE_IGNORED and
+    # INCLUDE_REPOMIXIGNORED at once (common-options.sh), so one combined
+    # invocation reaches all six branches.
+    test_pack_group_optional_repomix_flags_branch() {
+        "$BASH_BIN" "$SCRIPT" plan "$BIGFIX" --output-dir "$TMP/wb-packflags" >/dev/null 2>&1
+        "$BASH_BIN" "$SCRIPT" pack "$BIGFIX" --output-dir "$TMP/wb-packflags" \
+            --no-ignore --compress --split-size=5mb --include-logs --include-diffs >/dev/null 2>&1
+        # --split-size makes repomix always number its output (even a single
+        # part), so the bundle is "_root.1.xml", not the bare "_root.xml"
+        # every other pack test above asserts on.
+        ls "$TMP/wb-packflags/bundles/"_root*.xml >/dev/null 2>&1
+    }
+    run_test "pack_group: --no-ignore/--compress/--split-size/--include-logs/--include-diffs all extend repomix_args" test_pack_group_optional_repomix_flags_branch
+
     # --style changes STYLE_EXT (main.sh), which write_bundle_plan bakes into
     # each row's bundle filename and pack_group's repomix --style arg actually
     # produces. Every other pack test above uses the xml default.
@@ -493,6 +511,7 @@ else
     skip_test "run_pack dies when no bundle plan exists yet" "scc or repomix not installed"
     skip_test "run_pack dies when the bundle plan exists but file metrics is missing" "scc or repomix not installed"
     skip_test "pack_group packs both the _root group (stdin list) and folder groups (--include)" "scc or repomix not installed"
+    skip_test "pack_group: --no-ignore/--compress/--split-size/--include-logs/--include-diffs all extend repomix_args" "scc or repomix not installed"
     skip_test "--style=markdown changes the generated bundle file extension to .md" "scc or repomix not installed"
     skip_test "all command runs stats, plan, and pack" "scc or repomix not installed"
     skip_test "run_clean without approval fails outside a tty" "scc or repomix not installed"
