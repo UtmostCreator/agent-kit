@@ -217,4 +217,88 @@ printf '%s' "$unknown_json" | jq -e '.status == "error" and (.errors[0] | contai
 "$BASH_BIN" "$script" "$tmp/app/UserService.php" --lines=3 | grep -q 'UserService'
 "$BASH_BIN" "$script" "$tmp/app/UserService.php" --range=3:5 | grep -q 'login'
 
+# This script's OWN --help|-h case arm (and its own usage() function) is only
+# reachable when --help/-h is NOT the first argument: common.sh's universal
+# --help guard intercepts "$1 == --help" before this script's arg-parsing
+# loop even runs, and renders the shared introspector help instead. Put a
+# file first so this script's own usage() actually runs.
+"$BASH_BIN" "$script" "$tmp/app/UserService.php" --help | grep -q 'preview-file.sh FILE'
+
+# --max-bytes with K/M/G size suffixes (parse_size's m)/g) arms; k) is
+# already exercised above via --max-bytes 10K).
+"$BASH_BIN" "$script" "$tmp/app/UserService.php" --max-bytes 1M | grep -q 'UserService'
+"$BASH_BIN" "$script" "$tmp/app/UserService.php" --max-bytes 1G | grep -q 'UserService'
+
+# --around=N / --context=N equals-form flags.
+"$BASH_BIN" "$script" "$tmp/app/UserService.php" --around=7 --context=1 | grep -q 'logout'
+
+# --max-bytes=N / --max-columns=N equals-form flags (combined with --lines=
+# already covered above; use --force so max-bytes=1M is not the limiting
+# factor for a tiny file, --max-columns=20 to truncate the padded line).
+"$BASH_BIN" "$script" "$tmp/app/large.txt" --force --max-bytes=10K --max-columns=20 --lines=1 \
+    | grep -q 'truncated'
+
+# Unexpected second positional argument.
+if "$BASH_BIN" "$script" "$tmp/app/UserService.php" "$tmp/app/large.txt" >/dev/null 2>&1; then
+    echo "expected a second positional argument to fail" >&2
+    exit 1
+fi
+
+# Zero arguments (no --help/-h/file at all): common.sh's universal guard only
+# intercepts a literal --help/-h/--introspect first argument, so this reaches
+# preview-file.sh's own `-z "$file"` branch (usage + exit 2).
+set +e
+no_args_out="$("$BASH_BIN" "$script" 2>&1)"
+no_args_rc=$?
+set -e
+if [[ "$no_args_rc" -ne 2 ]] || ! printf '%s' "$no_args_out" | grep -q 'Usage:'; then
+    echo "expected zero args to print usage and exit 2, got rc=$no_args_rc" >&2
+    exit 1
+fi
+
+# Missing file in PLAIN (non-JSON) mode (the JSON envelope variant is already
+# covered above).
+if "$BASH_BIN" "$script" "$tmp/app/Missing.php" 2>/dev/null; then
+    echo "expected plain-mode missing file to fail" >&2
+    exit 1
+fi
+missing_plain_err="$("$BASH_BIN" "$script" "$tmp/app/Missing.php" 2>&1 >/dev/null || true)"
+printf '%s' "$missing_plain_err" | grep -q 'file not found'
+
+# .git internals blocked in JSON mode (the plain-mode variant is already
+# covered above).
+git_blocked_json="$(AI_OUTPUT=json "$BASH_BIN" "$script" "$tmp/.git/config" 2>/dev/null || true)"
+printf '%s' "$git_blocked_json" | jq -e '.status == "error" and (.errors[0] | contains(".git internals blocked"))' >/dev/null
+
+# Plain (non-JSON) dry-run (the JSON envelope variant is already covered
+# above).
+"$BASH_BIN" "$script" "$tmp/app/UserService.php" --dry-run | grep -q '^dry-run$'
+
+# max-bytes-exceeded in JSON mode (the plain-mode variant is already covered
+# above).
+max_bytes_json="$(AI_OUTPUT=json "$BASH_BIN" "$script" "$tmp/app/large.txt" --max-bytes 100 2>/dev/null || true)"
+printf '%s' "$max_bytes_json" | jq -e '.status == "error" and (.errors[0] | contains("max-bytes exceeded"))' >/dev/null
+
+# Invalid --lines in JSON mode (the plain-mode variant is already covered
+# above).
+lines_json="$(AI_OUTPUT=json "$BASH_BIN" "$script" "$tmp/app/UserService.php" --lines abc 2>/dev/null || true)"
+printf '%s' "$lines_json" | jq -e '.status == "error" and (.errors[0] | contains("invalid --lines"))' >/dev/null
+
+# Malformed --range (does not match the A:B numeric pattern at all, as
+# opposed to the already-covered start>end case) in both plain and JSON mode.
+if "$BASH_BIN" "$script" "$tmp/app/UserService.php" --range not-a-range >/dev/null 2>&1; then
+    echo "expected malformed --range to fail in plain mode" >&2
+    exit 1
+fi
+malformed_range_plain_err="$("$BASH_BIN" "$script" "$tmp/app/UserService.php" --range not-a-range 2>&1 >/dev/null || true)"
+printf '%s' "$malformed_range_plain_err" | grep -q 'invalid --range'
+
+malformed_range_json="$(AI_OUTPUT=json "$BASH_BIN" "$script" "$tmp/app/UserService.php" --range not-a-range 2>/dev/null || true)"
+printf '%s' "$malformed_range_json" | jq -e '.status == "error" and (.errors[0] | contains("invalid --range"))' >/dev/null
+
+# --range start>end in JSON mode (the plain-mode variant is already covered
+# above).
+range_order_json="$(AI_OUTPUT=json "$BASH_BIN" "$script" "$tmp/app/UserService.php" --range 10:2 2>/dev/null || true)"
+printf '%s' "$range_order_json" | jq -e '.status == "error" and (.errors[0] | contains("invalid --range"))' >/dev/null
+
 echo "preview-file tests passed"
