@@ -167,6 +167,35 @@ if need_sd_plan; then
     }
     run_test "sd --exclude prevents replacement planning" test_sd_exclude_prevents_match
 
+    # build_rg_args' include_globs loop (rg_args+=(-g "$g")) is only exercised
+    # when --glob is actually passed to sd mode; every other --glob test in
+    # this suite targets ast-grep/patch, which reject --glob outright via
+    # structural_scope_guard before build_rg_args ever runs.
+    test_sd_glob_restricts_to_matching_files() {
+        local work="$TMP/sd-glob-include" out
+        make_repo "$work"
+        printf 'OldName\n' >"$work/b.md"
+        git -C "$work" add b.md
+        git -C "$work" commit -q -m "second"
+        out="$(run_edit "$work" sd OldName NewName . --glob '*.md' --format json)"
+        jq -e '.status=="dry_run" and (.plannedChanges|length)==1' <<<"$out" >/dev/null || return 1
+        [[ "$(jq -r '.plannedChanges[0].path' <<<"$out")" == *"b.md" ]]
+    }
+    run_test "sd --glob restricts matches to the included glob (build_rg_args include path)" test_sd_glob_restricts_to_matching_files
+
+    # dirty_files_json()'s early-return branch ("git rev-parse
+    # --is-inside-work-tree" fails, print "[]") only fires outside a git work
+    # tree. sd mode needs only rg+jq (not a git repo) to plan, so it is the
+    # cheapest mode to exercise this from cwd, not a make_repo fixture.
+    test_dirty_files_json_outside_git_repo() {
+        local work="$TMP/no-git-repo" out
+        mkdir -p "$work"
+        printf 'OldName\n' >"$work/a.txt"
+        out="$(run_edit "$work" sd OldName NewName . --format json)"
+        jq -e '.baselineDirtyFiles==[] and .changedFiles==[]' <<<"$out" >/dev/null
+    }
+    run_test "dirty_files_json returns [] outside a git work tree" test_dirty_files_json_outside_git_repo
+
     test_ai_output_json_env() {
         local work="$TMP/env-json" out
         make_repo "$work"
@@ -212,6 +241,8 @@ else
     skip_test "sd max-files blocks before mutation" "requires rg, jq"
     skip_test "sd max-replacements blocks before mutation" "requires rg, jq"
     skip_test "sd --exclude prevents replacement planning" "requires rg, jq"
+    skip_test "sd --glob restricts matches to the included glob (build_rg_args include path)" "requires rg, jq"
+    skip_test "dirty_files_json returns [] outside a git work tree" "requires rg, jq"
     skip_test "AI_OUTPUT=json emits JSON" "requires rg, jq"
     skip_test "edit apply sd behaves identically to bare sd (dry-run)" "requires rg, jq"
 fi
@@ -517,6 +548,74 @@ if need_parse_common; then
         jq -e '.limits.maxFiles==5' <<<"$out" >/dev/null
     }
     run_test "parse_tail: --max-files=5 (= form) sets the limit" test_parse_max_files_equals
+
+    test_parse_max_replacements_equals() {
+        local work="$TMP/parse-maxreplacements-eq" out
+        make_repo "$work"
+        out="$(run_edit "$work" sd OldName NewName . --max-replacements=10 --format json)"
+        jq -e '.limits.maxReplacements==10' <<<"$out" >/dev/null
+    }
+    run_test "parse_tail: --max-replacements=10 (= form) sets the limit" test_parse_max_replacements_equals
+
+    test_parse_max_bytes_equals() {
+        local work="$TMP/parse-maxbytes-eq" out
+        make_repo "$work"
+        out="$(run_edit "$work" sd OldName NewName . --max-bytes=999 --format json)"
+        jq -e '.limits.maxBytes==999' <<<"$out" >/dev/null
+    }
+    run_test "parse_tail: --max-bytes=999 (= form) sets the limit" test_parse_max_bytes_equals
+
+    test_parse_dry_run_flag_explicit() {
+        local work="$TMP/parse-dry-run-explicit" out
+        make_repo "$work"
+        out="$(run_edit "$work" sd OldName NewName . --dry-run --format json)"
+        jq -e '.status=="dry_run" and .apply==false' <<<"$out" >/dev/null
+    }
+    run_test "parse_tail: explicit --dry-run flag sets apply=0" test_parse_dry_run_flag_explicit
+
+    test_parse_extra_positional_rejected() {
+        local work="$TMP/parse-extra-positional"
+        make_repo "$work"
+        ! run_edit "$work" sd OldName NewName . extra-token
+    }
+    run_test "parse_tail: extra positional argument after root is rejected" test_parse_extra_positional_rejected
+
+    test_parse_format_invalid_value() {
+        local work="$TMP/parse-format-invalid"
+        make_repo "$work"
+        ! run_edit "$work" sd OldName NewName . --format=bogus
+    }
+    run_test "parse_tail: unknown --format value is rejected" test_parse_format_invalid_value
+
+    test_parse_max_files_non_numeric() {
+        local work="$TMP/parse-max-files-nan"
+        make_repo "$work"
+        ! run_edit "$work" sd OldName NewName . --max-files notanumber
+    }
+    run_test "parse_tail: --max-files non-numeric value is rejected (validate_uint)" test_parse_max_files_non_numeric
+
+    # parse_tail's own --help/--format=help handling (lines 14-17 and 110-113)
+    # only fires from within a mode's tail flags (e.g. "sd ... --help"). The
+    # bare top-level "ai-edit --help"/"--format=help" forms above are
+    # intercepted earlier by ai_edit_main's own guard, before parse_tail ever
+    # runs, so they do not exercise this code.
+    test_parse_tail_help_flag() {
+        local work="$TMP/parse-tail-help" out rc=0
+        make_repo "$work"
+        out="$(run_edit "$work" sd OldName NewName . --help)" || rc=$?
+        ((rc == 0)) || return 1
+        [[ "$out" == *"Status values"* ]]
+    }
+    run_test "parse_tail: --help within mode tail prints usage and exits 0" test_parse_tail_help_flag
+
+    test_parse_tail_format_help() {
+        local work="$TMP/parse-tail-format-help" out rc=0
+        make_repo "$work"
+        out="$(run_edit "$work" sd OldName NewName . --format=help)" || rc=$?
+        ((rc == 0)) || return 1
+        [[ "$out" == *"Machine contract"* ]]
+    }
+    run_test "parse_tail: --format=help within mode tail prints usage and exits 0" test_parse_tail_format_help
 else
     skip_test "parse_tail: --format with no value fails" "requires git, jq"
     skip_test "parse_tail: --glob with no value fails" "requires git, jq"
@@ -527,6 +626,14 @@ else
     skip_test "parse_tail: unknown flag is rejected" "requires git, jq"
     skip_test "parse_tail: --format=json (= form) is accepted" "requires git, jq"
     skip_test "parse_tail: --max-files=5 (= form) sets the limit" "requires git, jq"
+    skip_test "parse_tail: --max-replacements=10 (= form) sets the limit" "requires git, jq"
+    skip_test "parse_tail: --max-bytes=999 (= form) sets the limit" "requires git, jq"
+    skip_test "parse_tail: explicit --dry-run flag sets apply=0" "requires git, jq"
+    skip_test "parse_tail: extra positional argument after root is rejected" "requires git, jq"
+    skip_test "parse_tail: unknown --format value is rejected" "requires git, jq"
+    skip_test "parse_tail: --max-files non-numeric value is rejected (validate_uint)" "requires git, jq"
+    skip_test "parse_tail: --help within mode tail prints usage and exits 0" "requires git, jq"
+    skip_test "parse_tail: --format=help within mode tail prints usage and exits 0" "requires git, jq"
 fi
 
 # --- lib/ai-edit/helpers.sh: finish() non-JSON branches --------------------
@@ -667,6 +774,34 @@ test_resolve_ast_grep_not_found() {
     jq -e '.status=="error"' <<<"$out" >/dev/null
 }
 run_test "resolve_ast_grep: not-found path exits 127 (status surfaces as error via on_error, not unavailable -- see handoff note)" test_resolve_ast_grep_not_found
+
+# resolve_ast_grep's "ast-grep missing, sg present" fallback branch
+# (`printf 'sg\n'`) is otherwise never reached: the real system `sg` binary
+# on most hosts is an unrelated set-group-id wrapper, not ast-grep's `sg`
+# alias, so a naive PATH-availability test would risk invoking it for real.
+# Hide the real ast-grep (and any real sg) and install a harmless stub named
+# "sg" so resolve_ast_grep's own `command -v sg` check succeeds safely.
+test_resolve_ast_grep_sg_fallback() {
+    local work="$TMP/ast-grep-sg-fallback" fakebin="$TMP/fakebin-sg-fallback" out rc=0
+    make_js_repo "$work"
+    build_path_without "$fakebin" ast-grep sg
+    cat >"$fakebin/sg" <<'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+    chmod +x "$fakebin/sg"
+    out="$(
+        cd "$work"
+        AI_LOG_DIR="$TMP/logs-sg-fallback" \
+            AI_EVENT_LOG="$TMP/logs-sg-fallback/events.jsonl" \
+            AI_OUTPUT=json \
+            PATH="$fakebin" \
+            "$BASH_BIN" "$SCRIPT" ast-grep js 'var $A = $B' 'let $A = $B' . --format json
+    )" || rc=$?
+    ((rc == 0)) || return 1
+    jq -e '.status=="dry_run"' <<<"$out" >/dev/null
+}
+run_test "resolve_ast_grep: falls back to sg when ast-grep is absent but sg is present" test_resolve_ast_grep_sg_fallback
 
 # --- lib/ai-edit/main.sh: ast-grep/comby modes, --verify, dirty-tree gate --
 
@@ -809,11 +944,25 @@ if need_patch; then
         grep -q 'NewName' "$work/a.txt"
     }
     run_test "--allow-dirty-tree bypasses the require-clean-tree gate" test_apply_allow_dirty_tree_bypasses_gate
+
+    # --require-clean-tree's own case arm (require_clean_tree_flag=1) is only
+    # distinct from the default when passed explicitly; every other apply
+    # test above relies on the implicit default instead.
+    test_apply_require_clean_tree_explicit_flag() {
+        local work="$TMP/require-clean-explicit" out
+        make_repo "$work"
+        make_patch "$work/change.patch" "$work"
+        out="$(run_edit "$work" patch change.patch . --apply --no-verify --require-clean-tree --format json)"
+        jq -e '.status=="applied"' <<<"$out" >/dev/null || return 1
+        grep -q 'NewName' "$work/a.txt"
+    }
+    run_test "parse_tail: explicit --require-clean-tree flag still allows apply on a clean tree" test_apply_require_clean_tree_explicit_flag
 else
     skip_test "patch --verify succeeds against a clean change and returns verified status" "requires git, jq"
     skip_test "patch --verify fails a deliberately-broken check and returns verify_failed status" "requires git, jq"
     skip_test "apply with a dirty tree is blocked by the default require-clean-tree gate" "requires git, jq"
     skip_test "--allow-dirty-tree bypasses the require-clean-tree gate" "requires git, jq"
+    skip_test "parse_tail: explicit --require-clean-tree flag still allows apply on a clean tree" "requires git, jq"
 fi
 
 # --- lib/ai-edit/plan-apply.sh: oversized-file skip, patch denylist, guard -
