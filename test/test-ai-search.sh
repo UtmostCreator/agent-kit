@@ -62,6 +62,18 @@ run_search_batch() {
     set -e
 }
 
+# run_search_batch_plain ARGS... -> capture the plain-text (non-JSON) output
+# of `ai-search batch`, same canonical absolute-path route as
+# run_search_batch but without AI_OUTPUT=json, to exercise ai-search-multi.sh's
+# non-JSON code paths (emit_single_result_array/emit_legacy_result_array's
+# `run_one` fallthrough, and the default "---"-separated multi-query loop).
+run_search_batch_plain() {
+    set +e
+    LAST_JSON="$("$BASH_BIN" "$SCRIPT" batch "$@" 2>&1)"
+    LAST_RC=$?
+    set -e
+}
+
 # run_search_without TOOL ARGS... — run ai-search.sh with a PATH that contains
 # every needed tool EXCEPT TOOL, to prove missing-core-tool error handling.
 # Returns rc 99 (and leaves $LAST_JSON empty) when the isolated bindir cannot be
@@ -743,6 +755,217 @@ expect_jq "multi changed-text searches changed file" '.[0].matches[] | contains(
 run_multi staged-text Tenant "$phase2_repo" --fixed
 expect_jq "multi staged-text -> ok" '.[0].status == "ok"'
 expect_jq "multi staged-text searches staged file" '.[0].matches[] | contains("app/Staged.php")'
+
+# -----------------------------------------------------------------------------
+# ai-search-multi.sh's own top-level lines only register with the coverage
+# tracer when the script is exec'd via an absolute path -- which only
+# happens through the canonical `ai-search batch` route (ai-search resolves
+# its sibling scripts via `cd .. && pwd`). Direct `run_multi` calls above
+# invoke "libexec/ai-search-multi" as a *relative* path, so they exercise the
+# same code but do not self-credit ai-search-multi.sh's own lines in
+# ./scripts/coverage.sh. The run_search_batch[_plain] calls below hit the
+# same branches through the absolute-path route specifically to close that
+# gap: usage/no-mode, unsafe-all rejection, unknown-mode rejection, every
+# mode-family arm, every positional-count branch of the file-list/
+# legacy-file-list/no-query-root blocks, the zero-query and too-many-query
+# guards, the JSON multi-query error-propagation branch, and the plain-text
+# (non-JSON) result paths.
+# -----------------------------------------------------------------------------
+printf '[phase2C] ai-search-multi own-script coverage via canonical batch route\n'
+
+run_search_batch
+if [[ "$LAST_RC" -eq 0 && "$LAST_JSON" == *"Usage:"* && "$LAST_JSON" == *"ai-search-multi.sh MODE QUERY"* ]]; then
+    printf '  PASS batch with no mode -> usage (exit 0)\n'
+else
+    printf '  FAIL batch with no mode -> usage (rc=%s)\n' "$LAST_RC" >&2
+    printf '       output: %s\n' "$LAST_JSON" >&2
+    exit 1
+fi
+
+run_search_batch unsafe-all foo .
+if [[ "$LAST_RC" -ne 0 && "$LAST_JSON" == *"unsafe-all is not allowed"* ]]; then
+    printf '  PASS batch unsafe-all -> rejected\n'
+else
+    printf '  FAIL batch unsafe-all -> rejected (rc=%s)\n' "$LAST_RC" >&2
+    printf '       output: %s\n' "$LAST_JSON" >&2
+    exit 1
+fi
+
+run_search_batch totally-bogus-mode-xyz foo .
+if [[ "$LAST_RC" -ne 0 && "$LAST_JSON" == *"unknown or unsupported mode"* ]]; then
+    printf '  PASS batch unknown mode -> rejected\n'
+else
+    printf '  FAIL batch unknown mode -> rejected (rc=%s)\n' "$LAST_RC" >&2
+    printf '       output: %s\n' "$LAST_JSON" >&2
+    exit 1
+fi
+
+# Mode-family arms not otherwise reached via the batch route: arm2
+# (diff|history|tests|config|deps|symbols|class) and arm3
+# (function|method|interface|enum|route|config-key).
+run_search_batch config ConfigNeedle "$p1_repo"
+expect_jq "batch config (arm2) -> ok" '.[0].status == "ok"'
+
+run_search_batch route RouteNeedle "$p1_repo"
+expect_jq "batch route (arm3) -> ok|no_matches|unavailable" \
+    '.[0].status=="ok" or .[0].status=="no_matches" or .[0].status=="unavailable"'
+
+# file-list (changed-files/staged-files): 0-positional and too-many-positional
+# branches (the 1-positional branch is already covered above via phase0).
+run_search_batch changed-files
+expect_jq "batch changed-files (0 positionals, default root) -> array" 'type=="array" and length==1'
+
+run_search_batch changed-files foo bar
+if [[ "$LAST_RC" -ne 0 && "$LAST_JSON" == *"does not accept queries"* ]]; then
+    printf '  PASS batch changed-files with 2 positionals -> rejected\n'
+else
+    printf '  FAIL batch changed-files with 2 positionals -> rejected (rc=%s)\n' "$LAST_RC" >&2
+    printf '       output: %s\n' "$LAST_JSON" >&2
+    exit 1
+fi
+
+# legacy-file-list (changed/staged): every positional-count branch.
+run_search_batch changed
+expect_jq "batch legacy changed (0 positionals) -> ok" '.[0].status == "ok"'
+
+run_search_batch changed "$phase2_repo"
+expect_jq "batch legacy changed (1 positional, directory) -> ok" '.[0].status == "ok"'
+
+run_search_batch changed some-legacy-query-text
+expect_jq "batch legacy changed (1 positional, non-directory) -> ok" '.[0].status == "ok"'
+
+run_search_batch changed dummy "$phase2_repo"
+expect_jq "batch legacy changed (2 positionals) -> ok" '.[0].status == "ok"'
+
+run_search_batch changed a b c
+if [[ "$LAST_RC" -ne 0 && "$LAST_JSON" == *"too many positional arguments"* ]]; then
+    printf '  PASS batch legacy changed with 3 positionals -> rejected\n'
+else
+    printf '  FAIL batch legacy changed with 3 positionals -> rejected (rc=%s)\n' "$LAST_RC" >&2
+    printf '       output: %s\n' "$LAST_JSON" >&2
+    exit 1
+fi
+
+# no-query-root (todo/unsafe-patterns): every positional-count branch.
+run_search_batch todo
+expect_jq "batch todo (0 positionals, default root) -> array" 'type=="array" and length==1'
+
+run_search_batch todo "$p1_repo"
+expect_jq "batch todo (1 positional root) -> ok" '.[0].status == "ok"'
+
+run_search_batch todo foo bar
+if [[ "$LAST_RC" -ne 0 && "$LAST_JSON" == *"does not accept queries"* ]]; then
+    printf '  PASS batch todo with 2 positionals -> rejected\n'
+else
+    printf '  FAIL batch todo with 2 positionals -> rejected (rc=%s)\n' "$LAST_RC" >&2
+    printf '       output: %s\n' "$LAST_JSON" >&2
+    exit 1
+fi
+
+# Query-mode guards: zero queries and too-many-queries (default max 20).
+run_search_batch text
+if [[ "$LAST_RC" -ne 0 && "$LAST_JSON" == *"at least one QUERY is required"* ]]; then
+    printf '  PASS batch text with zero queries -> rejected\n'
+else
+    printf '  FAIL batch text with zero queries -> rejected (rc=%s)\n' "$LAST_RC" >&2
+    printf '       output: %s\n' "$LAST_JSON" >&2
+    exit 1
+fi
+
+many_queries=()
+for i in $(seq 1 21); do
+    many_queries+=("q$i")
+done
+run_search_batch text "${many_queries[@]}" "$tmp_search_dir"
+if [[ "$LAST_RC" -ne 0 && "$LAST_JSON" == *"too many queries"* ]]; then
+    printf '  PASS batch text with 21 queries (> default max 20) -> rejected\n'
+else
+    printf '  FAIL batch text with 21 queries -> rejected (rc=%s)\n' "$LAST_RC" >&2
+    printf '       output: %s\n' "$LAST_JSON" >&2
+    exit 1
+fi
+
+# JSON multi-query loop: overall_rc propagation when a forwarded flag makes
+# every per-query ai-search invocation fail.
+run_search_batch text q1 q2 "$tmp_search_dir" --max-depth abc
+if [[ "$LAST_RC" -ne 0 ]] && printf '%s' "$LAST_JSON" | jq -e 'type=="array" and length==2 and all(.[]; .status=="error")' >/dev/null 2>&1; then
+    printf '  PASS batch JSON multi-query propagates a failing query rc\n'
+else
+    printf '  FAIL batch JSON multi-query propagates a failing query rc (rc=%s)\n' "$LAST_RC" >&2
+    printf '       output: %s\n' "$LAST_JSON" >&2
+    exit 1
+fi
+
+# Plain-text (non-JSON) result paths: emit_single_result_array's and
+# emit_legacy_result_array's `run_one` fallthrough, and the default
+# "---"-separated multi-query loop.
+run_search_batch_plain changed-files "$phase2_repo"
+if [[ "$LAST_RC" -eq 0 && "$LAST_JSON" == "app/Changed.php" ]]; then
+    printf '  PASS batch plain changed-files -> plain file list\n'
+else
+    printf '  FAIL batch plain changed-files -> plain file list (rc=%s)\n' "$LAST_RC" >&2
+    printf '       output: %s\n' "$LAST_JSON" >&2
+    exit 1
+fi
+
+run_search_batch_plain changed "$phase2_repo"
+if [[ "$LAST_RC" -eq 0 ]]; then
+    printf '  PASS batch plain legacy changed -> ok\n'
+else
+    printf '  FAIL batch plain legacy changed -> ok (rc=%s)\n' "$LAST_RC" >&2
+    printf '       output: %s\n' "$LAST_JSON" >&2
+    exit 1
+fi
+
+run_search_batch_plain text foo bar "$phase2_repo" --fixed
+if [[ "$LAST_RC" -eq 0 && "$LAST_JSON" == *$'\n---\n'* ]]; then
+    printf '  PASS batch plain multi-query -> "---"-separated output\n'
+else
+    printf '  FAIL batch plain multi-query -> "---"-separated output (rc=%s)\n' "$LAST_RC" >&2
+    printf '       output: %s\n' "$LAST_JSON" >&2
+    exit 1
+fi
+
+# -----------------------------------------------------------------------------
+# lib/ai-search/dispatch.sh: plain (non-JSON) output branches not otherwise
+# reached -- the empty-$out early return (a genuinely empty `out` only occurs
+# for git-grep-backed modes like `tracked`; `text`/surface/shortcut modes
+# always carry an rg --json summary line even with zero matches), the plain
+# match-line truncation branch, and ai_search_main's own empty-mode usage
+# path (only reachable by invoking the entrypoint with literally zero
+# arguments -- `--help`/`-h` are intercepted earlier, in bootstrap.sh).
+# -----------------------------------------------------------------------------
+printf '[dispatch] plain-output branches: empty out / truncation / zero-arg usage\n'
+
+run_search_text tracked "XYZZY_NO_MATCH_UNIQUE_STR_9f3ACX" "$p1_repo" --fixed
+if [[ "$LAST_RC" -eq 0 && -z "$LAST_JSON" ]]; then
+    printf '  PASS plain tracked no-match -> empty output (dispatch.sh empty-$out return)\n'
+else
+    printf '  FAIL plain tracked no-match -> empty output (rc=%s)\n' "$LAST_RC" >&2
+    printf '       output: %s\n' "$LAST_JSON" >&2
+    exit 1
+fi
+
+run_search_text tracked Needle "$p1_repo" --fixed --max-results 1
+if [[ "$LAST_RC" -eq 0 && "$LAST_JSON" == *$'\n... (truncated: showed 1 of '* ]]; then
+    printf '  PASS plain tracked over max-results -> truncation banner\n'
+else
+    printf '  FAIL plain tracked over max-results -> truncation banner (rc=%s)\n' "$LAST_RC" >&2
+    printf '       output: %s\n' "$LAST_JSON" >&2
+    exit 1
+fi
+
+set +e
+ZERO_ARG_OUT="$("$BASH_BIN" "$SCRIPT" 2>&1)"
+ZERO_ARG_RC=$?
+set -e
+if [[ "$ZERO_ARG_RC" -eq 0 && "$ZERO_ARG_OUT" == *"Usage:"* ]]; then
+    printf '  PASS ai-search with zero args -> usage (ai_search_main empty-mode branch, exit 0)\n'
+else
+    printf '  FAIL ai-search with zero args -> usage (rc=%s)\n' "$ZERO_ARG_RC" >&2
+    printf '       output: %s\n' "$ZERO_ARG_OUT" >&2
+    exit 1
+fi
 
 # =============================================================================
 # Phase 2E — strict legacy rejection gate
