@@ -1323,6 +1323,599 @@ test_language_dispatch_suggest_mode_never_fails() {
 }
 run_test "AI_VERIFY_MODE=suggest runs eslint --fix-dry-run and never fails" test_language_dispatch_suggest_mode_never_fails
 
+# ── Phase 2 coverage: lib/ai-verify/duplication.sh (check_jscpd) ────────────
+# Fake `jscpd` on PATH that writes a canned jscpd-report.json under whatever
+# --output dir it is given, with a percentage controlled by $FAKE_JSCPD_PCT,
+# and (optionally) records its raw argv to $JSCPD_RECORD for the
+# JSCPD_PATHS-override assertion.
+_write_fake_jscpd() {
+    local bin_dir="$1"
+    mkdir -p "$bin_dir"
+    cat >"$bin_dir/jscpd" <<'JSEOF'
+#!/usr/bin/env bash
+[[ -n "${JSCPD_RECORD:-}" ]] && printf '%s\n' "$*" >>"$JSCPD_RECORD"
+out_dir=""
+prev=""
+for a in "$@"; do
+    if [[ "$prev" == "--output" ]]; then out_dir="$a"; fi
+    prev="$a"
+done
+mkdir -p "$out_dir"
+printf '{"statistics":{"total":{"percentage": %s}}}\n' "${FAKE_JSCPD_PCT:-0}" >"$out_dir/jscpd-report.json"
+exit 0
+JSEOF
+    chmod +x "$bin_dir/jscpd"
+}
+
+test_jscpd_warn_tier_does_not_fail() {
+    local tmp rc=0
+    tmp="$(mktemp -d)"
+    _write_fake_jscpd "$tmp/bin"
+    (
+        set -euo pipefail
+        cd "$tmp"
+        git init -q
+        AI_LOG_DIR="$tmp/logs"
+        source "$REPO_ROOT/lib/common.sh"
+        source "$REPO_ROOT/lib/ai-verify/scope.sh"
+        source "$REPO_ROOT/lib/ai-verify/duplication.sh"
+        failures=0
+        VERIFY_JSCPD=1
+        VERIFY_TIMEOUT=20
+        JSCPD_MIN_TOKENS=50
+        JSCPD_WARN_PCT=5
+        JSCPD_FAIL_PCT=""
+        JSCPD_PATHS="."
+        export PATH="$tmp/bin:$PATH"
+        export FAKE_JSCPD_PCT=10
+        check_jscpd
+        ((failures == 0))
+    ) || rc=$?
+    rm -rf "$tmp"
+    return "$rc"
+}
+run_test "jscpd WARN tier (>= JSCPD_WARN_PCT, no JSCPD_FAIL_PCT) does not fail verification" test_jscpd_warn_tier_does_not_fail
+
+test_jscpd_fail_tier_increments_failures() {
+    local tmp rc=0
+    tmp="$(mktemp -d)"
+    _write_fake_jscpd "$tmp/bin"
+    (
+        set -euo pipefail
+        cd "$tmp"
+        git init -q
+        AI_LOG_DIR="$tmp/logs"
+        source "$REPO_ROOT/lib/common.sh"
+        source "$REPO_ROOT/lib/ai-verify/scope.sh"
+        source "$REPO_ROOT/lib/ai-verify/duplication.sh"
+        failures=0
+        VERIFY_JSCPD=1
+        VERIFY_TIMEOUT=20
+        JSCPD_MIN_TOKENS=50
+        JSCPD_WARN_PCT=5
+        JSCPD_FAIL_PCT=8
+        JSCPD_PATHS="."
+        export PATH="$tmp/bin:$PATH"
+        export FAKE_JSCPD_PCT=10
+        check_jscpd
+        ((failures == 1))
+    ) || rc=$?
+    rm -rf "$tmp"
+    return "$rc"
+}
+run_test "jscpd FAIL tier (>= JSCPD_FAIL_PCT) increments failures" test_jscpd_fail_tier_increments_failures
+
+test_jscpd_under_threshold_ok() {
+    local tmp rc=0
+    tmp="$(mktemp -d)"
+    _write_fake_jscpd "$tmp/bin"
+    (
+        set -euo pipefail
+        cd "$tmp"
+        git init -q
+        AI_LOG_DIR="$tmp/logs"
+        source "$REPO_ROOT/lib/common.sh"
+        source "$REPO_ROOT/lib/ai-verify/scope.sh"
+        source "$REPO_ROOT/lib/ai-verify/duplication.sh"
+        failures=0
+        VERIFY_JSCPD=1
+        VERIFY_TIMEOUT=20
+        JSCPD_MIN_TOKENS=50
+        JSCPD_WARN_PCT=5
+        JSCPD_FAIL_PCT=8
+        JSCPD_PATHS="."
+        export PATH="$tmp/bin:$PATH"
+        export FAKE_JSCPD_PCT=1
+        check_jscpd
+        ((failures == 0))
+    ) || rc=$?
+    rm -rf "$tmp"
+    return "$rc"
+}
+run_test "jscpd under every threshold reports OK (no warn/fail)" test_jscpd_under_threshold_ok
+
+test_jscpd_paths_override() {
+    local tmp rc=0
+    tmp="$(mktemp -d)"
+    _write_fake_jscpd "$tmp/bin"
+    (
+        set -euo pipefail
+        cd "$tmp"
+        git init -q
+        AI_LOG_DIR="$tmp/logs"
+        source "$REPO_ROOT/lib/common.sh"
+        source "$REPO_ROOT/lib/ai-verify/scope.sh"
+        source "$REPO_ROOT/lib/ai-verify/duplication.sh"
+        failures=0
+        VERIFY_JSCPD=1
+        VERIFY_TIMEOUT=20
+        JSCPD_MIN_TOKENS=50
+        JSCPD_WARN_PCT=5
+        JSCPD_FAIL_PCT=""
+        JSCPD_PATHS="custom/dir another/dir"
+        export PATH="$tmp/bin:$PATH"
+        export FAKE_JSCPD_PCT=0
+        export JSCPD_RECORD="$tmp/jscpd.calls"
+        check_jscpd
+        local calls
+        calls="$(cat "$JSCPD_RECORD")"
+        [[ "$calls" == *"custom/dir another/dir"* ]]
+    ) || rc=$?
+    rm -rf "$tmp"
+    return "$rc"
+}
+run_test "JSCPD_PATHS overrides the default scoped-file path list" test_jscpd_paths_override
+
+test_jscpd_npx_unavailable_skips_cleanly() {
+    local tmp rc=0
+    tmp="$(mktemp -d)"
+    (
+        set -euo pipefail
+        cd "$tmp"
+        git init -q
+        AI_LOG_DIR="$tmp/logs"
+        source "$REPO_ROOT/lib/common.sh"
+        source "$REPO_ROOT/lib/ai-verify/scope.sh"
+        source "$REPO_ROOT/lib/ai-verify/duplication.sh"
+        failures=0
+        # Consumed dynamically by check_jscpd (lib/ai-verify/duplication.sh) below.
+        # shellcheck disable=SC2034
+        VERIFY_JSCPD=1
+        VERIFY_TIMEOUT=20
+        # shellcheck disable=SC2034
+        JSCPD_MIN_TOKENS=50
+        # shellcheck disable=SC2034
+        JSCPD_WARN_PCT=5
+        # shellcheck disable=SC2034
+        JSCPD_FAIL_PCT=""
+        # shellcheck disable=SC2034
+        JSCPD_PATHS="."
+        # Strip both jscpd and npx from PATH.
+        export PATH="/nonexistent-dir-for-jscpd-test-$$"
+        check_jscpd
+        ((failures == 0))
+    ) >"$tmp/stdout" 2>"$tmp/stderr" || rc=$?
+    if ((rc == 0)); then
+        grep -q "npx unavailable" "$tmp/stderr" || rc=1
+    fi
+    rm -rf "$tmp"
+    return "$rc"
+}
+run_test "jscpd not found and npx unavailable: check_jscpd skips cleanly (no crash, no failure)" test_jscpd_npx_unavailable_skips_cleanly
+
+# ── Phase 2 coverage: lib/ai-verify/plan-status.sh ──────────────────────────
+test_plan_status_checklist_counts() {
+    local tmp rc=0
+    tmp="$(mktemp -d)"
+    cat >"$tmp/plan.md" <<'PLANEOF'
+## Todo Plan
+- [x] step one
+- [x] step two
+- [ ] step three
+PLANEOF
+    (
+        set -euo pipefail
+        AI_LOG_DIR="$tmp/logs"
+        source "$REPO_ROOT/lib/common.sh"
+        source "$REPO_ROOT/lib/ai-verify/plan-status.sh"
+        local counts
+        counts="$(plan_status_checklist_counts "$tmp/plan.md")"
+        [[ "$counts" == $'2\t1' ]]
+    ) || rc=$?
+    rm -rf "$tmp"
+    return "$rc"
+}
+run_test "plan_status_checklist_counts counts checked/unchecked checklist items" test_plan_status_checklist_counts
+
+test_plan_status_difficulty_hits_scoped_to_checklist_lines() {
+    local tmp rc=0
+    tmp="$(mktemp -d)"
+    cat >"$tmp/plan.md" <<'PLANEOF'
+## Todo Plan
+Status: not implemented, blocked by unknown prose that should NOT match.
+- [ ] this step is impossible without more context
+- [x] this step is fine
+PLANEOF
+    (
+        set -euo pipefail
+        AI_LOG_DIR="$tmp/logs"
+        source "$REPO_ROOT/lib/common.sh"
+        source "$REPO_ROOT/lib/ai-verify/plan-status.sh"
+        local hits
+        hits="$(plan_status_difficulty_hits "$tmp/plan.md")"
+        [[ "$hits" == *"impossible"* ]]
+        [[ "$hits" != *"blocked by unknown prose"* ]]
+    ) || rc=$?
+    rm -rf "$tmp"
+    return "$rc"
+}
+run_test "plan_status_difficulty_hits only scans checklist-item lines, not prose" test_plan_status_difficulty_hits_scoped_to_checklist_lines
+
+test_check_plan_status_difficulty_notice_fails_full_run() {
+    local tmp out ec
+    tmp="$(mktemp -d)"
+    mkdir -p "$tmp/work/docs/tickets/sample-ticket"
+    cat >"$tmp/work/docs/tickets/sample-ticket/plan.md" <<'PLANEOF'
+## Todo Plan
+- [ ] this item is impossible without more context
+PLANEOF
+    out="$(
+        cd "$tmp/work"
+        git init -q
+        git config user.email t@t.t
+        git config user.name t
+        AI_LOG_DIR="$tmp/logs" AI_EVENT_LOG="$tmp/logs/ev.jsonl" \
+            AI_VERIFY_TEST_MODE=0 AI_VERIFY_SCOPE=changed VERIFY_PLAN_STATUS=1 \
+            VERIFY_LINECOUNT=0 VERIFY_SECRETS=0 VERIFY_FULL=0 VERIFY_LINKS=0 \
+            "$BASH_BIN" "$SCRIPT" . 2>&1
+    )"
+    ec=$?
+    rm -rf "$tmp"
+    [[ $ec -eq 1 ]] && [[ "$out" == *"difficulty notice found"* ]]
+}
+run_test "verify: plan-status difficulty notice fails full-run verification" test_check_plan_status_difficulty_notice_fails_full_run
+
+test_check_plan_status_incomplete_warns_not_fails() {
+    local tmp out ec
+    tmp="$(mktemp -d)"
+    mkdir -p "$tmp/work/docs/tickets/sample-ticket"
+    cat >"$tmp/work/docs/tickets/sample-ticket/plan.md" <<'PLANEOF'
+## Todo Plan
+- [x] step one
+- [ ] step two
+PLANEOF
+    out="$(
+        cd "$tmp/work"
+        git init -q
+        git config user.email t@t.t
+        git config user.name t
+        AI_LOG_DIR="$tmp/logs" AI_EVENT_LOG="$tmp/logs/ev.jsonl" \
+            AI_VERIFY_TEST_MODE=0 AI_VERIFY_SCOPE=changed VERIFY_PLAN_STATUS=1 \
+            VERIFY_LINECOUNT=0 VERIFY_SECRETS=0 VERIFY_FULL=0 VERIFY_LINKS=0 \
+            "$BASH_BIN" "$SCRIPT" . 2>&1
+    )"
+    ec=$?
+    rm -rf "$tmp"
+    [[ $ec -eq 0 ]] && [[ "$out" == *"1 incomplete / 1 complete Todo item"* ]]
+}
+run_test "verify: plan-status incomplete checklist warns without failing" test_check_plan_status_incomplete_warns_not_fails
+
+# ── Phase 2 coverage: lib/ai-verify/step-runner.sh ──────────────────────────
+test_diagnose_pnpm_auth_warns_when_token_unset() {
+    local tmp rc=0
+    tmp="$(mktemp -d)"
+    printf '//npm.pkg.github.com/:_authToken=${MY_TEST_TOKEN}\n' >"$tmp/.npmrc"
+    (
+        set -euo pipefail
+        cd "$tmp"
+        AI_LOG_DIR="$tmp/logs"
+        source "$REPO_ROOT/lib/common.sh"
+        source "$REPO_ROOT/lib/ai-verify/step-runner.sh"
+        unset MY_TEST_TOKEN 2>/dev/null || true
+        local out
+        out="$(diagnose_pnpm_auth "typecheck" 2>&1)"
+        [[ "$out" == *"MY_TEST_TOKEN"* ]]
+        [[ "$out" == *"is unset"* ]]
+    ) || rc=$?
+    rm -rf "$tmp"
+    return "$rc"
+}
+run_test "diagnose_pnpm_auth warns when the referenced .npmrc token var is unset" test_diagnose_pnpm_auth_warns_when_token_unset
+
+test_diagnose_pnpm_auth_silent_when_token_set() {
+    local tmp rc=0
+    tmp="$(mktemp -d)"
+    printf '//npm.pkg.github.com/:_authToken=${MY_TEST_TOKEN}\n' >"$tmp/.npmrc"
+    (
+        set -euo pipefail
+        cd "$tmp"
+        AI_LOG_DIR="$tmp/logs"
+        source "$REPO_ROOT/lib/common.sh"
+        source "$REPO_ROOT/lib/ai-verify/step-runner.sh"
+        export MY_TEST_TOKEN="dummy-token"
+        local out
+        out="$(diagnose_pnpm_auth "typecheck" 2>&1)"
+        [[ -z "$out" ]]
+    ) || rc=$?
+    rm -rf "$tmp"
+    return "$rc"
+}
+run_test "diagnose_pnpm_auth stays silent when the referenced token var is set" test_diagnose_pnpm_auth_silent_when_token_set
+
+test_run_step_verify_guard_1_uses_run_guarded() {
+    local tmp rc=0
+    tmp="$(mktemp -d)"
+    (
+        set -euo pipefail
+        cd "$tmp"
+        AI_LOG_DIR="$tmp/logs"
+        AI_EVENT_LOG="$tmp/logs/ev.jsonl"
+        source "$REPO_ROOT/lib/common.sh"
+        source "$REPO_ROOT/lib/ai-verify/step-runner.sh"
+        failures=0
+        VERIFY_TIMEOUT=10
+        VERIFY_GUARD=1
+        run_step "guarded true" true
+        grep -q '"event_type":"guard.start"' "$AI_EVENT_LOG"
+    ) || rc=$?
+    rm -rf "$tmp"
+    return "$rc"
+}
+run_test "run_step with VERIFY_GUARD=1 (default) routes through run_guarded" test_run_step_verify_guard_1_uses_run_guarded
+
+test_run_step_verify_guard_0_uses_run_with_timeout() {
+    local tmp rc=0
+    tmp="$(mktemp -d)"
+    (
+        set -euo pipefail
+        cd "$tmp"
+        AI_LOG_DIR="$tmp/logs"
+        AI_EVENT_LOG="$tmp/logs/ev.jsonl"
+        source "$REPO_ROOT/lib/common.sh"
+        source "$REPO_ROOT/lib/ai-verify/step-runner.sh"
+        failures=0
+        # Consumed dynamically by run_step (lib/ai-verify/step-runner.sh) below.
+        # shellcheck disable=SC2034
+        VERIFY_TIMEOUT=10
+        # shellcheck disable=SC2034
+        VERIFY_GUARD=0
+        run_step "unguarded true" true
+        [[ ! -f "$AI_EVENT_LOG" ]] || ! grep -q '"event_type":"guard.start"' "$AI_EVENT_LOG"
+    ) || rc=$?
+    rm -rf "$tmp"
+    return "$rc"
+}
+run_test "run_step with VERIFY_GUARD=0 falls back to run_with_timeout (no guard.start event)" test_run_step_verify_guard_0_uses_run_with_timeout
+
+test_has_package_script_and_dependency_branches() {
+    local tmp rc=0
+    tmp="$(mktemp -d)"
+    (
+        set -euo pipefail
+        cd "$tmp"
+        source "$REPO_ROOT/lib/ai-verify/step-runner.sh"
+        # No package.json at all: both false.
+        ! has_package_script test
+        ! has_package_dependency eslint
+        printf '{"name":"t","scripts":{"test":"vitest"},"devDependencies":{"eslint":"^8.0.0"}}\n' >package.json
+        has_package_script test
+        ! has_package_script lint
+        has_package_dependency eslint
+        ! has_package_dependency biome
+    ) || rc=$?
+    rm -rf "$tmp"
+    return "$rc"
+}
+run_test "has_package_script/has_package_dependency: true/false/no-package.json branches" test_has_package_script_and_dependency_branches
+
+# ── Phase 2 coverage: lib/ai-verify/run.sh ──────────────────────────────────
+test_scoped_changed_files_by_pathspec_branch_arm() {
+    local tmp rc=0
+    tmp="$(mktemp -d)"
+    (
+        set -euo pipefail
+        cd "$tmp"
+        git init -q
+        git config user.email t@t.t
+        git config user.name t
+        printf 'orig\n' >a.txt
+        git add -A
+        git commit -q -m init
+        git branch -m trunk
+        git checkout -q -b feature
+        printf 'x\n' >new-feature.txt
+        git add -A
+        git commit -q -m feature
+        AI_LOG_DIR="$tmp/logs"
+        source "$REPO_ROOT/lib/common.sh"
+        source "$REPO_ROOT/lib/ai-verify/scope.sh"
+        source "$REPO_ROOT/lib/ai-verify/run.sh"
+        # Consumed dynamically by resolve_branch_base/branch_scoped_files below.
+        # shellcheck disable=SC2034
+        VERIFY_BASE_REF=trunk
+        # shellcheck disable=SC2034
+        VERIFY_AUTHOR=""
+        local out
+        out="$(scoped_changed_files_by_pathspec branch '*')"
+        [[ "$out" == *"new-feature.txt"* ]]
+    ) || rc=$?
+    rm -rf "$tmp"
+    return "$rc"
+}
+run_test "scoped_changed_files_by_pathspec's branch arm reuses branch_scoped_files" test_scoped_changed_files_by_pathspec_branch_arm
+
+_write_fake_recorder() {
+    # _write_fake_recorder <bin_dir> <record_file> <tool-name> [exit-code]
+    local bin_dir="$1" record="$2" tool="$3" exit_code="${4:-0}"
+    mkdir -p "$bin_dir"
+    cat >"$bin_dir/$tool" <<EOF
+#!/usr/bin/env bash
+printf '$tool:%s\n' "\$*" >>"$record"
+exit $exit_code
+EOF
+    chmod +x "$bin_dir/$tool"
+}
+
+test_run_verify_full_invokes_phpunit_and_pest() {
+    local tmp rc=0 out
+    tmp="$(mktemp -d)"
+    mkdir -p "$tmp/work/vendor/bin"
+    _write_fake_recorder "$tmp/work/vendor/bin" "$tmp/tool.calls" phpunit
+    _write_fake_recorder "$tmp/work/vendor/bin" "$tmp/tool.calls" pest
+    printf '{"name":"t/t","require":{}}\n' >"$tmp/work/composer.json"
+    (
+        cd "$tmp/work"
+        git init -q
+        git config user.email t@t.t
+        git config user.name t
+        git add -A
+        git commit -q -m init
+        AI_LOG_DIR="$tmp/logs" AI_EVENT_LOG="$tmp/logs/ev.jsonl" \
+            AI_VERIFY_TEST_MODE=0 AI_VERIFY_SCOPE=changed VERIFY_FULL=1 \
+            VERIFY_LINECOUNT=0 VERIFY_SECRETS=0 VERIFY_LINKS=0 \
+            "$BASH_BIN" "$SCRIPT" . >/dev/null 2>&1
+    )
+    rc=$?
+    out="$(cat "$tmp/tool.calls" 2>/dev/null)"
+    rm -rf "$tmp"
+    ((rc == 0)) && [[ "$out" == *"phpunit:"* ]] && [[ "$out" == *"pest:"* ]]
+}
+run_test "VERIFY_FULL=1 invokes vendor/bin/phpunit and vendor/bin/pest" test_run_verify_full_invokes_phpunit_and_pest
+
+test_run_verify_secrets_1_invokes_gitleaks() {
+    local tmp rc=0 out
+    tmp="$(mktemp -d)"
+    _write_fake_recorder "$tmp/bin" "$tmp/tool.calls" gitleaks
+    mkdir -p "$tmp/work"
+    (
+        cd "$tmp/work"
+        git init -q
+        git config user.email t@t.t
+        git config user.name t
+        git add -A 2>/dev/null || true
+        git commit -q -m init --allow-empty
+        PATH="$tmp/bin:$PATH" AI_LOG_DIR="$tmp/logs" AI_EVENT_LOG="$tmp/logs/ev.jsonl" \
+            AI_VERIFY_TEST_MODE=0 AI_VERIFY_SCOPE=changed VERIFY_SECRETS=1 VERIFY_FULL=0 \
+            VERIFY_LINECOUNT=0 VERIFY_LINKS=0 \
+            "$BASH_BIN" "$SCRIPT" . >/dev/null 2>&1
+    )
+    rc=$?
+    out="$(cat "$tmp/tool.calls" 2>/dev/null)"
+    rm -rf "$tmp"
+    ((rc == 0)) && [[ "$out" == *"gitleaks:detect --source . --redact --no-banner"* ]]
+}
+run_test "VERIFY_SECRETS=1 invokes gitleaks detect" test_run_verify_secrets_1_invokes_gitleaks
+
+test_run_verify_security_1_invokes_scanners() {
+    local tmp rc=0 out
+    tmp="$(mktemp -d)"
+    _write_fake_recorder "$tmp/bin" "$tmp/tool.calls" trivy
+    _write_fake_recorder "$tmp/bin" "$tmp/tool.calls" semgrep
+    _write_fake_recorder "$tmp/bin" "$tmp/tool.calls" osv-scanner
+    mkdir -p "$tmp/work"
+    (
+        cd "$tmp/work"
+        git init -q
+        git config user.email t@t.t
+        git config user.name t
+        git add -A 2>/dev/null || true
+        git commit -q -m init --allow-empty
+        PATH="$tmp/bin:$PATH" AI_LOG_DIR="$tmp/logs" AI_EVENT_LOG="$tmp/logs/ev.jsonl" \
+            AI_VERIFY_TEST_MODE=0 AI_VERIFY_SCOPE=changed VERIFY_SECURITY=1 VERIFY_SECRETS=0 VERIFY_FULL=0 \
+            VERIFY_LINECOUNT=0 VERIFY_LINKS=0 \
+            "$BASH_BIN" "$SCRIPT" . >/dev/null 2>&1
+    )
+    rc=$?
+    out="$(cat "$tmp/tool.calls" 2>/dev/null)"
+    rm -rf "$tmp"
+    ((rc == 0)) && [[ "$out" == *"trivy:fs --scanners vuln,misconfig,secret ."* ]] &&
+        [[ "$out" == *"semgrep:scan --config auto ."* ]] &&
+        [[ "$out" == *"osv-scanner:scan source -r ."* ]]
+}
+run_test "VERIFY_SECURITY=1 invokes trivy/semgrep/osv-scanner in changed scope" test_run_verify_security_1_invokes_scanners
+
+test_check_composer_unused_runs_without_crashing() {
+    local tmp rc=0
+    tmp="$(mktemp -d)"
+    mkdir -p "$tmp/vendor/bin"
+    printf '{"name":"t/t","require":{}}\n' >"$tmp/composer.json"
+    cat >"$tmp/vendor/bin/composer-unused" <<'EOF'
+#!/usr/bin/env bash
+printf 'no unused packages\n'
+exit 0
+EOF
+    chmod +x "$tmp/vendor/bin/composer-unused"
+    (
+        set -euo pipefail
+        cd "$tmp"
+        # Consumed dynamically by common.sh's die()/log_json and
+        # verify_report_dir (lib/ai-verify/reporting.sh) below.
+        # shellcheck disable=SC2034
+        AI_LOG_DIR="$tmp/logs"
+        source "$REPO_ROOT/lib/common.sh"
+        source "$REPO_ROOT/lib/ai-verify/reporting.sh"
+        source "$REPO_ROOT/lib/ai-verify/run.sh"
+        failures=0
+        check_composer_unused
+        ((failures == 0))
+        [[ -f "$tmp/logs/verify/composer-unused.txt" ]]
+    ) || rc=$?
+    rm -rf "$tmp"
+    return "$rc"
+}
+run_test "check_composer_unused is advisory-only and never increments failures" test_check_composer_unused_runs_without_crashing
+
+# ── Phase 2 coverage: lib/ai-verify/docs-check.sh (ai_verify_docs_run_drift) ─
+# None of ai_verify_docs_run_drift's ~11 gated tools/ai/validate-*.php steps
+# are exercised elsewhere with a fake `php` (passing OR failing), so
+# ai_verify_docs_run_step's failure branch (failures+=1) is never hit. Fake
+# `php` dispatches pass/fail by which script path it was given.
+test_docs_drift_php_failure_increments_failures() {
+    local tmp rc=0 out
+    tmp="$(mktemp -d)"
+    mkdir -p "$tmp/bin" "$tmp/work/tools/ai"
+    cat >"$tmp/bin/php" <<'PHPEOF'
+#!/usr/bin/env bash
+case "$1" in
+*validate-generated-artifacts.php) exit 1 ;;
+*) exit 0 ;;
+esac
+PHPEOF
+    chmod +x "$tmp/bin/php"
+    : >"$tmp/work/tools/ai/validate-generated-artifacts.php"
+    : >"$tmp/work/tools/ai/validate-context-budgets.php"
+    out="$(
+        cd "$tmp/work"
+        PATH="$tmp/bin:$PATH" AI_LOG_DIR="$tmp/logs" AI_EVENT_LOG="$tmp/logs/ev.jsonl" \
+            "$BASH_BIN" "$SCRIPT" docs drift 2>&1
+    )"
+    rc=$?
+    rm -rf "$tmp"
+    [[ $rc -eq 1 ]] && [[ "$out" == *"FAIL: validate-generated-artifacts"* ]] && [[ "$out" == *"validate-context-budgets"* ]]
+}
+run_test "verify docs drift: a failing gated php step increments failures (exit 1)" test_docs_drift_php_failure_increments_failures
+
+test_docs_drift_php_success_no_failure() {
+    local tmp rc=0 out
+    tmp="$(mktemp -d)"
+    mkdir -p "$tmp/bin" "$tmp/work/tools/ai"
+    cat >"$tmp/bin/php" <<'PHPEOF'
+#!/usr/bin/env bash
+exit 0
+PHPEOF
+    chmod +x "$tmp/bin/php"
+    : >"$tmp/work/tools/ai/validate-context-budgets.php"
+    out="$(
+        cd "$tmp/work"
+        PATH="$tmp/bin:$PATH" AI_LOG_DIR="$tmp/logs" AI_EVENT_LOG="$tmp/logs/ev.jsonl" \
+            "$BASH_BIN" "$SCRIPT" docs drift 2>&1
+    )"
+    rc=$?
+    rm -rf "$tmp"
+    [[ $rc -eq 0 ]] && [[ "$out" != *"FAIL:"* ]] && [[ "$out" == *"validate-context-budgets"* ]]
+}
+run_test "verify docs drift: a passing gated php step does not fail" test_docs_drift_php_success_no_failure
+
 printf '\n=== Results ===\n'
 printf '  Passed: %d  Failed: %d  Skipped: %d\n' "$PASS" "$FAIL" "$SKIP"
 if ((FAIL == 0)); then
