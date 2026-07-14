@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Flag refactor candidates: rank files by scc complexity and functions by lizard NLOC.
+#
+# Usage:
+#   agent-kit refactor-scan [complexity|nloc|all] [folder] [options]
+#
+# Example:
+#   agent-kit refactor-scan all .            # flag files (scc complexity > 15) and functions (lizard NLOC > 40)
+#   agent-kit refactor-scan complexity src --ext go --scc-format json --ai
+set -euo pipefail
+
+_rs_self="${BASH_SOURCE[0]}"
+_rs_here="$(cd "$(dirname "$_rs_self")" && pwd)"
+_rs_root="$(cd "$_rs_here/.." && pwd)"
+
+# --introspect emits this script's machine-readable JSON contract (static parse).
+if [[ "${1:-}" == "--introspect" ]]; then
+    exec env AI_OUTPUT=json bash "$_rs_here/sh-introspect" "$_rs_self"
+fi
+
+# Directory holding reusable config lists (share/config/source-exclude-dirs.txt).
+RS_SHARE_DIR="$_rs_root/share"
+
+# Source the logic module first so the rich --help text is available before the
+# common.sh universal --help guard (which would otherwise emit only the compact
+# header contract) can intercept the flag.
+# shellcheck source=lib/ai-refactor-scan/main.sh
+source "$_rs_root/lib/ai-refactor-scan/main.sh"
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    rs_usage
+    exit 0
+fi
+
+# shellcheck source=lib/common.sh
+source "$_rs_root/lib/common.sh"
+
+refactor_scan_main "$@"
