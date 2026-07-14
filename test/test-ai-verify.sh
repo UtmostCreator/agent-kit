@@ -913,6 +913,416 @@ test_refs_noise_hint_does_not_fire_below_threshold() {
 }
 run_test "verify refs: hint does not fire below the 50-orphan threshold" test_refs_noise_hint_does_not_fire_below_threshold
 
+# ── Phase 2 coverage: lib/ai-verify/reporting.sh ────────────────────────────
+# verify_report_dir / write_verify_report_file are pure file-write helpers with
+# no external deps, so each is sourced and called directly against a tmp dir.
+test_verify_report_dir_default() {
+    local tmp rc=0
+    tmp="$(mktemp -d)"
+    (
+        set -euo pipefail
+        # shellcheck disable=SC1091
+        source "$REPO_ROOT/lib/ai-verify/reporting.sh"
+        unset VERIFY_REPORT_DIR 2>/dev/null || true
+        AI_LOG_DIR="$tmp/logs"
+        local out
+        out="$(verify_report_dir)"
+        [[ "$out" == "$tmp/logs/verify" ]]
+        [[ -d "$tmp/logs/verify" ]]
+    ) || rc=$?
+    rm -rf "$tmp"
+    return "$rc"
+}
+run_test "verify_report_dir defaults from \$AI_LOG_DIR/verify" test_verify_report_dir_default
+
+test_verify_report_dir_override() {
+    local tmp rc=0
+    tmp="$(mktemp -d)"
+    (
+        set -euo pipefail
+        source "$REPO_ROOT/lib/ai-verify/reporting.sh"
+        AI_LOG_DIR="$tmp/logs"
+        # Consumed dynamically by verify_report_dir below.
+        # shellcheck disable=SC2034
+        VERIFY_REPORT_DIR="$tmp/custom-reports"
+        local out
+        out="$(verify_report_dir)"
+        [[ "$out" == "$tmp/custom-reports" ]]
+        [[ -d "$tmp/custom-reports" ]]
+    ) || rc=$?
+    rm -rf "$tmp"
+    return "$rc"
+}
+run_test "VERIFY_REPORT_DIR overrides the \$AI_LOG_DIR-derived default" test_verify_report_dir_override
+
+test_write_verify_report_file() {
+    local tmp rc=0
+    tmp="$(mktemp -d)"
+    (
+        set -euo pipefail
+        source "$REPO_ROOT/lib/ai-verify/reporting.sh"
+        AI_LOG_DIR="$tmp/logs"
+        unset VERIFY_REPORT_DIR 2>/dev/null || true
+        local path
+        path="$(write_verify_report_file eslint json '{"ok":true}')"
+        [[ "$path" == "$tmp/logs/verify/eslint.json" ]]
+        [[ -f "$path" ]]
+        [[ "$(cat "$path")" == '{"ok":true}' ]]
+    ) || rc=$?
+    rm -rf "$tmp"
+    return "$rc"
+}
+run_test "write_verify_report_file writes <tool>.<ext> with exact content" test_write_verify_report_file
+
+# ── Phase 2 coverage: lib/ai-verify/tool-policy.sh ──────────────────────────
+test_is_standalone_safe_tool_hits_and_misses() {
+    (
+        set -euo pipefail
+        source "$REPO_ROOT/lib/ai-verify/tool-policy.sh"
+        is_standalone_safe_tool shellcheck
+        is_standalone_safe_tool gitleaks
+        is_standalone_safe_tool lychee
+        ! is_standalone_safe_tool eslint
+        ! is_standalone_safe_tool phpstan
+    )
+}
+run_test "is_standalone_safe_tool matches the fixed allowlist only" test_is_standalone_safe_tool_hits_and_misses
+
+test_has_composer_bin() {
+    local tmp rc=0
+    tmp="$(mktemp -d)"
+    mkdir -p "$tmp/vendor/bin"
+    printf '#!/usr/bin/env bash\ntrue\n' >"$tmp/vendor/bin/pint"
+    chmod +x "$tmp/vendor/bin/pint"
+    printf '#!/usr/bin/env bash\ntrue\n' >"$tmp/vendor/bin/not-executable"
+    (
+        set -euo pipefail
+        cd "$tmp"
+        source "$REPO_ROOT/lib/ai-verify/tool-policy.sh"
+        has_composer_bin pint
+        ! has_composer_bin not-executable
+        ! has_composer_bin missing-entirely
+    ) || rc=$?
+    rm -rf "$tmp"
+    return "$rc"
+}
+run_test "has_composer_bin checks vendor/bin/<name> is executable" test_has_composer_bin
+
+# Shared harness: create a tmp dir, cd into it, source step-runner.sh (for
+# has_package_dependency, reused by can_run_tool) + tool-policy.sh, then
+# invoke $1 (a fixture+assertion function already defined in this script; bash
+# subshells inherit function definitions from the parent shell). Always cleans
+# up the tmp dir; returns the fixture function's exit status.
+with_tool_policy_fixture() {
+    local fn="$1"
+    local tmp rc=0
+    tmp="$(mktemp -d)"
+    (
+        set -euo pipefail
+        cd "$tmp"
+        # shellcheck disable=SC1091
+        source "$REPO_ROOT/lib/ai-verify/step-runner.sh"
+        # shellcheck disable=SC1091
+        source "$REPO_ROOT/lib/ai-verify/tool-policy.sh"
+        "$fn"
+    ) || rc=$?
+    rm -rf "$tmp"
+    return "$rc"
+}
+
+_can_run_tool_composer_true() {
+    mkdir -p vendor/bin
+    printf '#!/usr/bin/env bash\ntrue\n' >vendor/bin/phpstan
+    chmod +x vendor/bin/phpstan
+    can_run_tool phpstan
+}
+run_test "can_run_tool phpstan true when vendor/bin/phpstan is executable" with_tool_policy_fixture _can_run_tool_composer_true
+
+_can_run_tool_composer_false() {
+    ! can_run_tool psalm
+}
+run_test "can_run_tool psalm false when vendor/bin/psalm is missing" with_tool_policy_fixture _can_run_tool_composer_false
+
+_can_run_tool_eslint_true() {
+    printf '{"name":"t","devDependencies":{"eslint":"^8.0.0"}}\n' >package.json
+    can_run_tool eslint
+}
+run_test "can_run_tool eslint true via package.json devDependency" with_tool_policy_fixture _can_run_tool_eslint_true
+
+_can_run_tool_eslint_false() {
+    printf '{"name":"t","devDependencies":{}}\n' >package.json
+    ! can_run_tool eslint
+}
+run_test "can_run_tool eslint false when eslint is not a dependency" with_tool_policy_fixture _can_run_tool_eslint_false
+
+_can_run_tool_biome_via_dependency() {
+    printf '{"name":"t","devDependencies":{"@biomejs/biome":"^1.0.0"}}\n' >package.json
+    can_run_tool biome
+}
+run_test "can_run_tool biome true via @biomejs/biome dependency" with_tool_policy_fixture _can_run_tool_biome_via_dependency
+
+_can_run_tool_biome_via_config_file() {
+    printf '{"name":"t"}\n' >package.json
+    printf '{}\n' >biome.json
+    can_run_tool biome
+}
+run_test "can_run_tool biome true via bare biome.json (no dependency)" with_tool_policy_fixture _can_run_tool_biome_via_config_file
+
+_can_run_tool_biome_false() {
+    printf '{"name":"t"}\n' >package.json
+    ! can_run_tool biome
+}
+run_test "can_run_tool biome false with neither dependency nor config file" with_tool_policy_fixture _can_run_tool_biome_false
+
+_can_run_tool_vue_tsc() {
+    printf '{"name":"t","devDependencies":{"vue-tsc":"^1.0.0"}}\n' >package.json
+    can_run_tool vue-tsc
+}
+run_test "can_run_tool vue-tsc true via package.json dependency" with_tool_policy_fixture _can_run_tool_vue_tsc
+
+_can_run_tool_nuxt() {
+    printf '{"name":"t","devDependencies":{"nuxt":"^3.0.0"}}\n' >package.json
+    can_run_tool nuxt && can_run_tool nuxi
+}
+run_test "can_run_tool nuxt/nuxi true via nuxt dependency" with_tool_policy_fixture _can_run_tool_nuxt
+
+_can_run_tool_knip() {
+    printf '{"name":"t","devDependencies":{"knip":"^5.0.0"}}\n' >package.json
+    can_run_tool knip
+}
+run_test "can_run_tool knip true via package.json dependency" with_tool_policy_fixture _can_run_tool_knip
+
+_can_run_tool_default_arm_true() {
+    mkdir -p fakebin
+    printf '#!/usr/bin/env bash\ntrue\n' >fakebin/shellcheck
+    chmod +x fakebin/shellcheck
+    PATH="$PWD/fakebin:$PATH" can_run_tool shellcheck
+}
+run_test "can_run_tool default arm true for an allowlisted standalone tool on PATH" with_tool_policy_fixture _can_run_tool_default_arm_true
+
+_can_run_tool_default_arm_not_on_path() {
+    # Intentional: point PATH at an empty/nonexistent dir so any real,
+    # system-installed copy of the tool cannot be found via `command -v`.
+    # shellcheck disable=SC2123
+    PATH="/nonexistent-test-dir-xyz"
+    ! can_run_tool shellcheck
+}
+run_test "can_run_tool default arm false for an allowlisted tool not on PATH" with_tool_policy_fixture _can_run_tool_default_arm_not_on_path
+
+_can_run_tool_default_arm_unlisted_tool() {
+    mkdir -p fakebin
+    printf '#!/usr/bin/env bash\ntrue\n' >fakebin/some-random-tool
+    chmod +x fakebin/some-random-tool
+    ! PATH="$PWD/fakebin:$PATH" can_run_tool some-random-tool
+}
+run_test "can_run_tool default arm false for a non-allowlisted tool even if on PATH" with_tool_policy_fixture _can_run_tool_default_arm_unlisted_tool
+
+# ── Phase 2 coverage: lib/ai-verify/language-files.sh ───────────────────────
+test_language_pathspecs_all_languages() {
+    (
+        set -euo pipefail
+        AI_LOG_DIR="$(mktemp -d)"
+        source "$REPO_ROOT/lib/common.sh"
+        source "$REPO_ROOT/lib/ai-verify/language-files.sh"
+        [[ "$(language_pathspecs php)" == '*.php' ]]
+        [[ "$(language_pathspecs js)" == $'*.js\n*.jsx\n*.mjs\n*.cjs' ]]
+        [[ "$(language_pathspecs ts)" == $'*.ts\n*.tsx\n*.mts\n*.cts' ]]
+        [[ "$(language_pathspecs vue)" == '*.vue' ]]
+        [[ "$(language_pathspecs html)" == $'*.html\n*.blade.php\n*.twig' ]]
+    )
+}
+run_test "language_pathspecs prints the right globs for all 5 languages" test_language_pathspecs_all_languages
+
+test_language_pathspecs_unknown_dies() {
+    local tmp rc=0
+    tmp="$(mktemp -d)"
+    (
+        set -euo pipefail
+        AI_LOG_DIR="$tmp/logs"
+        source "$REPO_ROOT/lib/common.sh"
+        source "$REPO_ROOT/lib/ai-verify/language-files.sh"
+        language_pathspecs kotlin >/dev/null 2>&1
+    ) || rc=$?
+    rm -rf "$tmp"
+    ((rc != 0))
+}
+run_test "language_pathspecs dies loudly for an unknown language" test_language_pathspecs_unknown_dies
+
+test_scoped_language_files_merges_across_pathspecs() {
+    local tmp rc=0
+    tmp="$(mktemp -d)"
+    (
+        set -euo pipefail
+        cd "$tmp"
+        git init -q
+        git config user.email t@t.t
+        git config user.name t
+        printf '# t\n' >README.md
+        git add -A
+        git commit -q -m init
+        mkdir -p src
+        printf '<?php\n' >src/App.php
+        printf 'x\n' >src/app.js
+        printf 'x\n' >src/app.jsx
+        printf 'x\n' >src/app.ts
+        # Consumed dynamically by common.sh's die()/log_json.
+        # shellcheck disable=SC2034
+        AI_LOG_DIR="$tmp/logs"
+        source "$REPO_ROOT/lib/common.sh"
+        source "$REPO_ROOT/lib/ai-verify/run.sh"
+        source "$REPO_ROOT/lib/ai-verify/language-files.sh"
+        AI_VERIFY_SCOPE=changed
+        local out
+        out="$(scoped_language_files php)"
+        [[ "$out" == "src/App.php" ]]
+        out="$(scoped_language_files js)"
+        [[ "$out" == $'src/app.js\nsrc/app.jsx' ]]
+        out="$(scoped_language_files vue)"
+        [[ -z "$out" ]]
+    ) || rc=$?
+    rm -rf "$tmp"
+    return "$rc"
+}
+run_test "scoped_language_files merges/dedupes/exist-filters across pathspecs" test_scoped_language_files_merges_across_pathspecs
+
+# ── Phase 2 coverage: lib/ai-verify/language-dispatch.sh ────────────────────
+# Build a git-fixture repo with fake pnpm + composer-managed vendor/bin/*
+# binaries that record every invocation, commit the project metadata files
+# (composer.json/package.json/vendor/bin/*/tsconfig.json) so they are NOT
+# themselves "changed", then leave one uncommitted source file per language so
+# AI_VERIFY_SCOPE (default "ai", translated to "changed" inside
+# ai_verify_language) picks each one up. Runs
+# `libexec/ai-verify --language <lang>` for real (AI_VERIFY_TEST_MODE=0) and
+# prints the fixture's tmp root dir; caller reads $dir/tool.calls,
+# $dir/stdout, $dir/stderr, $dir/exit_code and removes the dir.
+run_language_dispatch_fixture() {
+    local lang="$1"
+    shift
+    local tmpbin record work
+    tmpbin="$(mktemp -d)"
+    record="$tmpbin/tool.calls"
+
+    # Fake pnpm: records every invocation and exits 0, EXCEPT an
+    # eslint --fix-dry-run invocation (suggest mode), which exits 1 so the
+    # "advisory, never fails" contract is actually exercised.
+    cat >"$tmpbin/pnpm" <<PNPMEOF
+#!/usr/bin/env bash
+printf 'pnpm:%s\n' "\$*" >>"$record"
+case "\$*" in
+*--fix-dry-run*) exit 1 ;;
+esac
+exit 0
+PNPMEOF
+    chmod +x "$tmpbin/pnpm"
+
+    work="$tmpbin/work"
+    mkdir -p "$work/vendor/bin" "$work/src"
+    (
+        cd "$work"
+        git init -q
+        git config user.email t@t.t
+        git config user.name t
+        git config core.excludesfile /dev/null
+        printf '{"name":"t/t","require":{}}\n' >composer.json
+        printf '{"name":"t","devDependencies":{"eslint":"^8.0.0","typescript":"^5.0.0","vue-tsc":"^1.0.0","nuxt":"^3.0.0","knip":"^5.0.0"}}\n' >package.json
+        printf '{}\n' >tsconfig.json
+        local bin
+        for bin in pint phpstan psalm rector; do
+            cat >"vendor/bin/$bin" <<BINEOF
+#!/usr/bin/env bash
+printf '$bin:%s\n' "\$*" >>"$record"
+exit 0
+BINEOF
+            chmod +x "vendor/bin/$bin"
+        done
+        git add -A
+        git commit -q -m init
+
+        # Leave these untracked so "changed" scope picks them up.
+        printf '<?php\n' >src/App.php
+        printf 'console.log(1)\n' >src/app.js
+        printf 'const x: number = 1\n' >src/app.ts
+        printf '<template></template>\n' >src/App.vue
+        printf '<html></html>\n' >src/index.html
+
+        PATH="$tmpbin:$PATH" AI_VERIFY_TEST_MODE=0 VERIFY_SECRETS=0 VERIFY_FULL=0 \
+            "$@" "$BASH_BIN" "$SCRIPT" "$work" --language "$lang" \
+            >"$tmpbin/stdout" 2>"$tmpbin/stderr"
+        printf '%s\n' "$?" >"$tmpbin/exit_code"
+    )
+
+    printf '%s\n' "$tmpbin"
+}
+
+test_language_dispatch_php_runs_pint_phpstan_psalm_rector() {
+    local dir out rc=0
+    dir="$(run_language_dispatch_fixture php)"
+    out="$(cat "$dir/tool.calls" 2>/dev/null)"
+    [[ "$out" == *"pint:--test src/App.php"* ]] &&
+        [[ "$out" == *"phpstan:analyse --memory-limit=1G src/App.php"* ]] &&
+        [[ "$out" == *"psalm:--no-cache src/App.php"* ]] &&
+        [[ "$out" == *"rector:process --dry-run src/App.php"* ]] || rc=1
+    rm -rf "$dir"
+    return "$rc"
+}
+run_test "--language php dispatches pint/phpstan/psalm/rector to changed *.php files" test_language_dispatch_php_runs_pint_phpstan_psalm_rector
+
+test_language_dispatch_js_runs_eslint_and_knip() {
+    local dir out rc=0
+    dir="$(run_language_dispatch_fixture js)"
+    out="$(cat "$dir/tool.calls" 2>/dev/null)"
+    [[ "$out" == *"pnpm:exec eslint src/app.js"* ]] &&
+        [[ "$out" == *"pnpm:exec knip"* ]] || rc=1
+    rm -rf "$dir"
+    return "$rc"
+}
+run_test "--language js dispatches scoped eslint plus project-wide knip" test_language_dispatch_js_runs_eslint_and_knip
+
+test_language_dispatch_ts_runs_tsc_and_eslint() {
+    local dir out rc=0
+    dir="$(run_language_dispatch_fixture ts)"
+    out="$(cat "$dir/tool.calls" 2>/dev/null)"
+    [[ "$out" == *"pnpm:exec tsc --noEmit"* ]] &&
+        [[ "$out" == *"pnpm:exec eslint src/app.ts"* ]] || rc=1
+    rm -rf "$dir"
+    return "$rc"
+}
+run_test "--language ts dispatches project-wide tsc plus scoped eslint" test_language_dispatch_ts_runs_tsc_and_eslint
+
+test_language_dispatch_vue_runs_vue_tsc_and_nuxt() {
+    local dir out rc=0
+    dir="$(run_language_dispatch_fixture vue)"
+    out="$(cat "$dir/tool.calls" 2>/dev/null)"
+    [[ "$out" == *"pnpm:exec eslint src/App.vue"* ]] &&
+        [[ "$out" == *"pnpm:exec vue-tsc --noEmit"* ]] &&
+        [[ "$out" == *"pnpm:exec nuxi typecheck"* ]] || rc=1
+    rm -rf "$dir"
+    return "$rc"
+}
+run_test "--language vue dispatches eslint plus vue-tsc/nuxi typecheck" test_language_dispatch_vue_runs_vue_tsc_and_nuxt
+
+test_language_dispatch_html_warns_when_unconfigured() {
+    local dir err rc=0
+    dir="$(run_language_dispatch_fixture html)"
+    err="$(cat "$dir/stderr" 2>/dev/null)"
+    [[ "$err" == *"No configured HTML verifier found"* ]] || rc=1
+    rm -rf "$dir"
+    return "$rc"
+}
+run_test "--language html warns cleanly when no biome/htmlhint is configured" test_language_dispatch_html_warns_when_unconfigured
+
+test_language_dispatch_suggest_mode_never_fails() {
+    local dir out ec rc=0
+    dir="$(run_language_dispatch_fixture js env AI_VERIFY_MODE=suggest)"
+    out="$(cat "$dir/tool.calls" 2>/dev/null)"
+    ec="$(cat "$dir/exit_code" 2>/dev/null)"
+    [[ "$out" == *"pnpm:exec eslint --fix-dry-run --format json src/app.js"* ]] &&
+        [[ "$ec" == "0" ]] || rc=1
+    rm -rf "$dir"
+    return "$rc"
+}
+run_test "AI_VERIFY_MODE=suggest runs eslint --fix-dry-run and never fails" test_language_dispatch_suggest_mode_never_fails
+
 printf '\n=== Results ===\n'
 printf '  Passed: %d  Failed: %d  Skipped: %d\n' "$PASS" "$FAIL" "$SKIP"
 if ((FAIL == 0)); then
