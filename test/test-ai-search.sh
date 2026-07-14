@@ -1320,4 +1320,328 @@ else
     expect_jq "normal search still works after introspect wiring" '.tool == "ai-search"'
 fi
 
+# =============================================================================
+# Phase 7A — results-rg.sh: structured results for git-grep-backed modes
+# =============================================================================
+printf '[phase7A] results-rg structured objects for tracked/changed-text/staged-text\n'
+
+run_search tracked StructuredNeedle "$p1_repo" --fixed
+expect_status "tracked structured search -> ok" "ok"
+expect_jq "tracked structured result has core git-grep fields" '
+  .results[]
+  | select(
+      .path == "app/UserService.php"
+      and (.line|type=="number")
+      and .column == 1
+      and .mode == "tracked"
+      and .source_tool == "git-grep"
+      and .language == "php"
+      and (.text|contains("StructuredNeedle"))
+    )
+'
+
+run_search tracked ColonNeedle "$p1_repo" --fixed
+expect_status "tracked colon filename search -> ok" "ok"
+expect_jq "tracked colon filename path remains valid" '
+  .results[] | select(.path == "app/Has:Colon.php" and (.text|contains("ColonNeedle")))
+'
+
+run_search tracked StructuredNeedle "$p1_repo" --fixed --absolute
+expect_status "tracked --absolute -> ok" "ok"
+expect_jq "tracked --absolute keeps relative path" '.results[] | select(.path == "app/UserService.php")'
+expect_jq "tracked --absolute adds absolute_path (git-grep relative-raw branch)" '
+  .results[]
+  | select(.path == "app/UserService.php")
+  | .absolute_path
+  | (type == "string") and startswith("/") and endswith("app/UserService.php")
+'
+
+run_search tracked ConfigNeedle "$p1_repo" --fixed
+expect_jq "tracked language detection: yaml" '.results[] | select(.path == "config/app.yaml" and .language == "yaml")'
+
+run_search tracked DocsNeedle "$p1_repo" --fixed
+expect_jq "tracked language detection: markdown" '.results[] | select(.path == "README.md" and .language == "markdown")'
+
+run_search tracked DepsNeedle "$p1_repo" --fixed
+expect_jq "tracked language detection: json" '.results[] | select(.path == "composer.json" and .language == "json")'
+expect_jq "tracked language detection: nix" '.results[] | select(.path == "flake.nix" and .language == "nix")'
+
+run_search changed-text Tenant "$phase2_repo" --fixed
+expect_jq "changed-text structured result has core rg-line fields" '
+  .results[]
+  | select(
+      .path == "app/Changed.php"
+      and .mode == "changed-text"
+      and .source_tool == "rg"
+      and .language == "php"
+      and (.column|type=="number")
+    )
+'
+
+run_search staged-text Tenant "$phase2_repo" --fixed
+expect_jq "staged-text structured result has core rg-line fields" '
+  .results[]
+  | select(
+      .path == "app/Staged.php"
+      and .mode == "staged-text"
+      and .source_tool == "rg"
+      and .language == "php"
+    )
+'
+
+# The tracked/changed-text/staged-text bucket in dispatch.sh's emit_results has
+# its OWN max-bytes truncation arm, distinct from the text/docs/... bucket
+# already covered in Phase 3B.
+run_search tracked ContextNeedle "$p1_repo" --fixed --context 20 --max-bytes 50
+expect_status "tracked context + max-bytes -> ok" "ok"
+expect_jq "tracked context max-bytes sets truncation (line-oriented bucket)" '.meta.truncated == true'
+
+# =============================================================================
+# Phase 7B — backend-curated.sh: plain output + backend error branch
+# =============================================================================
+printf '[phase7B] curated backends: plain output and error branch\n'
+
+run_search_text todo "$p1_repo"
+if [[ "$LAST_RC" -eq 0 && "$LAST_JSON" == *"app/UserService.php"* ]]; then
+    printf '  PASS todo plain-mode output lists file paths\n'
+else
+    printf '  FAIL todo plain-mode output (rc=%s)\n' "$LAST_RC" >&2
+    printf '       output: %s\n' "$LAST_JSON" >&2
+    exit 1
+fi
+
+run_search_text unsafe-patterns "$p1_repo"
+if [[ "$LAST_RC" -eq 0 && "$LAST_JSON" == *"app/unsafe.php"* && "$LAST_JSON" == *":eval"* ]]; then
+    printf '  PASS unsafe-patterns plain-mode output lists path:line:rule\n'
+else
+    printf '  FAIL unsafe-patterns plain-mode output (rc=%s)\n' "$LAST_RC" >&2
+    printf '       output: %s\n' "$LAST_JSON" >&2
+    exit 1
+fi
+
+run_search todo /nonexistent-root-for-ai-search-tests-xyz
+expect_status "todo scan backend error on unreadable root -> error" "error"
+
+run_search unsafe-patterns /nonexistent-root-for-ai-search-tests-xyz
+expect_status "unsafe-patterns scan backend error on unreadable root -> error" "error"
+
+# =============================================================================
+# Phase 7C — backend-files.sh: filename search (fd) + fallbacks
+# =============================================================================
+printf '[phase7C] backend-files: filename search + fd-absent fallbacks\n'
+
+run_search files UserService "$p1_repo"
+expect_status "files mode fd search -> ok" "ok"
+expect_jq "files mode finds UserService.php by name" 'any(.matches[]; contains("app/UserService.php"))'
+expect_jq "files mode is file-list shaped (no results[])" '.results == []'
+
+run_search files UserService "$p1_repo" --no-ignore
+expect_status "files mode --no-ignore (fd_ignore_args arm 1) -> ok" "ok"
+
+run_search files UserService "$p1_repo" --no-ignore-global
+expect_status "files mode --no-ignore-global (fd_ignore_args arm 2) -> ok" "ok"
+
+run_search_without fd files UserService "$p1_repo"
+if [[ "$LAST_RC" -eq 99 ]]; then
+    printf '  PASS files git-ls-files-fallback test skipped (fd not isolatable on this PATH)\n'
+else
+    expect_status "files mode fd-absent git-ls-files fallback -> ok" "ok"
+    expect_jq "files git-ls-files fallback warns about degraded mode" '(.warnings|join(" ")) | test("git ls-files"; "i")'
+    expect_jq "files git-ls-files fallback still finds UserService.php" 'any(.matches[]; contains("app/UserService.php"))'
+fi
+
+run_search_without fd files case "$tmp_search_dir"
+if [[ "$LAST_RC" -eq 99 ]]; then
+    printf '  PASS files find-fallback test skipped (fd not isolatable on this PATH)\n'
+else
+    expect_status "files mode fd-absent find fallback (non-git root) -> ok" "ok"
+    expect_jq "files find fallback warns about degraded mode" '(.warnings|join(" ")) | test("find"; "i")'
+    expect_jq "files find fallback still finds case.txt" 'any(.matches[]; contains("case.txt"))'
+fi
+
+# files mode with BOTH fd and find absent, on a non-git root -> unavailable.
+files_bindir="$(mktemp -d)"
+for files_tool in jq git bash sh awk grep sed cat tr wc dirname mktemp rm printf rmdir ast-grep rg env head tail sort uniq xargs; do
+    files_tool_path="$(command -v "$files_tool" 2>/dev/null)" && ln -sf "$files_tool_path" "$files_bindir/$files_tool"
+done
+if [[ -z "$(PATH="$files_bindir" command -v fd 2>/dev/null)" && -z "$(PATH="$files_bindir" command -v find 2>/dev/null)" ]]; then
+    set +e
+    LAST_JSON="$(PATH="$files_bindir" AI_OUTPUT=json "$BASH_BIN" "$SCRIPT" files case "$tmp_search_dir" 2>&1)"
+    LAST_RC=$?
+    set -e
+    expect_status "files mode with fd+find both absent -> unavailable" "unavailable"
+else
+    printf '  PASS files-fully-unavailable test skipped (fd/find not isolatable on this PATH)\n'
+fi
+rm -rf "$files_bindir"
+
+# =============================================================================
+# Phase 7D — backend-ast.sh: no-match branch + plain-mode output
+# =============================================================================
+printf '[phase7D] backend-ast: no-match + plain output\n'
+
+if command -v ast-grep >/dev/null 2>&1; then
+    run_search struct 'class ThisPatternWillNeverMatchXYZ123' "$p1_repo" --lang php
+    expect_status "struct no-match -> no_matches" "no_matches"
+
+    run_search symbols ThisSymbolWillNeverMatchXYZ123 "$p1_repo" --lang php
+    expect_status "symbols no-match -> no_matches" "no_matches"
+    expect_jq "symbols no-match still emits symbols[] as empty array" '(.symbols|type=="array") and (.symbols|length==0)'
+
+    run_search_text struct 'class $NAME' "$p1_repo" --lang php
+    if [[ "$LAST_RC" -eq 0 && "$LAST_JSON" == *"app/UserService.php"* ]]; then
+        printf '  PASS struct plain-mode output lists path:start:text\n'
+    else
+        printf '  FAIL struct plain-mode output (rc=%s)\n' "$LAST_RC" >&2
+        printf '       output: %s\n' "$LAST_JSON" >&2
+        exit 1
+    fi
+
+    run_search_text class UserService "$p1_repo" --lang php
+    if [[ "$LAST_RC" -eq 0 && "$LAST_JSON" == *"app/UserService.php"* ]]; then
+        printf '  PASS class plain-mode output falls through to shared plain branch\n'
+    else
+        printf '  FAIL class plain-mode output (rc=%s)\n' "$LAST_RC" >&2
+        printf '       output: %s\n' "$LAST_JSON" >&2
+        exit 1
+    fi
+else
+    printf '  PASS phase7D ast-grep-dependent tests skipped because ast-grep is not installed\n'
+fi
+
+# =============================================================================
+# Phase 7E — backend-git.sh: query_matches_line case/pattern branches
+# =============================================================================
+printf '[phase7E] backend-git: diff/history case & pattern branches\n'
+
+run_search diff diffneedle "$p1_repo" --fixed --ignore-case
+expect_status "diff --ignore-case lowercase query -> ok" "ok"
+
+run_search diff DIFFNEEDLE "$p1_repo" --fixed --case-sensitive
+expect_status "diff --case-sensitive mismatched case -> no_matches" "no_matches"
+
+run_search diff 'Diff(?=Needle)' "$p1_repo" --pcre2
+expect_status "diff --pcre2 lookahead -> ok" "ok"
+
+run_search diff DiffNeedle "$p1_repo"
+expect_status "diff default pattern mode (regex) -> ok" "ok"
+
+run_search diff StagedDiffNeedle "$p1_repo" --fixed --staged
+expect_jq "diff --staged summary scope" '.summary.scope == "staged"'
+
+run_search diff DiffNeedle "$p1_repo" --fixed --base main
+expect_jq "diff --base summary scope" '.summary.scope == "base:main"'
+
+run_search history historymessageneedle "$p1_repo" --messages --fixed --ignore-case
+expect_status "history --messages --ignore-case -> ok" "ok"
+expect_jq "history --messages --ignore-case matches commit message" '
+  .results[] | select(.message|test("HistoryMessageNeedle"))
+'
+
+# =============================================================================
+# Phase 7F — parse-flags.sh: missing-value errors + no-ignore variants + bad-int
+# =============================================================================
+printf '[phase7F] parse-flags: missing-value errors + no-ignore variants\n'
+
+run_search text foo "$p1_repo" --glob
+expect_status "--glob missing value -> error" "error"
+expect_jq "--glob missing value names the requirement" '(.errors|join(" ")) | test("--glob requires a pattern")'
+
+run_search text foo "$p1_repo" --type
+expect_status "--type missing value -> error" "error"
+expect_jq "--type missing value names the requirement" '(.errors|join(" ")) | test("--type requires a type name")'
+
+run_search text foo "$p1_repo" --exclude
+expect_status "--exclude missing value -> error" "error"
+expect_jq "--exclude missing value names the requirement" '(.errors|join(" ")) | test("--exclude requires a path")'
+
+run_search diff foo "$p1_repo" --base
+expect_status "--base missing value -> error" "error"
+expect_jq "--base missing value names the requirement" '(.errors|join(" ")) | test("--base requires a ref")'
+
+run_search struct foo "$p1_repo" --lang
+expect_status "--lang missing value -> error" "error"
+expect_jq "--lang missing value names the requirement" '(.errors|join(" ")) | test("--lang requires a language")'
+
+run_search text foo "$p1_repo" --max-depth abc
+expect_status "--max-depth non-numeric -> error" "error"
+expect_jq "--max-depth non-numeric names the requirement" '(.errors|join(" ")) | test("--max-depth requires a non-negative integer")'
+
+run_search text ScopeNeedle "$p1_repo" --fixed --no-ignore
+expect_status "--no-ignore -> ok" "ok"
+
+run_search text ScopeNeedle "$p1_repo" --fixed --no-ignore-vcs
+expect_status "--no-ignore-vcs -> ok" "ok"
+
+run_search text ScopeNeedle "$p1_repo" --fixed --no-ignore-global
+expect_status "--no-ignore-global -> ok" "ok"
+
+run_search text ScopeNeedle "$p1_repo" --fixed --no-ignore-parent
+expect_status "--no-ignore-parent -> ok" "ok"
+
+run_search text ScopeNeedle "$p1_repo" --fixed --no-ignore-dot
+expect_status "--no-ignore-dot -> ok" "ok"
+
+# fail()'s non-JSON branch (log_error to stderr) is only reachable in plain
+# mode; every other error-path test above runs under AI_OUTPUT=json.
+set +e
+PLAIN_ERR_OUT="$("$BASH_BIN" "$SCRIPT" text foo "$p1_repo" --bad-flag 2>&1 1>/dev/null)"
+PLAIN_ERR_RC=$?
+set -e
+if [[ "$PLAIN_ERR_RC" -ne 0 && "$PLAIN_ERR_OUT" == *"unknown flag"* ]]; then
+    printf '  PASS plain-mode unknown-flag error uses fail() non-JSON branch (stderr)\n'
+else
+    printf '  FAIL plain-mode unknown-flag error (rc=%s, stderr=%s)\n' "$PLAIN_ERR_RC" "$PLAIN_ERR_OUT" >&2
+    exit 1
+fi
+
+# =============================================================================
+# Phase 7G — doctor.sh: plain-mode branch + missing-tool branches
+# =============================================================================
+printf '[phase7G] doctor: plain mode + missing-tool diagnostics\n'
+
+run_search_text doctor
+if [[ "$LAST_RC" -eq 0 && "$LAST_JSON" == "ai-search doctor: ok" ]]; then
+    printf '  PASS doctor plain-mode short status line\n'
+else
+    printf '  FAIL doctor plain-mode short status line (rc=%s, out=%s)\n' "$LAST_RC" "$LAST_JSON" >&2
+    exit 1
+fi
+
+run_search_without fd doctor
+if [[ "$LAST_RC" -eq 99 ]]; then
+    printf '  PASS doctor fd-missing test skipped (fd not isolatable on this PATH)\n'
+else
+    expect_status "doctor with fd missing -> ok" "ok"
+    expect_jq "doctor fd-missing warns about degraded files mode" '(.diagnostics.warnings|join(" ")) | test("fd"; "i")'
+fi
+
+run_search_without rg doctor
+if [[ "$LAST_RC" -eq 99 ]]; then
+    printf '  PASS doctor rg-missing test skipped (rg not isolatable on this PATH)\n'
+else
+    expect_status "doctor with rg missing -> ok" "ok"
+    expect_jq "doctor rg-missing lists rg in missing[]" '.diagnostics.missing | index("rg") != null'
+fi
+
+run_search_without git doctor
+if [[ "$LAST_RC" -eq 99 ]]; then
+    printf '  PASS doctor git-missing test skipped (git not isolatable on this PATH)\n'
+else
+    expect_status "doctor with git missing -> ok" "ok"
+    expect_jq "doctor git-missing lists git in missing[] and git_available false" '
+      (.diagnostics.missing | index("git") != null) and (.diagnostics.git_available == false)
+    '
+fi
+
+# =============================================================================
+# Phase 7H — results-context.sh: context_lines_json start>end branch
+# =============================================================================
+printf '[phase7H] results-context: zero-before-context branch\n'
+
+run_search text ContextNeedle "$p1_repo" --fixed --before-context 0 --after-context 2
+expect_status "--before-context 0 --after-context 2 -> ok" "ok"
+expect_jq "before-context 0 yields empty before context (start>end branch)" '.results[0].context.before == []'
+expect_jq "after-context 2 still populated" '(.results[0].context.after|length) == 2'
+
 echo "ai-search tests passed"
