@@ -11,6 +11,8 @@
   <img alt="No telemetry" src="https://img.shields.io/badge/telemetry-none-success?style=for-the-badge"/>
   <br/>
   <a href="https://github.com/UtmostCreator/agent-kit/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/UtmostCreator/agent-kit/ci.yml?style=for-the-badge&label=CI&logo=github"/></a>
+  <img alt="Tests" src="https://img.shields.io/badge/tests-497%20passing-2ea44f?style=for-the-badge&logo=checkmarx&logoColor=white"/>
+  <img alt="Command coverage" src="https://img.shields.io/badge/command%20coverage-100%25-2ea44f?style=for-the-badge"/>
   <a href="https://www.npmjs.com/package/@utmostcreator/agent-kit"><img alt="npm" src="https://img.shields.io/npm/v/@utmostcreator/agent-kit?style=for-the-badge&logo=npm&color=cb3837"/></a>
   <a href="https://github.com/UtmostCreator/agent-kit/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/UtmostCreator/agent-kit?style=for-the-badge&color=ffcc00"/></a>
 </p>
@@ -173,6 +175,31 @@ the 24 commands uses, why, and a real captured example.
 ./scripts/check-publishable.sh  # secret / hygiene boundary checks
 bash scripts/gen-examples.sh > docs/EXAMPLES.md   # regenerate the examples doc
 ```
+
+**Test coverage:** the suite runs **497 passing test cases** across 26 test
+files, exercising **all 24 public commands (100% command coverage)**. This
+figure is *command coverage* — the share of shipped commands with a dedicated
+test — not statement coverage. For real line coverage, run
+`./scripts/coverage.sh` — as of this writing it measures **62.38% line
+coverage (5002/8019 executable lines)** across `bin/`, `lib/`, and `libexec/`,
+up from an initial 44.79% baseline (see `TODO/coverage-todo.md` for the
+phased plan behind that jump — safety-critical guarded-mutation/rollback
+paths, the canonical `ai-verify` engine, the repomix internal engines, and
+`ai-diff-context`/`ai-context`). The remaining gap is concentrated in
+language-specific `ai-verify` backends that need a dedicated Kotlin/Android/
+Gradle fixture project (tracked separately) and a handful of commands slated
+for removal before stable release per `TODO/todo.md`, which aren't worth
+further test investment.
+
+The default engine is a native, pure-Bash `DEBUG`-trap collector
+(`scripts/lib/cov-hook.sh`, no external dependency): kcov's ptrace-based
+tracer reports a silent, misleading `0/0` in seccomp-restricted sandboxes and
+containers, since `PTRACE_TRACEME` returns `EPERM` there. Set
+`COVERAGE_ENGINE=kcov` to use kcov instead on a host where ptrace is
+permitted (`nix-shell --run 'COVERAGE_ENGINE=kcov ./scripts/coverage.sh'`,
+via the repo-local `shell.nix`). Either engine writes its report under
+`coverage/` (per-file text report for the native engine; HTML + Cobertura for
+kcov). Regenerate the command numbers with `./scripts/check.sh`.
 
 See **[CONTRIBUTING.md](CONTRIBUTING.md)**. Report vulnerabilities privately via
 GitHub Security Advisories — see **[SECURITY.md](SECURITY.md)**.
