@@ -34,6 +34,36 @@ cleanup_test_dirs() {
 }
 trap cleanup_test_dirs EXIT
 
+# Symlink every executable found on the current $PATH into $1, except any
+# names passed as the remaining args. Used to simulate a missing binary
+# (e.g. uuidgen, flock, setsid) without disturbing the real PATH for the
+# rest of the suite. Defined early so any section can use it.
+build_path_without() {
+    local fakebin="$1"
+    shift
+    mkdir -p "$fakebin"
+    local dir f base skip ex
+    local -a dirs=()
+    IFS=':' read -ra dirs <<<"$PATH"
+    for dir in "${dirs[@]}"; do
+        [[ -d "$dir" ]] || continue
+        for f in "$dir"/*; do
+            [[ -x "$f" && -f "$f" ]] || continue
+            base="$(basename "$f")"
+            skip=0
+            for ex in "$@"; do
+                [[ "$base" == "$ex" ]] && {
+                    skip=1
+                    break
+                }
+            done
+            ((skip == 1)) && continue
+            [[ -e "$fakebin/$base" ]] && continue
+            ln -sf "$f" "$fakebin/$base" 2>/dev/null || true
+        done
+    done
+}
+
 run_test() {
     CURRENT_TEST="$1"
     shift
@@ -405,6 +435,24 @@ test_rotate_missing_file() {
 }
 run_test "rotate_log_if_needed_locked handles missing file" test_rotate_missing_file
 
+test_rotate_log_no_flock_still_rotates() {
+    local tmpd fakebin script
+    tmpd="$(test_tmpdir)"
+    fakebin="$tmpd/fakebin-no-flock"
+    build_path_without "$fakebin" flock
+    dd if=/dev/zero of="$tmpd/log" bs=200 count=1 2>/dev/null
+    script="$tmpd/run.sh"
+    cat >"$script" <<EOF
+source "$COMMON_SH"
+rotate_log_if_needed_locked "$tmpd/log"
+EOF
+    PATH="$fakebin" AI_LOG_MAX_BYTES=100 "$BASH_BIN" "$script"
+    # Degrades to an unlocked check, but still rotates.
+    [[ ! -f "$tmpd/log" ]]
+    ls "$tmpd"/log.*.bak >/dev/null 2>&1
+}
+run_test "rotate_log_if_needed_locked: degrades gracefully without flock (still rotates)" test_rotate_log_no_flock_still_rotates
+
 # ── Section: append_jsonl_safe ────────────────────────────────────────────────
 
 printf '\nappend_jsonl_safe\n'
@@ -419,6 +467,25 @@ test_append_jsonl_safe() {
     assert_eq "2" "$lines"
 }
 run_test "append_jsonl_safe appends 2 lines" test_append_jsonl_safe
+
+test_append_jsonl_safe_no_flock_warns_and_appends() {
+    local tmpd fakebin script out
+    tmpd="$(test_tmpdir)"
+    fakebin="$tmpd/fakebin-no-flock"
+    build_path_without "$fakebin" flock
+    script="$tmpd/run.sh"
+    cat >"$script" <<EOF
+source "$COMMON_SH"
+append_jsonl_safe "$tmpd/out.jsonl" '{"a":1}'
+EOF
+    out="$(PATH="$fakebin" "$BASH_BIN" "$script" 2>&1)"
+    assert_match "flock not found" "$out"
+    [[ -f "$tmpd/out.jsonl" ]]
+    local lines
+    lines="$(wc -l <"$tmpd/out.jsonl" | tr -d ' ')"
+    assert_eq "1" "$lines"
+}
+run_test "append_jsonl_safe: degrades to plain append with warning when flock is missing" test_append_jsonl_safe_no_flock_warns_and_appends
 
 # ── Section: git_root / repo_root ─────────────────────────────────────────────
 
@@ -630,6 +697,137 @@ test_log_redact_payload_failsafe_non_json() {
     assert_eq "not-json" "$out"
 }
 run_test "log_redact_payload returns non-JSON input unchanged" test_log_redact_payload_failsafe_non_json
+
+# ── Section: log_new_id ────────────────────────────────────────────────────────
+
+printf '\nlog_new_id\n'
+
+test_log_new_id_uuidgen_present() {
+    if ! command -v uuidgen >/dev/null 2>&1; then
+        skip_test "log_new_id: uses uuidgen when available" "uuidgen not installed"
+        return 0
+    fi
+    local id
+    id="$(log_new_id evt)"
+    assert_match '^evt_' "$id"
+}
+run_test "log_new_id: uses uuidgen when available" test_log_new_id_uuidgen_present
+
+test_log_new_id_no_uuidgen_fallback() {
+    local tmpd fakebin script id
+    tmpd="$(test_tmpdir)"
+    fakebin="$tmpd/fakebin-no-uuidgen"
+    build_path_without "$fakebin" uuidgen
+    script="$tmpd/run.sh"
+    cat >"$script" <<EOF
+source "$COMMON_SH"
+log_new_id evt
+EOF
+    id="$(PATH="$fakebin" "$BASH_BIN" "$script")"
+    # Fallback composition is prefix_epoch_pid_random (all-numeric fields,
+    # no dashes) -- distinct from uuidgen's dash-hex output.
+    assert_match '^evt_[0-9]+_[0-9]+_[0-9]+$' "$id"
+}
+run_test "log_new_id: falls back to time+pid+RANDOM composition without uuidgen" test_log_new_id_no_uuidgen_fallback
+
+# ── Section: event_execution_status / event_category ──────────────────────────
+
+printf '\nevent_execution_status / event_category\n'
+
+test_event_execution_status_timeout() {
+    assert_eq "timeout" "$(event_execution_status 'verify.timeout')"
+}
+run_test "event_execution_status: *.timeout -> timeout" test_event_execution_status_timeout
+
+test_event_execution_status_aborted() {
+    assert_eq "error" "$(event_execution_status 'guard.aborted')"
+}
+run_test "event_execution_status: *.aborted -> error" test_event_execution_status_aborted
+
+test_event_execution_status_bare_error() {
+    assert_eq "error" "$(event_execution_status 'error')"
+}
+run_test "event_execution_status: bare 'error' -> error" test_event_execution_status_bare_error
+
+test_event_execution_status_unknown_domain() {
+    assert_eq "unknown" "$(event_execution_status 'mystery.thing')"
+}
+run_test "event_execution_status: unmapped suffix -> unknown" test_event_execution_status_unknown_domain
+
+test_event_execution_status_empty() {
+    assert_eq "unknown" "$(event_execution_status '')"
+}
+run_test "event_execution_status: empty input -> unknown" test_event_execution_status_empty
+
+test_event_category_known_domain() {
+    assert_eq "snapshot" "$(event_category 'snapshot.rollback')"
+}
+run_test "event_category: snapshot.* -> snapshot" test_event_category_known_domain
+
+test_event_category_unknown_domain() {
+    assert_eq "unknown" "$(event_category 'mystery.thing')"
+}
+run_test "event_category: unmapped domain -> unknown" test_event_category_unknown_domain
+
+test_event_category_empty() {
+    assert_eq "unknown" "$(event_category '')"
+}
+run_test "event_category: empty input -> unknown" test_event_category_empty
+
+# ── Section: append_log_entry ──────────────────────────────────────────────────
+
+printf '\nappend_log_entry\n'
+
+test_append_log_entry_session_log() {
+    local tmpd
+    tmpd="$(test_tmpdir)"
+    AI_LOG_DIR="$tmpd/logs" AI_EVENT_LOG="$tmpd/logs/events.jsonl" \
+        SESSION_LOG="$tmpd/session.jsonl" \
+        append_log_entry '{"a":1}'
+    [[ -f "$tmpd/logs/events.jsonl" ]]
+    [[ -f "$tmpd/session.jsonl" ]]
+    local main_line session_line
+    main_line="$(cat "$tmpd/logs/events.jsonl")"
+    session_line="$(cat "$tmpd/session.jsonl")"
+    assert_eq "$main_line" "$session_line"
+}
+run_test "append_log_entry: also appends to SESSION_LOG when set" test_append_log_entry_session_log
+
+test_append_log_entry_durable_php_log() {
+    if ! command -v php >/dev/null 2>&1; then
+        skip_test "append_log_entry: invokes tools/ai/agent-log.php when AI_SESSION_DURABLE_LOG=1" "php not installed"
+        return 0
+    fi
+    local tmpd
+    tmpd="$(test_tmpdir)"
+    mkdir -p "$tmpd/tools/ai"
+    cat >"$tmpd/tools/ai/agent-log.php" <<PHP
+<?php
+file_put_contents('$tmpd/marker.txt', implode(' ', array_slice(\$argv, 1)));
+PHP
+    AI_LOG_DIR="$tmpd/logs" AI_EVENT_LOG="$tmpd/logs/events.jsonl" \
+        AI_LOG_REPO_ROOT="$tmpd" AI_SESSION_DURABLE_LOG=1 SESSION_ID="sess-123" \
+        append_log_entry '{"a":1}'
+    [[ -f "$tmpd/marker.txt" ]]
+    grep -q -- "--session-id sess-123" "$tmpd/marker.txt"
+    grep -q -- "--root $tmpd" "$tmpd/marker.txt"
+}
+run_test "append_log_entry: invokes tools/ai/agent-log.php when AI_SESSION_DURABLE_LOG=1" test_append_log_entry_durable_php_log
+
+test_append_log_entry_durable_log_skipped_without_session_id() {
+    local tmpd
+    tmpd="$(test_tmpdir)"
+    mkdir -p "$tmpd/tools/ai"
+    cat >"$tmpd/tools/ai/agent-log.php" <<PHP
+<?php
+file_put_contents('$tmpd/marker.txt', 'called');
+PHP
+    AI_LOG_DIR="$tmpd/logs" AI_EVENT_LOG="$tmpd/logs/events.jsonl" \
+        AI_LOG_REPO_ROOT="$tmpd" AI_SESSION_DURABLE_LOG=1 SESSION_ID="" \
+        append_log_entry '{"a":1}'
+    [[ ! -f "$tmpd/marker.txt" ]]
+}
+run_test "append_log_entry: skips durable php log when SESSION_ID is unset" test_append_log_entry_durable_log_skipped_without_session_id
 
 # ── Section: classify_command ─────────────────────────────────────────────────
 
@@ -1358,35 +1556,6 @@ test_run_guarded_no_command_message() {
     assert_match "no command given" "$out"
 }
 run_test "run_guarded: missing trailing command logs a warning naming the label" test_run_guarded_no_command_message
-
-# Symlink every executable found on the current $PATH into $1, except any
-# names passed as the remaining args. Used to simulate a missing binary
-# (setsid) without disturbing the real PATH for the rest of the suite.
-build_path_without() {
-    local fakebin="$1"
-    shift
-    mkdir -p "$fakebin"
-    local dir f base skip ex
-    local -a dirs=()
-    IFS=':' read -ra dirs <<<"$PATH"
-    for dir in "${dirs[@]}"; do
-        [[ -d "$dir" ]] || continue
-        for f in "$dir"/*; do
-            [[ -x "$f" && -f "$f" ]] || continue
-            base="$(basename "$f")"
-            skip=0
-            for ex in "$@"; do
-                [[ "$base" == "$ex" ]] && {
-                    skip=1
-                    break
-                }
-            done
-            ((skip == 1)) && continue
-            [[ -e "$fakebin/$base" ]] && continue
-            ln -sf "$f" "$fakebin/$base" 2>/dev/null || true
-        done
-    done
-}
 
 test_run_guarded_without_setsid_still_works() {
     local tmpd fakebin out
