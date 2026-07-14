@@ -93,6 +93,157 @@ test_missing_file() {
 }
 run_test "missing file fails" test_missing_file
 
+# --help / -h
+test_help() {
+    local out
+    out="$("$BASH_BIN" "$SCRIPT" --help 2>&1)"
+    [[ "$out" == *"Usage:"* ]]
+}
+run_test "--help prints usage" test_help
+
+test_help_short() {
+    local out
+    out="$("$BASH_BIN" "$SCRIPT" -h 2>&1)"
+    [[ "$out" == *"Usage:"* ]]
+}
+run_test "-h prints usage" test_help_short
+
+# Unknown mode fails via the case default arm (distinct from the earlier
+# "missing mode" early-exit check).
+test_unknown_mode() {
+    local out _rc=0
+    out="$("$BASH_BIN" "$SCRIPT" bogus-mode 2>&1)" || _rc=$?
+    [[ "$_rc" -ne 0 && "$out" == *"unknown mode: bogus-mode"* ]]
+}
+run_test "unknown mode fails with usage + error" test_unknown_mode
+
+# json mode with a missing query argument hits the ":?jq query required" guard.
+test_json_missing_query() {
+    printf '{"a":1}\n' >"$TMP/probe2.json"
+    ! "$BASH_BIN" "$SCRIPT" json "$TMP/probe2.json" 2>/dev/null
+}
+run_test "json mode without query fails" test_json_missing_query
+
+# validate-json on a missing file hits "file not found".
+test_validate_json_missing_file() {
+    local out _rc=0
+    out="$("$BASH_BIN" "$SCRIPT" validate-json "$TMP/no-such.json" 2>&1)" || _rc=$?
+    [[ "$_rc" -ne 0 && "$out" == *"file not found"* ]]
+}
+run_test "validate-json on missing file fails with message" test_validate_json_missing_file
+
+if command -v yq >/dev/null 2>&1; then
+    # yml is an alias for yaml.
+    test_yml_alias() {
+        echo "key: value" >"$TMP/alias.yaml"
+        local out
+        out="$("$BASH_BIN" "$SCRIPT" yml "$TMP/alias.yaml" '.key' 2>/dev/null)"
+        [[ "$out" == *"value"* ]]
+    }
+    run_test "yml is an alias for yaml" test_yml_alias
+
+    # validate-yml is an alias for validate-yaml.
+    test_validate_yml_alias() {
+        echo "key: value" >"$TMP/alias-validate.yaml"
+        "$BASH_BIN" "$SCRIPT" validate-yml "$TMP/alias-validate.yaml" 2>/dev/null
+    }
+    run_test "validate-yml is an alias for validate-yaml" test_validate_yml_alias
+
+    # validate-yaml on invalid YAML fails.
+    test_validate_yaml_invalid() {
+        printf 'key: [unterminated\n' >"$TMP/invalid.yaml"
+        ! "$BASH_BIN" "$SCRIPT" validate-yaml "$TMP/invalid.yaml" 2>/dev/null
+    }
+    run_test "validate-yaml fails for invalid YAML" test_validate_yaml_invalid
+else
+    skip_test "yml is an alias for yaml" "yq not installed"
+    skip_test "validate-yml is an alias for validate-yaml" "yq not installed"
+    skip_test "validate-yaml fails for invalid YAML" "yq not installed"
+fi
+
+# csv --head=N (equals form)
+test_csv_head_equals() {
+    printf 'name,age\nAlice,30\nBob,25\nCharlie,35\n' >"$TMP/head-eq.csv"
+    local out
+    out="$("$BASH_BIN" "$SCRIPT" csv "$TMP/head-eq.csv" --head=2 2>/dev/null)"
+    [[ "$out" == *"name,age"* && "$out" == *"Alice"* && "$out" != *"Bob"* ]]
+}
+run_test "csv --head=N (equals form) limits output" test_csv_head_equals
+
+# csv with an unrecognized option dies.
+test_csv_unknown_option() {
+    printf 'a,b\n1,2\n' >"$TMP/unk.csv"
+    local out _rc=0
+    out="$("$BASH_BIN" "$SCRIPT" csv "$TMP/unk.csv" --bogus 2>&1)" || _rc=$?
+    [[ "$_rc" -ne 0 && "$out" == *"unknown option: --bogus"* ]]
+}
+run_test "csv with unknown option fails" test_csv_unknown_option
+
+# csv --head with no following value hits the ":?head count required" guard.
+test_csv_head_missing_value() {
+    printf 'a,b\n1,2\n' >"$TMP/noval.csv"
+    ! "$BASH_BIN" "$SCRIPT" csv "$TMP/noval.csv" --head 2>/dev/null
+}
+run_test "csv --head without a value fails" test_csv_head_missing_value
+
+# csv on a missing file hits "file not found".
+test_csv_missing_file() {
+    local out _rc=0
+    out="$("$BASH_BIN" "$SCRIPT" csv "$TMP/nope.csv" 2>&1)" || _rc=$?
+    [[ "$_rc" -ne 0 && "$out" == *"file not found"* ]]
+}
+run_test "csv on missing file fails with message" test_csv_missing_file
+
+# xml mode without xmllint installed dies with a clear message.
+if ! command -v xmllint >/dev/null 2>&1; then
+    test_xml_no_xmllint() {
+        printf '<a><b>1</b></a>\n' >"$TMP/probe.xml"
+        local out _rc=0
+        out="$("$BASH_BIN" "$SCRIPT" xml "$TMP/probe.xml" 2>&1)" || _rc=$?
+        [[ "$_rc" -ne 0 && "$out" == *"xmllint not installed"* ]]
+    }
+    run_test "xml mode without xmllint dies with a clear message" test_xml_no_xmllint
+else
+    skip_test "xml mode without xmllint dies with a clear message" "xmllint is installed"
+fi
+
+# xml mode with a fake xmllint on PATH: exercises both the --format
+# (no xpath) and --xpath (xpath given) branches.
+FAKE_XMLLINT_DIR="$TMP/fake-xmllint"
+mkdir -p "$FAKE_XMLLINT_DIR"
+cat >"$FAKE_XMLLINT_DIR/xmllint" <<'FAKE'
+#!/usr/bin/env bash
+printf '%s\n' "$@" >"$FAKE_XMLLINT_ARGS_FILE"
+exit 0
+FAKE
+chmod +x "$FAKE_XMLLINT_DIR/xmllint"
+
+test_xml_format_branch() {
+    printf '<a><b>1</b></a>\n' >"$TMP/fmt.xml"
+    local args_file="$TMP/xmllint-format-args.txt"
+    PATH="$FAKE_XMLLINT_DIR:$PATH" FAKE_XMLLINT_ARGS_FILE="$args_file" \
+        "$BASH_BIN" "$SCRIPT" xml "$TMP/fmt.xml" >/dev/null 2>&1 || return 1
+    grep -q -- "--format" "$args_file"
+}
+run_test "xml mode without xpath uses --format" test_xml_format_branch
+
+test_xml_xpath_branch() {
+    printf '<a><b>1</b></a>\n' >"$TMP/xp.xml"
+    local args_file="$TMP/xmllint-xpath-args.txt"
+    PATH="$FAKE_XMLLINT_DIR:$PATH" FAKE_XMLLINT_ARGS_FILE="$args_file" \
+        "$BASH_BIN" "$SCRIPT" xml "$TMP/xp.xml" '//b' >/dev/null 2>&1 || return 1
+    grep -q -- "--xpath" "$args_file" && grep -q -- "//b" "$args_file"
+}
+run_test "xml mode with xpath uses --xpath" test_xml_xpath_branch
+
+# xml mode on a missing file hits "file not found" (before xmllint even runs).
+test_xml_missing_file() {
+    local out _rc=0
+    out="$("$BASH_BIN" "$SCRIPT" xml "$TMP/nope.xml" 2>&1)" || _rc=$?
+    [[ "$_rc" -ne 0 && "$out" == *"file not found"* ]]
+}
+run_test "xml mode on missing file fails with message" test_xml_missing_file
+
 printf '\n=== Results ===\n'
 printf '  Passed: %d  Failed: %d  Skipped: %d\n' "$PASS" "$FAIL" "$SKIP"
 ((FAIL == 0)) && printf '\033[0;32mPASSED\033[0m\n' || { printf '\033[0;31mFAILED\033[0m\n'; exit 1; }
