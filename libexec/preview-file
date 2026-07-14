@@ -261,11 +261,19 @@ if [[ -n "$range" ]]; then
     content="$(sed -n "${start},${end}p" "$file")"
 elif [[ -n "$around" ]]; then
     if ! [[ "$around" =~ ^[0-9]+$ ]]; then
-        echo "[ERROR] invalid --around" >&2
+        if [[ "$json_mode" == "json" ]]; then
+            emit_json "error" "$file" "" '["invalid --around"]'
+        else
+            echo "[ERROR] invalid --around" >&2
+        fi
         exit 1
     fi
     if ! [[ "$context" =~ ^[0-9]+$ ]]; then
-        echo "[ERROR] invalid --context" >&2
+        if [[ "$json_mode" == "json" ]]; then
+            emit_json "error" "$file" "" '["invalid --context"]'
+        else
+            echo "[ERROR] invalid --context" >&2
+        fi
         exit 1
     fi
     start=$((around - context))
