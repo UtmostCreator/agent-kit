@@ -262,6 +262,93 @@ test_snapshot_create_warns_when_tar_binary_missing() {
 }
 run_test "snapshot_create warns when tar binary is unavailable on PATH" test_snapshot_create_warns_when_tar_binary_missing
 
+# _ai_snapshot_protected_untracked_path's case statement checks the current
+# AI_LOG_DIR/AI_CONTEXT_DIR env values FIRST, falling back to the hardcoded
+# literals ".ai-logs"/".repomix-context" only as separate, later arms. Every
+# existing protected-path test above leaves AI_LOG_DIR/AI_CONTEXT_DIR at their
+# defaults (".ai-logs"/".repomix-context"), so a path under either default
+# always matches the env-var arm first and the hardcoded literal arms are
+# never reached. Point AI_LOG_DIR/AI_CONTEXT_DIR at custom directories here so
+# all four "protected" arms (custom AI_LOG_DIR, custom AI_CONTEXT_DIR,
+# hardcoded ".ai-logs", hardcoded ".repomix-context") get distinctly hit.
+test_snapshot_apply_protects_hardcoded_and_custom_dirs() {
+    local work="$TMP/snap-apply-protect-all"
+    make_rollback_repo "$work"
+    (
+        cd "$work"
+        export AI_LOG_DIR="custom-logs"
+        export AI_CONTEXT_DIR="custom-context"
+        export AI_EVENT_LOG="custom-logs/events.jsonl"
+        export AI_SNAPSHOT_DIR="custom-logs/snapshots"
+        export AI_SESSION_AUTO_TRAP=0
+        export NO_COLOR=1
+        source "$REPO_ROOT/lib/common.sh"
+
+        local manifest
+        manifest="$(snapshot_create pre-edit)"
+
+        mkdir -p custom-logs custom-context .ai-logs .repomix-context
+        printf 'a\n' >custom-logs/a.txt
+        printf 'b\n' >custom-context/b.txt
+        printf 'c\n' >.ai-logs/c.txt
+        printf 'd\n' >.repomix-context/d.txt
+        printf 'e\n' >scratch.txt
+
+        snapshot_apply_manifest "$manifest"
+
+        [[ -f custom-logs/a.txt ]] || { echo "custom AI_LOG_DIR path removed"; exit 1; }
+        [[ -f custom-context/b.txt ]] || { echo "custom AI_CONTEXT_DIR path removed"; exit 1; }
+        [[ -f .ai-logs/c.txt ]] || { echo "hardcoded .ai-logs fallback removed"; exit 1; }
+        [[ -f .repomix-context/d.txt ]] || { echo "hardcoded .repomix-context fallback removed"; exit 1; }
+        [[ ! -f scratch.txt ]] || { echo "unprotected file survived"; exit 1; }
+    )
+}
+run_test "snapshot_apply_manifest protects custom AI_LOG_DIR/AI_CONTEXT_DIR AND the hardcoded .ai-logs/.repomix-context fallback arms" test_snapshot_apply_protects_hardcoded_and_custom_dirs
+
+# snapshot_apply()'s *.ref and *.patch dispatch arms (as opposed to the
+# *.manifest.json / snapshot_apply_manifest path exercised everywhere above)
+# are the legacy formats. Neither takes a "root" from a manifest, so they
+# operate on whatever the current working directory is -- unlike
+# snapshot_apply_manifest, cd into the target repo before invoking.
+test_snapshot_apply_legacy_ref_dispatch() {
+    local work="$TMP/snap-legacy-ref" base_sha ref_file
+    make_rollback_repo "$work"
+    base_sha="$(git -C "$work" rev-parse HEAD)"
+    printf 'line1\nline2\nline3\n' >"$work/tracked.txt"
+    git -C "$work" add tracked.txt
+    git -C "$work" commit -q -m second
+    ref_file="$work/rollback-point.ref"
+    printf '%s\n' "$base_sha" >"$ref_file"
+    (
+        cd "$work"
+        CI=true AI_SNAPSHOT_DIR="$TMP/unused-snap-dir-ref" "$BASH_BIN" "$SCRIPT" apply "$ref_file" >/dev/null 2>&1
+    )
+    [[ "$(cat "$work/tracked.txt")" == "$(printf 'line1\nline2')" ]]
+}
+run_test "cmd_apply on a literal .ref file dispatches to snapshot_apply's legacy 'git reset --hard' path" test_snapshot_apply_legacy_ref_dispatch
+
+test_snapshot_apply_legacy_patch_dispatch() {
+    local work="$TMP/snap-legacy-patch" patch_file
+    make_rollback_repo "$work"
+    patch_file="$work/change.patch"
+    cat >"$patch_file" <<'EOF'
+diff --git a/tracked.txt b/tracked.txt
+index 0000000..1111111 100644
+--- a/tracked.txt
++++ b/tracked.txt
+@@ -1,2 +1,2 @@
+ line1
+-line2
++CHANGED
+EOF
+    (
+        cd "$work"
+        CI=true AI_SNAPSHOT_DIR="$TMP/unused-snap-dir-patch" "$BASH_BIN" "$SCRIPT" apply "$patch_file" >/dev/null 2>&1
+    )
+    grep -q 'CHANGED' "$work/tracked.txt"
+}
+run_test "cmd_apply on a literal .patch file dispatches to snapshot_apply's legacy 'git apply' path" test_snapshot_apply_legacy_patch_dispatch
+
 # --- libexec/ai-rollback: real snapshot lifecycle (list/show/apply/prune) --
 
 test_list_shows_created_snapshot() {
@@ -274,6 +361,94 @@ test_list_shows_created_snapshot() {
     [[ "$out" != *"0 snapshot artifact(s) found"* ]]
 }
 run_test "cmd_list shows a real created snapshot" test_list_shows_created_snapshot
+
+test_list_empty_existing_dir() {
+    local snap_dir="$TMP/list-empty-snaps"
+    mkdir -p "$snap_dir"
+    local out
+    out="$(AI_SNAPSHOT_DIR="$snap_dir" "$BASH_BIN" "$SCRIPT" list)"
+    [[ "$out" == *"0 snapshot artifact(s) found"* ]]
+}
+run_test "cmd_list on an existing but empty snapshot dir reports 0 artifacts (loop runs zero times)" test_list_empty_existing_dir
+
+# resolve_snapshot's "directory exists but no artifact matches" die branch is
+# distinct from "directory does not exist at all" (already covered by
+# test_show_missing/test_apply_missing, which point at a nonexistent dir).
+test_show_no_match_in_existing_dir() {
+    local snap_dir="$TMP/show-no-match-snaps"
+    mkdir -p "$snap_dir"
+    ! AI_SNAPSHOT_DIR="$snap_dir" "$BASH_BIN" "$SCRIPT" show "totally-absent-prefix" 2>/dev/null
+}
+run_test "resolve_snapshot: existing dir with no matching artifact fails distinctly" test_show_no_match_in_existing_dir
+
+# cmd_show's final unsupported-type die arm (an existing file that resolve_snapshot
+# happily returns via its literal-path branch, but whose suffix matches none of
+# manifest.json/.ref/.patch).
+test_show_unsupported_type() {
+    local work="$TMP/snap-unsupported-show" bogus
+    make_rollback_repo "$work"
+    bogus="$work/bogus.txt"
+    printf 'not a snapshot\n' >"$bogus"
+    ! AI_SNAPSHOT_DIR="$TMP/unused-snap-dir-show-bad" "$BASH_BIN" "$SCRIPT" show "$bogus" 2>/dev/null
+}
+run_test "cmd_show dies on an unsupported snapshot file type" test_show_unsupported_type
+
+# snapshot_apply() (lib/snapshot.sh) has its OWN separate unsupported-type die
+# arm from cmd_show's -- exercise it directly via cmd_apply.
+test_apply_unsupported_type() {
+    local work="$TMP/snap-unsupported-apply" bogus
+    make_rollback_repo "$work"
+    bogus="$work/bogus.txt"
+    printf 'not a snapshot\n' >"$bogus"
+    ! CI=true AI_SNAPSHOT_DIR="$TMP/unused-snap-dir-apply-bad" "$BASH_BIN" "$SCRIPT" apply "$bogus" 2>/dev/null
+}
+run_test "cmd_apply dies on an unsupported snapshot file type (snapshot_apply's own guard)" test_apply_unsupported_type
+
+test_show_ref_sidecar_directly() {
+    local work="$TMP/cli-show-ref" ref_file base_sha out
+    make_rollback_repo "$work"
+    base_sha="$(git -C "$work" rev-parse HEAD)"
+    ref_file="$work/point.ref"
+    printf '%s\n' "$base_sha" >"$ref_file"
+    # log_info writes to stderr; merge it into the captured output.
+    out="$(cd "$work" && AI_SNAPSHOT_DIR="$TMP/unused-show-ref" "$BASH_BIN" "$SCRIPT" show "$ref_file" 2>&1)"
+    [[ "$out" == *"Type: legacy ref"* ]]
+}
+run_test "cmd_show on a literal .ref file renders the legacy-ref branch" test_show_ref_sidecar_directly
+
+# Reaches cmd_show's *.patch) branch directly (as opposed to the sidecar
+# ordering quirk documented above, which resolves an ambiguous session/label
+# prefix to it indirectly).
+test_show_patch_sidecar_directly() {
+    local work="$TMP/cli-show-patch-sidecar" snap_dir="$TMP/cli-show-patch-sidecar-snaps" manifest patch_file out
+    make_rollback_repo "$work"
+    printf 'line1\nDIRTY\n' >"$work/tracked.txt"
+    manifest="$(create_snapshot "$work" "$snap_dir" "sess-patch-sidecar" "pre-edit")"
+    patch_file="${manifest%.manifest.json}.patch"
+    # log_info writes to stderr; merge it into the captured output.
+    out="$(AI_SNAPSHOT_DIR="$snap_dir" "$BASH_BIN" "$SCRIPT" show "$patch_file" 2>&1)"
+    [[ "$out" == *"Type: legacy patch"* ]]
+}
+run_test "cmd_show on the real .patch sidecar (literal path) renders the legacy-patch branch" test_show_patch_sidecar_directly
+
+# cmd_show_manifest's three conditional sections ("## Patch stat", "## Untracked
+# files captured", "## Untracked archive") are all gated on the patch/untracked
+# artifacts being nonempty. Every existing cmd_show test above snapshots a
+# perfectly clean repo (no dirty tracked changes, no untracked files), so none
+# of those three blocks ever executes. Dirty the tree and add an untracked file
+# BEFORE taking the snapshot to populate all three artifacts.
+test_show_manifest_full_sections() {
+    local work="$TMP/cli-show-full" snap_dir="$TMP/cli-show-full-snaps" manifest out
+    make_rollback_repo "$work"
+    printf 'line1\nDIRTY\n' >"$work/tracked.txt"
+    printf 'untracked content\n' >"$work/new-file.txt"
+    manifest="$(create_snapshot "$work" "$snap_dir" "sess-show-full" "pre-edit")"
+    out="$(AI_SNAPSHOT_DIR="$snap_dir" "$BASH_BIN" "$SCRIPT" show "$manifest")"
+    [[ "$out" == *"## Patch stat"* ]] || return 1
+    [[ "$out" == *"## Untracked files captured"* ]] || return 1
+    [[ "$out" == *"## Untracked archive"* ]]
+}
+run_test "cmd_show_manifest renders Patch stat / Untracked files captured / Untracked archive sections" test_show_manifest_full_sections
 
 # NOTE: resolve_snapshot's session-prefix lookup (find ... -o -name
 # "${input}*.patch" ... | sort -r | head -1) does not distinguish artifact
@@ -354,6 +529,30 @@ test_prune_real_deletion_with_count() {
     ((remaining == 0))
 }
 run_test "cmd_prune --days 0 really deletes backdated snapshot artifacts (count > 0)" test_prune_real_deletion_with_count
+
+test_prune_days_equals_form() {
+    local work="$TMP/cli-prune-eq" snap_dir="$TMP/cli-prune-eq-snaps"
+    make_rollback_repo "$work"
+    create_snapshot "$work" "$snap_dir" "sess-prune-eq" "pre-edit" >/dev/null
+    find "$snap_dir" -maxdepth 1 -type f -exec touch -d '2 days ago' {} \;
+    local out
+    out="$(CI=true AI_SNAPSHOT_DIR="$snap_dir" "$BASH_BIN" "$SCRIPT" prune --days=0)"
+    [[ "$out" == *"Pruned"* ]]
+    [[ "$out" != *"Pruned 0"* ]]
+}
+run_test "cmd_prune --days=N (= form) prunes real snapshots" test_prune_days_equals_form
+
+# Both of these fail while parsing options, before confirm_mutation ever runs,
+# so no CI/tty handling is needed.
+test_prune_unknown_option() {
+    ! AI_SNAPSHOT_DIR="$TMP/prune-unknown-snaps" "$BASH_BIN" "$SCRIPT" prune --bogus-option 2>/dev/null
+}
+run_test "cmd_prune rejects an unknown option" test_prune_unknown_option
+
+test_prune_days_missing_value() {
+    ! AI_SNAPSHOT_DIR="$TMP/prune-missing-days" "$BASH_BIN" "$SCRIPT" prune --days 2>/dev/null
+}
+run_test "cmd_prune --days with no value fails" test_prune_days_missing_value
 
 printf '\n=== Results ===\n'
 printf '  Passed: %d  Failed: %d  Skipped: %d\n' "$PASS" "$FAIL" "$SKIP"
