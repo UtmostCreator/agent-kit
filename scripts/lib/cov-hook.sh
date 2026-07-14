@@ -13,6 +13,22 @@
 # non-interactive Bash on startup, so exporting it re-installs this hook
 # across each exec boundary. Within a single process, `set -o functrace`
 # carries the DEBUG trap into `source`d lib/*.sh modules and shell functions.
+#
+# KNOWN LIMITATION: `functrace` (`-T`) makes Bash inherit BOTH DEBUG and
+# RETURN traps into called functions -- there's no way to opt into DEBUG-only
+# inheritance. A function that sets its own scoped `trap '...' RETURN` for
+# cleanup (e.g. check_jscpd in lib/ai-verify/duplication.sh, which does
+# `trap "rm -rf '$report_dir'" RETURN`) will have that trap ALSO fire when
+# any function it calls returns (e.g. run_with_timeout), deleting the
+# directory before the caller checks it. This is a tracer artifact, not a
+# source bug: confirmed via direct instrumentation that the file is written
+# and present, then gone by the time check_jscpd inspects it, only when this
+# hook's DEBUG trap is active. `./scripts/check.sh` (the real CI gate) never
+# uses this hook, so it is unaffected; only `./scripts/coverage.sh` runs can
+# hit this, and only for code with this specific pattern (scoped RETURN trap
+# + a nested function call). If a `warning: test exited non-zero` appears for
+# a file using this pattern, verify with a plain `bash test/test-X.sh` before
+# assuming a regression.
 if [[ -n ${AK_COV_DIR:-} && -z ${AK_COV_HOOKED:-} ]]; then
     # Deliberately NOT exported: BASH_ENV is read once per new Bash process,
     # so each process (including ones bin/agent-kit `exec`s into) needs its

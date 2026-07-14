@@ -85,7 +85,10 @@ run_native() {
         i=$((i + 1))
         printf '==> [%d/%d] %s\n' "$i" "${#tests[@]}" "$test_file"
         bash -- "$test_file" >/dev/null 2>&1 || {
-            printf 'warning: test exited non-zero: %s\n' "$test_file" >&2
+            printf 'warning: test exited non-zero under the coverage tracer: %s\n' "$test_file" >&2
+            printf '  (verify with a plain "bash %s" before assuming a regression -- see the\n' "$test_file" >&2
+            printf '   KNOWN LIMITATION note in scripts/lib/cov-hook.sh: functrace can make a\n' >&2
+            printf '   scoped RETURN trap fire early in code that sets one for cleanup)\n' >&2
         }
     done
 
