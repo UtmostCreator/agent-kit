@@ -1295,6 +1295,133 @@ test_wait_for_capture_flag_timeout() {
 }
 run_test "wait_for_capture_flag: writes 'true' on timeout" test_wait_for_capture_flag_timeout
 
+# ── Section: cpu-sampling.sh (direct jiffies-delta assertions) ───────────────
+
+printf '\ncpu-sampling.sh (direct)\n'
+
+# _ai_guard_pid_jiffies/_ai_guard_cpu_percent are already loaded transitively
+# via _load_common (common.sh -> exec-guard.sh -> 20-cpu-sampling.sh). Sample
+# a real CPU-spinning child directly instead of only observing cpu sampling
+# indirectly through run_guarded's idle/busy behavior above.
+test_cpu_sampling_jiffies_increase_during_busy_loop() {
+    local pid j0 j1
+    "$BASH_BIN" -c 'x=0; while :; do x=$((x+1)); done' &
+    pid=$!
+    j0="$(_ai_guard_pid_jiffies "$pid")"
+    sleep 0.5
+    j1="$(_ai_guard_pid_jiffies "$pid")"
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+    ((j1 > j0))
+}
+if [[ -r /proc/self/stat ]]; then
+    run_test "_ai_guard_pid_jiffies: jiffies increase across a real busy loop" test_cpu_sampling_jiffies_increase_during_busy_loop
+else
+    skip_test "_ai_guard_pid_jiffies: jiffies increase across a real busy loop" "/proc CPU sampling unavailable"
+fi
+
+test_cpu_sampling_percent_positive_for_busy_child() {
+    local pid pct
+    "$BASH_BIN" -c 'x=0; while :; do x=$((x+1)); done' &
+    pid=$!
+    pct="$(_ai_guard_cpu_percent "$pid" 1 0)"
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+    awk -v p="$pct" 'BEGIN{exit !(p+0 > 0)}'
+}
+if [[ -r /proc/self/stat ]]; then
+    run_test "_ai_guard_cpu_percent: reports a positive percentage for a real busy loop" test_cpu_sampling_percent_positive_for_busy_child
+else
+    skip_test "_ai_guard_cpu_percent: reports a positive percentage for a real busy loop" "/proc CPU sampling unavailable"
+fi
+
+# ── Section: run_guarded (additional edge cases) ──────────────────────────────
+
+printf '\nrun_guarded (edge cases)\n'
+
+test_run_guarded_no_command_returns_2() {
+    assert_exit 2 "$BASH_BIN" -c "
+        export NO_COLOR=1 AI_LOG_DIR='$AI_LOG_DIR' AI_EVENT_LOG='$AI_EVENT_LOG' AI_SESSION_AUTO_TRAP=0
+        source '$COMMON_SH'
+        run_guarded onlylabel
+    "
+}
+run_test "run_guarded: missing trailing command returns 2" test_run_guarded_no_command_returns_2
+
+test_run_guarded_no_command_message() {
+    local out
+    out="$("$BASH_BIN" -c "
+        export NO_COLOR=1 AI_LOG_DIR='$AI_LOG_DIR' AI_EVENT_LOG='$AI_EVENT_LOG' AI_SESSION_AUTO_TRAP=0
+        source '$COMMON_SH'
+        run_guarded onlylabel
+    " 2>&1 || true)"
+    assert_match "no command given" "$out"
+}
+run_test "run_guarded: missing trailing command logs a warning naming the label" test_run_guarded_no_command_message
+
+# Symlink every executable found on the current $PATH into $1, except any
+# names passed as the remaining args. Used to simulate a missing binary
+# (setsid) without disturbing the real PATH for the rest of the suite.
+build_path_without() {
+    local fakebin="$1"
+    shift
+    mkdir -p "$fakebin"
+    local dir f base skip ex
+    local -a dirs=()
+    IFS=':' read -ra dirs <<<"$PATH"
+    for dir in "${dirs[@]}"; do
+        [[ -d "$dir" ]] || continue
+        for f in "$dir"/*; do
+            [[ -x "$f" && -f "$f" ]] || continue
+            base="$(basename "$f")"
+            skip=0
+            for ex in "$@"; do
+                [[ "$base" == "$ex" ]] && {
+                    skip=1
+                    break
+                }
+            done
+            ((skip == 1)) && continue
+            [[ -e "$fakebin/$base" ]] && continue
+            ln -sf "$f" "$fakebin/$base" 2>/dev/null || true
+        done
+    done
+}
+
+test_run_guarded_without_setsid_still_works() {
+    local tmpd fakebin out
+    tmpd="$(test_tmpdir)"
+    fakebin="$tmpd/fakebin-no-setsid"
+    build_path_without "$fakebin" setsid
+    out="$(
+        PATH="$fakebin" "$BASH_BIN" -c "
+            export NO_COLOR=1 AI_LOG_DIR='$AI_LOG_DIR' AI_EVENT_LOG='$AI_EVENT_LOG' AI_SESSION_AUTO_TRAP=0
+            source '$COMMON_SH'
+            run_guarded fast echo hello
+        "
+    )"
+    assert_eq "hello" "$out"
+}
+run_test "run_guarded: falls back to a plain backgrounded job (no process-group kill) when setsid is unavailable" test_run_guarded_without_setsid_still_works
+
+# Idle-debounce streak: a lone idle-CPU sample must NOT trigger the idle kill.
+# Set AI_GUARD_CPU_STREAK high enough that the idle path cannot possibly
+# accumulate the required consecutive samples before AI_GUARD_TIMEOUT's
+# wall-clock ceiling fires first; assert the kill reason is wall-clock, not
+# idle -- proving a single (or a few) idle sample(s) alone did not kill.
+test_run_guarded_idle_streak_debounces_single_sample() {
+    local out rc=0
+    out="$(env AI_GUARD_TIMEOUT=3 AI_GUARD_IDLE_SECS=1 AI_GUARD_POLL=1 AI_GUARD_CPU_MIN=5 AI_GUARD_CPU_STREAK=10 \
+        "$BASH_BIN" -c "source '$COMMON_SH'; run_guarded idle-streak sleep 30" 2>&1)" || rc=$?
+    ((rc == 124)) || return 1
+    assert_match "wall-clock" "$out"
+}
+if command -v ps >/dev/null 2>&1; then
+    run_test "run_guarded: idle debounce -- a single idle sample does not kill before AI_GUARD_CPU_STREAK is reached" test_run_guarded_idle_streak_debounces_single_sample
+else
+    skip_test "run_guarded: idle debounce -- a single idle sample does not kill before AI_GUARD_CPU_STREAK is reached" "ps not available"
+fi
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 
 printf '\n=== Results ===\n'
