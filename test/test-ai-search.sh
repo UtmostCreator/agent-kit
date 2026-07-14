@@ -1066,6 +1066,13 @@ expect_status "history --messages -> ok" "ok"
 expect_jq "history --messages searches commit messages" '
   .results[] | select((.commit|type=="string") and (.message|contains("HistoryMessageNeedle")))
 '
+# --messages runs `git log --grep=... --format=...` WITHOUT --name-only, so the
+# per-commit result row has no files[] and run_history_mode's results_json
+# builder takes its "no files" branch, emitting path: null (distinct from the
+# -S/-G pickaxe branches above, which always carry a real file path).
+expect_jq "history --messages result has no file (path: null branch)" '
+  .results[] | select((.commit|type=="string") and (.message|contains("HistoryMessageNeedle"))) | .path == null
+'
 
 run_search history HistoryNeedle "$p1_repo" --fixed --patch
 expect_status "history --patch -> ok" "ok"
@@ -1425,6 +1432,14 @@ expect_status "todo scan backend error on unreadable root -> error" "error"
 run_search unsafe-patterns /nonexistent-root-for-ai-search-tests-xyz
 expect_status "unsafe-patterns scan backend error on unreadable root -> error" "error"
 
+# JSON-mode no_matches branch: a root with no TODO/FIXME/... markers and no
+# curated risky patterns (only "AlphaBeta\n" in case.txt).
+run_search todo "$tmp_search_dir"
+expect_status "todo no-hit root -> no_matches" "no_matches"
+
+run_search unsafe-patterns "$tmp_search_dir"
+expect_status "unsafe-patterns no-hit root -> no_matches" "no_matches"
+
 # =============================================================================
 # Phase 7C — backend-files.sh: filename search (fd) + fallbacks
 # =============================================================================
@@ -1505,6 +1520,19 @@ if command -v ast-grep >/dev/null 2>&1; then
         printf '       output: %s\n' "$LAST_JSON" >&2
         exit 1
     fi
+
+    # symbols is the other json_mode-gated mode (alongside class); in plain mode
+    # the `[[ "$mode" == "symbols" || "$mode" == "class" ]]` block's inner
+    # `if [[ "$json_mode" == "json" ]]` never runs, so symbols must also fall
+    # through to the shared path:start:text plain branch (no symbols[] to print).
+    run_search_text symbols UserService "$p1_repo" --lang php
+    if [[ "$LAST_RC" -eq 0 && "$LAST_JSON" == *"app/UserService.php"* ]]; then
+        printf '  PASS symbols plain-mode output falls through to shared plain branch\n'
+    else
+        printf '  FAIL symbols plain-mode output (rc=%s)\n' "$LAST_RC" >&2
+        printf '       output: %s\n' "$LAST_JSON" >&2
+        exit 1
+    fi
 else
     printf '  PASS phase7D ast-grep-dependent tests skipped because ast-grep is not installed\n'
 fi
@@ -1519,6 +1547,17 @@ expect_status "diff --ignore-case lowercase query -> ok" "ok"
 
 run_search diff DIFFNEEDLE "$p1_repo" --fixed --case-sensitive
 expect_status "diff --case-sensitive mismatched case -> no_matches" "no_matches"
+
+# query_matches_line's default `smart | *` case arm (no --ignore-case/--case-
+# sensitive flag at all): a query with no uppercase letters must still match
+# case-insensitively. The existing smart-case coverage below is for the
+# unrelated text-mode/build_case_pattern_args path, not backend-git.sh's own
+# query_matches_line.
+run_search diff diffneedle "$p1_repo" --fixed
+expect_status "diff smart-case (no flag) lowercase query still matches -> ok" "ok"
+
+run_search history 'ThisWillNeverMatchInHistoryXYZ123' "$p1_repo" --fixed
+expect_status "history pickaxe no-hit -> no_matches" "no_matches"
 
 run_search diff 'Diff(?=Needle)' "$p1_repo" --pcre2
 expect_status "diff --pcre2 lookahead -> ok" "ok"
@@ -1634,6 +1673,14 @@ else
     '
 fi
 
+run_search_without ast-grep doctor
+if [[ "$LAST_RC" -eq 99 ]]; then
+    printf '  PASS doctor ast-grep-missing test skipped (ast-grep not isolatable on this PATH)\n'
+else
+    expect_status "doctor with ast-grep missing -> ok" "ok"
+    expect_jq "doctor ast-grep-missing lists ast-grep in missing[]" '.diagnostics.missing | index("ast-grep") != null'
+fi
+
 # =============================================================================
 # Phase 7H — results-context.sh: context_lines_json start>end branch
 # =============================================================================
@@ -1643,5 +1690,111 @@ run_search text ContextNeedle "$p1_repo" --fixed --before-context 0 --after-cont
 expect_status "--before-context 0 --after-context 2 -> ok" "ok"
 expect_jq "before-context 0 yields empty before context (start>end branch)" '.results[0].context.before == []'
 expect_jq "after-context 2 still populated" '(.results[0].context.after|length) == 2'
+
+# =============================================================================
+# Phase 7I — modes.sh: mode-family predicate true/false branches (direct)
+# =============================================================================
+# modes.sh is a pure predicate library with no side effects; CLI-level tests
+# only exercise the arms actually dispatched for real mode names, not every
+# predicate's negative (`*) return 1`) arm. Source it directly to hit both
+# branches of each classifier deterministically.
+printf '[phase7I] modes.sh: mode-family predicate true/false branches\n'
+
+modes_predicates_check() {
+    "$BASH_BIN" -c '
+        set -euo pipefail
+        source "lib/ai-search/modes.sh"
+        if ! is_file_list_mode changed-files; then exit 1; fi
+        if is_file_list_mode text; then exit 2; fi
+        if ! is_content_mode text; then exit 3; fi
+        if is_content_mode changed-files; then exit 4; fi
+        if ! is_ast_mode struct; then exit 5; fi
+        if is_ast_mode text; then exit 6; fi
+        if ! is_no_query_mode todo; then exit 7; fi
+        if is_no_query_mode text; then exit 8; fi
+        if ! is_surface_mode docs; then exit 9; fi
+        if is_surface_mode text; then exit 10; fi
+        if ! is_shortcut_text_mode function; then exit 11; fi
+        if is_shortcut_text_mode text; then exit 12; fi
+        [[ "$(surface_globs docs | head -n1)" == "README*" ]] || exit 13
+        exit 0
+    '
+}
+if modes_predicates_check; then
+    printf '  PASS modes.sh predicates: file-list/content/ast/no-query/surface/shortcut true+false branches\n'
+else
+    printf '  FAIL modes.sh predicates: file-list/content/ast/no-query/surface/shortcut true+false branches\n' >&2
+    exit 1
+fi
+
+# =============================================================================
+# Phase 7J — results-context.sh: apply_max_bytes_to_results + edge branches
+# (direct; apply_max_bytes_to_results has no call site anywhere in the
+# codebase today — see report note — so this is the only way to exercise it)
+# =============================================================================
+printf '[phase7J] results-context.sh: apply_max_bytes_to_results + missing-file + zero-context bypass\n'
+
+results_context_direct_check() {
+    local work driver rc
+    work="$(mktemp -d)"
+    driver="$work/driver.sh"
+    cat >"$driver" <<'DRIVER'
+set -euo pipefail
+source "lib/ai-search/results-context.sh"
+
+# apply_max_bytes_to_results: max_bytes=0 -> unconditional bypass, unchanged.
+# (Command substitution is fine here: this branch never touches g_truncated.)
+max_bytes=0
+out="$(apply_max_bytes_to_results '[{"a":1}]')"
+[[ "$out" == '[{"a":1}]' ]] || exit 1
+
+# apply_max_bytes_to_results: positive budget, bytes within budget -> no
+# truncation, g_truncated stays untouched. Called WITHOUT command substitution
+# (output redirected to a file instead) so that a g_truncated=true set inside
+# the function, if it ever regressed, would actually be observable here —
+# `out="$(fn ...)"` runs fn in a subshell and any global mutation would be
+# silently lost, masking the very regression this assertion exists to catch.
+max_bytes=1000
+g_truncated=false
+within_file="$(mktemp)"
+apply_max_bytes_to_results '[{"a":1}]' >"$within_file"
+[[ "$(cat "$within_file")" == '[{"a":1}]' ]] || exit 2
+[[ "$g_truncated" == "false" ]] || exit 3
+rm -f "$within_file"
+
+# apply_max_bytes_to_results: over budget -> strips context payload only from
+# items that have one, leaves items without a context key untouched. Same
+# no-subshell requirement as above to observe the g_truncated=true mutation.
+max_bytes=5
+g_truncated=false
+out_file="$(mktemp)"
+apply_max_bytes_to_results '[{"a":1,"context":{"before":[1],"after":[2]}},{"b":2}]' >"$out_file"
+jq -e '.[0].context.before == [] and .[0].context.after == [] and .[1] == {"b":2}' "$out_file" >/dev/null || exit 4
+[[ "$g_truncated" == "true" ]] || exit 5
+rm -f "$out_file"
+
+# context_lines_json: missing file -> [] (distinct from the start>end branch,
+# which is already covered end-to-end via Phase 7H).
+out="$(context_lines_json /nonexistent/file/for/ai-search-tests 1 3)"
+[[ "$out" == "[]" ]] || exit 6
+
+# add_context_to_results: zero-before/zero-after bypass returns the input
+# results_json unchanged (no context key added at all).
+context_before=0
+context_after=0
+out="$(add_context_to_results "/tmp" '[{"path":"x"}]')"
+[[ "$out" == '[{"path":"x"}]' ]] || exit 7
+DRIVER
+    "$BASH_BIN" "$driver"
+    rc=$?
+    rm -rf "$work"
+    return "$rc"
+}
+if results_context_direct_check; then
+    printf '  PASS results-context.sh: apply_max_bytes_to_results (bypass/within-budget/truncate) + context_lines_json missing-file + add_context_to_results zero-context bypass\n'
+else
+    printf '  FAIL results-context.sh: apply_max_bytes_to_results / edge branches\n' >&2
+    exit 1
+fi
 
 echo "ai-search tests passed"
