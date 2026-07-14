@@ -103,7 +103,7 @@ repomix_context_tree_main() {
     # sourced module, reuse COMMON_DIR so the sibling router still resolves to
     # scripts/ai/repomix-scc-router.sh rather than this module's directory.
     SCRIPT_DIR="$COMMON_DIR"
-    ROUTER_SCRIPT="$SCRIPT_DIR/repomix-scc-router.sh"
+    ROUTER_SCRIPT="$SCRIPT_DIR/repomix-scc-router"
 
     router_args=("$ROUTER_SCRIPT" stats . --output-dir "$TREE_DIR" --depth "$DEPTH" --top "$TOP" --min-code "$MIN_CODE" --min-files "$MIN_FILES" --min-score "$MIN_SCORE" --min-complexity "$MIN_COMPLEXITY" --churn-count "$CHURN_COUNT" --style "$STYLE" --include-logs-count "$INCLUDE_LOGS_COUNT")
     [[ -n "$CHANGED_SINCE" ]] && router_args+=(--changed-since "$CHANGED_SINCE")

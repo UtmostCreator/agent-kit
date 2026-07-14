@@ -178,6 +178,161 @@ else
     skip_test "repomixignore bypass behavior" "git not installed"
 fi
 
+# Bigger fixture: the tiny FIX above (2 small files) never reaches MIN_CODE=25,
+# so the current `stats` test only ever exercises run_scc_analysis/
+# write_file_metrics/write_folder_metrics on near-empty input. Build several
+# folders (including root-level files, to reach pack_group's "_root" branch)
+# with real code lines, tracked across two commits so --changed-since has
+# something to diff, to reach write_bundle_plan/pack_group/run_pack/run_clean/
+# run_purge, which never run today.
+BIGFIX="$TMP/bigfix"
+gen_code_file() {
+    local path="$1" n="$2" i
+    mkdir -p "$(dirname "$path")"
+    {
+        printf '#!/usr/bin/env bash\n'
+        for ((i = 0; i < n; i++)); do
+            printf 'echo "line %d in %s"\n' "$i" "$(basename "$path")"
+        done
+    } >"$path"
+}
+mkdir -p "$BIGFIX/src/moduleA" "$BIGFIX/src/moduleC" "$BIGFIX/src/moduleB"
+for i in 1 2 3 4 5; do gen_code_file "$BIGFIX/src/moduleA/file$i.sh" 40; done
+gen_code_file "$BIGFIX/src/moduleC/only.sh" 40
+for i in 1 2; do gen_code_file "$BIGFIX/src/moduleB/file$i.sh" 5; done
+for i in 1 2; do gen_code_file "$BIGFIX/root_file$i.sh" 20; done
+( cd "$BIGFIX" && git init -q && git add -A \
+    && git -c user.email=t@t -c user.name=t commit -qm init ) >/dev/null 2>&1 || true
+BIGFIX_FIRST_COMMIT="$(cd "$BIGFIX" && git rev-list --max-parents=0 HEAD 2>/dev/null)"
+printf 'echo "extra"\n' >>"$BIGFIX/src/moduleA/file1.sh"
+( cd "$BIGFIX" && git add -A \
+    && git -c user.email=t@t -c user.name=t commit -qm update ) >/dev/null 2>&1 || true
+
+if command -v scc >/dev/null 2>&1; then
+    test_write_bundle_plan_ranks_routes() {
+        "$BASH_BIN" "$SCRIPT" plan "$BIGFIX" --output-dir "$TMP/wb-default" 2>/dev/null
+        awk -F'\t' '$2 == "src/moduleA"' "$TMP/wb-default/bundle-plan.tsv" | grep -q . \
+            && awk -F'\t' '$2 == "_root"' "$TMP/wb-default/bundle-plan.tsv" | grep -q .
+    }
+    run_test "write_bundle_plan ranks qualifying routes, including a real _root group" test_write_bundle_plan_ranks_routes
+
+    test_write_bundle_plan_top_form() {
+        "$BASH_BIN" "$SCRIPT" plan "$BIGFIX" --output-dir "$TMP/wb-top" --top=1 2>/dev/null
+        [[ "$(wc -l <"$TMP/wb-top/bundle-plan.tsv")" -eq 2 ]]
+    }
+    run_test "write_bundle_plan --top= limits the ranked plan to N routes" test_write_bundle_plan_top_form
+
+    test_write_bundle_plan_min_files_form() {
+        "$BASH_BIN" "$SCRIPT" plan "$BIGFIX" --output-dir "$TMP/wb-minfiles" --min-files=2 2>/dev/null
+        ! awk -F'\t' '$2 == "src/moduleC"' "$TMP/wb-minfiles/bundle-plan.tsv" | grep -q .
+    }
+    run_test "write_bundle_plan --min-files= excludes a single-file group" test_write_bundle_plan_min_files_form
+
+    test_write_bundle_plan_min_score_form() {
+        "$BASH_BIN" "$SCRIPT" plan "$BIGFIX" --output-dir "$TMP/wb-minscore" --min-score=20 2>/dev/null
+        awk -F'\t' '$2 == "src/moduleA"' "$TMP/wb-minscore/bundle-plan.tsv" | grep -q . \
+            && ! awk -F'\t' '$2 == "_root"' "$TMP/wb-minscore/bundle-plan.tsv" | grep -q .
+    }
+    run_test "write_bundle_plan --min-score= filters out lower-ranked groups" test_write_bundle_plan_min_score_form
+
+    test_write_bundle_plan_empty_after_filter_dies() {
+        local out
+        out="$("$BASH_BIN" "$SCRIPT" plan "$BIGFIX" --output-dir "$TMP/wb-empty" --min-complexity=1000 2>&1)"
+        local rc=$?
+        [[ $rc -ne 0 ]] && [[ "$out" == *"bundle plan is empty after filtering"* ]]
+    }
+    run_test "write_bundle_plan dies when every route is filtered out" test_write_bundle_plan_empty_after_filter_dies
+
+    test_depth_flag_changes_grouping() {
+        "$BASH_BIN" "$SCRIPT" plan "$BIGFIX" --output-dir "$TMP/wb-depth1" --depth 1 2>/dev/null
+        awk -F'\t' '$2 == "src"' "$TMP/wb-depth1/bundle-plan.tsv" | grep -q .
+    }
+    run_test "--depth 1 groups moduleA/moduleB/moduleC under a single 'src' route" test_depth_flag_changes_grouping
+
+    test_equals_form_flags_smoke() {
+        "$BASH_BIN" "$SCRIPT" plan "$BIGFIX" --output-dir "$TMP/wb-eqform" \
+            --churn-count=3 --style=plain --split-size=5mb --top=0 --include-logs-count=2 2>/dev/null
+        [[ -f "$TMP/wb-eqform/bundle-plan.tsv" ]]
+    }
+    run_test "= form common options (--churn-count=, --style=, --split-size=, --top=, --include-logs-count=) parse" test_equals_form_flags_smoke
+
+    test_changed_since_flag() {
+        "$BASH_BIN" "$SCRIPT" stats "$BIGFIX" --output-dir "$TMP/wb-changed" --changed-since "$BIGFIX_FIRST_COMMIT" 2>/dev/null
+        [[ -s "$TMP/wb-changed/file-metrics.tsv" ]]
+    }
+    run_test "--changed-since scopes stats to files changed since a ref" test_changed_since_flag
+else
+    skip_test "write_bundle_plan ranks qualifying routes, including a real _root group" "scc not installed"
+    skip_test "write_bundle_plan --top= limits the ranked plan to N routes" "scc not installed"
+    skip_test "write_bundle_plan --min-files= excludes a single-file group" "scc not installed"
+    skip_test "write_bundle_plan --min-score= filters out lower-ranked groups" "scc not installed"
+    skip_test "write_bundle_plan dies when every route is filtered out" "scc not installed"
+    skip_test "--depth 1 groups moduleA/moduleB/moduleC under a single 'src' route" "scc not installed"
+    skip_test "= form common options (--churn-count=, --style=, --split-size=, --top=, --include-logs-count=) parse" "scc not installed"
+    skip_test "--changed-since scopes stats to files changed since a ref" "scc not installed"
+fi
+
+# clean/purge on a missing output dir are plain no-ops (no scc/repomix needed).
+test_clean_missing_bundles_dir_is_noop() {
+    "$BASH_BIN" "$SCRIPT" clean "$BIGFIX" --output-dir "$TMP/wb-nobundles" 2>&1 | grep -qi 'no bundles directory'
+}
+run_test "run_clean on a missing bundles directory logs and returns" test_clean_missing_bundles_dir_is_noop
+
+test_purge_missing_output_dir_is_noop() {
+    "$BASH_BIN" "$SCRIPT" purge "$BIGFIX" --output-dir "$TMP/wb-nopurge" 2>&1 | grep -qi 'no output directory'
+}
+run_test "run_purge on a missing output directory logs and returns" test_purge_missing_output_dir_is_noop
+
+if command -v scc >/dev/null 2>&1 && command -v repomix >/dev/null 2>&1; then
+    test_run_pack_dies_without_plan() {
+        local out
+        out="$("$BASH_BIN" "$SCRIPT" pack "$BIGFIX" --output-dir "$TMP/wb-nopack" 2>&1)"
+        local rc=$?
+        [[ $rc -ne 0 ]] && [[ "$out" == *"missing bundle plan"* ]]
+    }
+    run_test "run_pack dies when no bundle plan exists yet" test_run_pack_dies_without_plan
+
+    test_pack_group_produces_root_and_folder_bundles() {
+        "$BASH_BIN" "$SCRIPT" plan "$BIGFIX" --output-dir "$TMP/wb-pack" >/dev/null 2>&1
+        "$BASH_BIN" "$SCRIPT" pack "$BIGFIX" --output-dir "$TMP/wb-pack" >/dev/null 2>&1
+        [[ -f "$TMP/wb-pack/bundles/_root.xml" ]] && [[ -f "$TMP/wb-pack/bundles/src__moduleA.xml" ]]
+    }
+    run_test "pack_group packs both the _root group (stdin list) and folder groups (--include)" test_pack_group_produces_root_and_folder_bundles
+
+    test_all_command_runs_stats_plan_pack() {
+        "$BASH_BIN" "$SCRIPT" all "$BIGFIX" --output-dir "$TMP/wb-all" >/dev/null 2>&1
+        [[ -f "$TMP/wb-all/bundle-plan.tsv" ]] && find "$TMP/wb-all/bundles" -type f 2>/dev/null | grep -q .
+    }
+    run_test "all command runs stats, plan, and pack" test_all_command_runs_stats_plan_pack
+
+    test_clean_requires_approval() {
+        "$BASH_BIN" "$SCRIPT" all "$BIGFIX" --output-dir "$TMP/wb-cleanguard" >/dev/null 2>&1
+        ! CI=true "$BASH_BIN" "$SCRIPT" clean "$BIGFIX" --output-dir "$TMP/wb-cleanguard" </dev/null >/dev/null 2>&1
+    }
+    run_test "run_clean without approval fails outside a tty" test_clean_requires_approval
+
+    test_clean_removes_bundles_keeps_metrics() {
+        "$BASH_BIN" "$SCRIPT" all "$BIGFIX" --output-dir "$TMP/wb-clean" >/dev/null 2>&1
+        APPROVE_CONTEXT_DELETE=1 "$BASH_BIN" "$SCRIPT" clean "$BIGFIX" --output-dir "$TMP/wb-clean" >/dev/null 2>&1
+        [[ ! -d "$TMP/wb-clean/bundles" ]] && [[ -f "$TMP/wb-clean/bundle-plan.tsv" ]]
+    }
+    run_test "run_clean with approval removes bundles but keeps metrics/plan files" test_clean_removes_bundles_keeps_metrics
+
+    test_purge_removes_output_dir() {
+        "$BASH_BIN" "$SCRIPT" stats "$BIGFIX" --output-dir "$TMP/wb-purge" >/dev/null 2>&1
+        APPROVE_CONTEXT_DELETE=1 "$BASH_BIN" "$SCRIPT" purge "$BIGFIX" --output-dir "$TMP/wb-purge" >/dev/null 2>&1
+        [[ ! -d "$TMP/wb-purge" ]]
+    }
+    run_test "run_purge with approval removes the entire output directory" test_purge_removes_output_dir
+else
+    skip_test "run_pack dies when no bundle plan exists yet" "scc or repomix not installed"
+    skip_test "pack_group packs both the _root group (stdin list) and folder groups (--include)" "scc or repomix not installed"
+    skip_test "all command runs stats, plan, and pack" "scc or repomix not installed"
+    skip_test "run_clean without approval fails outside a tty" "scc or repomix not installed"
+    skip_test "run_clean with approval removes bundles but keeps metrics/plan files" "scc or repomix not installed"
+    skip_test "run_purge with approval removes the entire output directory" "scc or repomix not installed"
+fi
+
 printf '\n=== Results ===\n'
 printf '  Passed: %d  Failed: %d  Skipped: %d\n' "$PASS" "$FAIL" "$SKIP"
 ((FAIL == 0)) && printf '\033[0;32mPASSED\033[0m\n' || { printf '\033[0;31mFAILED\033[0m\n'; exit 1; }
