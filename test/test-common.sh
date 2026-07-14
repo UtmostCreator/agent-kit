@@ -487,6 +487,38 @@ EOF
 }
 run_test "append_jsonl_safe: degrades to plain append with warning when flock is missing" test_append_jsonl_safe_no_flock_warns_and_appends
 
+# Distinct from the "no flock" branch above: here flock IS on PATH
+# (command -v flock succeeds) but the `flock -x 9` acquisition call itself
+# fails, hitting the "|| { ... }" fallback body rather than the "flock not
+# found" no-command branch. A fake flock binary that always exits non-zero
+# reproduces an acquire failure deterministically.
+test_append_jsonl_safe_flock_acquire_failure_falls_back() {
+    local tmpd fakebin script out
+    tmpd="$(test_tmpdir)"
+    fakebin="$tmpd/fakebin-failing-flock"
+    build_path_without "$fakebin" flock
+    cat >"$fakebin/flock" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+    chmod +x "$fakebin/flock"
+    script="$tmpd/run.sh"
+    cat >"$script" <<EOF
+source "$COMMON_SH"
+append_jsonl_safe "$tmpd/out.jsonl" '{"a":1}'
+EOF
+    out="$(PATH="$fakebin" "$BASH_BIN" "$script" 2>&1)"
+    # The acquire-failure fallback writes directly with no "flock not found"
+    # warning (that warning is only emitted on the separate no-flock-on-PATH
+    # branch above).
+    [[ "$out" != *"flock not found"* ]]
+    [[ -f "$tmpd/out.jsonl" ]]
+    local lines
+    lines="$(wc -l <"$tmpd/out.jsonl" | tr -d ' ')"
+    assert_eq "1" "$lines"
+}
+run_test "append_jsonl_safe: flock acquire failure (present but erroring) falls back to a direct append" test_append_jsonl_safe_flock_acquire_failure_falls_back
+
 # ── Section: git_root / repo_root ─────────────────────────────────────────────
 
 printf '\ngit_root / repo_root\n'
