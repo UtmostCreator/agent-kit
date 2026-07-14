@@ -26,6 +26,29 @@ test_list() {
 }
 run_test "--list enumerates commands (exit 0)" test_list
 
+# bare `list` (no dashes) is an alias for --list.
+test_bare_list() {
+    local out _rc=0
+    out="$("$BASH_BIN" "$AI" list 2>/dev/null)" || _rc=$?
+    [[ "$_rc" -eq 0 ]] && printf '%s' "$out" | grep -q 'ai-search'
+}
+run_test "bare 'list' word is an alias for --list (exit 0)" test_bare_list
+
+# -h/--help prints the dispatcher's own usage text plus the command list.
+test_help_flag() {
+    local out _rc=0
+    out="$("$BASH_BIN" "$AI" --help 2>/dev/null)" || _rc=$?
+    [[ "$_rc" -eq 0 ]] && printf '%s' "$out" | grep -q 'Usage:' && printf '%s' "$out" | grep -q 'ai-search'
+}
+run_test "--help prints usage + command list (exit 0)" test_help_flag
+
+test_help_short_flag() {
+    local out _rc=0
+    out="$("$BASH_BIN" "$AI" -h 2>/dev/null)" || _rc=$?
+    [[ "$_rc" -eq 0 ]] && printf '%s' "$out" | grep -q 'Usage:'
+}
+run_test "-h prints usage (exit 0)" test_help_short_flag
+
 # `agent-kit <name>` resolves the exact libexec file.
 test_exact_resolution() {
     "$BASH_BIN" "$AI" repo-stats --help >/dev/null 2>&1
@@ -163,6 +186,119 @@ test_dotfile_rejected() {
     ((_rc == 2))
 }
 run_test "rejects dotfile-style names" test_dotfile_rejected
+
+# --- Deeper per-router-mode coverage for the ai-repo/ai-inspect/ai-session
+# thin routers (libexec/ai-repo, libexec/ai-inspect, libexec/ai-session).
+# The earlier tests above only exercise one happy-path mode each; these cover
+# the remaining modes, --help/no-args, and the unknown-mode error path.
+
+# ai-repo: `tasks` mode routes to ai-task.
+test_repo_tasks() {
+    local out
+    out="$($BASH_BIN "$AI" repo tasks list 2>/dev/null || true)"
+    printf '%s' "$out" | jq -e '.package_manager' >/dev/null 2>&1
+}
+run_test "routes repo tasks to ai-task" test_repo_tasks
+
+# ai-repo: `tools` mode routes to repo-tool-inventory.
+test_repo_tools() {
+    local out
+    out="$($BASH_BIN "$AI" repo tools 2>/dev/null || true)"
+    printf '%s' "$out" | grep -q 'ai-search'
+}
+run_test "routes repo tools to repo-tool-inventory" test_repo_tools
+
+# ai-repo: `status` mode routes to ai-file-freshness (exit 0, read-only).
+test_repo_status() {
+    "$BASH_BIN" "$AI" repo status >/dev/null 2>&1
+}
+run_test "routes repo status to ai-file-freshness (exit 0)" test_repo_status
+
+# ai-repo: --help / no-args print the router's usage and exit 0.
+test_repo_help() {
+    local out _rc=0
+    out="$($BASH_BIN "$AI" repo --help 2>/dev/null)" || _rc=$?
+    [[ "$_rc" -eq 0 ]] && printf '%s' "$out" | grep -q 'agent-kit repo tasks'
+}
+run_test "repo --help prints router usage (exit 0)" test_repo_help
+
+test_repo_no_args() {
+    local _rc=0
+    "$BASH_BIN" "$AI" repo >/dev/null 2>&1 || _rc=$?
+    ((_rc == 0))
+}
+run_test "repo with no mode prints usage (exit 0)" test_repo_no_args
+
+# ai-repo: unknown mode fails with exit 2 and a clear message.
+test_repo_unknown_mode() {
+    local out _rc=0
+    out="$($BASH_BIN "$AI" repo bogus-mode 2>&1)" || _rc=$?
+    [[ "$_rc" -eq 2 && "$out" == *"unknown mode 'bogus-mode'"* ]]
+}
+run_test "repo unknown mode exits 2 with a clear message" test_repo_unknown_mode
+
+# ai-inspect: `data` mode routes to ai-structured.
+test_inspect_data() {
+    local out
+    out="$($BASH_BIN "$AI" inspect data validate-json package.json 2>&1 || true)"
+    printf '%s' "$out" | grep -q 'valid JSON'
+}
+run_test "routes inspect data to ai-structured" test_inspect_data
+
+# ai-inspect: --help / no-args print the router's usage and exit 0.
+test_inspect_help() {
+    local out _rc=0
+    out="$($BASH_BIN "$AI" inspect --help 2>/dev/null)" || _rc=$?
+    [[ "$_rc" -eq 0 ]] && printf '%s' "$out" | grep -q 'agent-kit inspect file'
+}
+run_test "inspect --help prints router usage (exit 0)" test_inspect_help
+
+test_inspect_no_args() {
+    local _rc=0
+    "$BASH_BIN" "$AI" inspect >/dev/null 2>&1 || _rc=$?
+    ((_rc == 0))
+}
+run_test "inspect with no mode prints usage (exit 0)" test_inspect_no_args
+
+# ai-inspect: unknown mode fails with exit 2 and a clear message.
+test_inspect_unknown_mode() {
+    local out _rc=0
+    out="$($BASH_BIN "$AI" inspect bogus-mode 2>&1)" || _rc=$?
+    [[ "$_rc" -eq 2 && "$out" == *"unknown mode 'bogus-mode'"* ]]
+}
+run_test "inspect unknown mode exits 2 with a clear message" test_inspect_unknown_mode
+
+# ai-session: `watch` mode routes to watch-loop. Use --help so the universal
+# lib/common.sh --help guard intercepts before the blocking watch loop starts.
+test_session_watch() {
+    local out
+    out="$($BASH_BIN "$AI" session watch --help 2>&1 || true)"
+    printf '%s' "$out" | grep -q 'watch-loop'
+}
+run_test "routes session watch to watch-loop" test_session_watch
+
+# ai-session: --help / no-args print the router's usage and exit 0.
+test_session_help() {
+    local out _rc=0
+    out="$($BASH_BIN "$AI" session --help 2>/dev/null)" || _rc=$?
+    [[ "$_rc" -eq 0 ]] && printf '%s' "$out" | grep -q 'agent-kit session checkpoint'
+}
+run_test "session --help prints router usage (exit 0)" test_session_help
+
+test_session_no_args() {
+    local _rc=0
+    "$BASH_BIN" "$AI" session >/dev/null 2>&1 || _rc=$?
+    ((_rc == 0))
+}
+run_test "session with no mode prints usage (exit 0)" test_session_no_args
+
+# ai-session: unknown mode fails with exit 2 and a clear message.
+test_session_unknown_mode() {
+    local out _rc=0
+    out="$($BASH_BIN "$AI" session bogus-mode 2>&1)" || _rc=$?
+    [[ "$_rc" -eq 2 && "$out" == *"unknown mode 'bogus-mode'"* ]]
+}
+run_test "session unknown mode exits 2 with a clear message" test_session_unknown_mode
 
 printf '\n=== Results ===\n'
 printf '  Passed: %d  Failed: %d\n' "$PASS" "$FAIL"
