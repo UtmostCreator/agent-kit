@@ -1503,6 +1503,163 @@ test_jscpd_npx_unavailable_skips_cleanly() {
 }
 run_test "jscpd not found and npx unavailable: check_jscpd skips cleanly (no crash, no failure)" test_jscpd_npx_unavailable_skips_cleanly
 
+test_jscpd_skipped_when_verify_jscpd_not_1() {
+    local tmp rc=0 out
+    tmp="$(mktemp -d)"
+    _write_fake_jscpd "$tmp/bin"
+    out="$(
+        {
+            set -euo pipefail
+            cd "$tmp"
+            git init -q
+            AI_LOG_DIR="$tmp/logs"
+            source "$REPO_ROOT/lib/common.sh"
+            source "$REPO_ROOT/lib/ai-verify/scope.sh"
+            source "$REPO_ROOT/lib/ai-verify/duplication.sh"
+            failures=0
+            VERIFY_JSCPD=0
+            export PATH="$tmp/bin:$PATH"
+            export JSCPD_RECORD="$tmp/jscpd.calls"
+            check_jscpd
+            ((failures == 0))
+        } 2>&1
+    )" || rc=$?
+    [[ ! -f "$tmp/jscpd.calls" ]] || rc=1
+    [[ "$out" == *"Skipping jscpd"* ]] || rc=1
+    rm -rf "$tmp"
+    return "$rc"
+}
+run_test "check_jscpd: VERIFY_JSCPD unset/0 skips without invoking jscpd" test_jscpd_skipped_when_verify_jscpd_not_1
+
+test_jscpd_uses_npx_when_jscpd_binary_absent() {
+    local tmp rc=0
+    tmp="$(mktemp -d)"
+    mkdir -p "$tmp/bin"
+    cat >"$tmp/bin/npx" <<'NPXEOF'
+#!/usr/bin/env bash
+[[ -n "${JSCPD_RECORD:-}" ]] && printf 'npx:%s\n' "$*" >>"$JSCPD_RECORD"
+out_dir=""
+prev=""
+for a in "$@"; do
+    if [[ "$prev" == "--output" ]]; then out_dir="$a"; fi
+    prev="$a"
+done
+mkdir -p "$out_dir"
+printf '{"statistics":{"total":{"percentage": %s}}}\n' "${FAKE_JSCPD_PCT:-0}" >"$out_dir/jscpd-report.json"
+exit 0
+NPXEOF
+    chmod +x "$tmp/bin/npx"
+    (
+        set -euo pipefail
+        cd "$tmp"
+        git init -q
+        AI_LOG_DIR="$tmp/logs"
+        source "$REPO_ROOT/lib/common.sh"
+        source "$REPO_ROOT/lib/ai-verify/scope.sh"
+        source "$REPO_ROOT/lib/ai-verify/duplication.sh"
+        failures=0
+        VERIFY_JSCPD=1
+        VERIFY_TIMEOUT=20
+        JSCPD_MIN_TOKENS=50
+        JSCPD_WARN_PCT=5
+        JSCPD_FAIL_PCT=""
+        JSCPD_PATHS="."
+        export PATH="$tmp/bin:$PATH"
+        export FAKE_JSCPD_PCT=1
+        export JSCPD_RECORD="$tmp/jscpd.calls"
+        check_jscpd
+        ((failures == 0))
+        grep -q "^npx:--yes jscpd" "$JSCPD_RECORD"
+    ) || rc=$?
+    rm -rf "$tmp"
+    return "$rc"
+}
+run_test "check_jscpd falls back to 'npx --yes jscpd' when no local jscpd binary is on PATH" test_jscpd_uses_npx_when_jscpd_binary_absent
+
+test_jscpd_no_report_produced_skips_cleanly() {
+    local tmp rc=0
+    tmp="$(mktemp -d)"
+    mkdir -p "$tmp/bin"
+    cat >"$tmp/bin/jscpd" <<'JSEOF'
+#!/usr/bin/env bash
+# Simulate a jscpd invocation that fails before writing any report.
+exit 1
+JSEOF
+    chmod +x "$tmp/bin/jscpd"
+    (
+        set -euo pipefail
+        cd "$tmp"
+        git init -q
+        AI_LOG_DIR="$tmp/logs"
+        source "$REPO_ROOT/lib/common.sh"
+        source "$REPO_ROOT/lib/ai-verify/scope.sh"
+        source "$REPO_ROOT/lib/ai-verify/duplication.sh"
+        failures=0
+        VERIFY_JSCPD=1
+        VERIFY_TIMEOUT=20
+        JSCPD_MIN_TOKENS=50
+        JSCPD_WARN_PCT=5
+        JSCPD_FAIL_PCT=""
+        JSCPD_PATHS="."
+        export PATH="$tmp/bin:$PATH"
+        check_jscpd
+        ((failures == 0))
+    ) >"$tmp/stdout" 2>"$tmp/stderr" || rc=$?
+    if ((rc == 0)); then
+        grep -q "produced no report" "$tmp/stderr" || rc=1
+    fi
+    rm -rf "$tmp"
+    return "$rc"
+}
+run_test "check_jscpd: no report file produced (tool errored) skips cleanly without failing" test_jscpd_no_report_produced_skips_cleanly
+
+test_jscpd_default_paths_fallback_to_dot_when_scope_empty() {
+    local tmp rc=0
+    tmp="$(mktemp -d)"
+    _write_fake_jscpd "$tmp/bin"
+    (
+        set -euo pipefail
+        cd "$tmp"
+        git init -q
+        git config user.email t@t.t
+        git config user.name t
+        : >tracked.txt
+        git add -A
+        git commit -q -m init
+        AI_LOG_DIR="$tmp/logs"
+        AI_VERIFY_SCOPE=changed
+        source "$REPO_ROOT/lib/common.sh"
+        source "$REPO_ROOT/lib/ai-verify/scope.sh"
+        source "$REPO_ROOT/lib/ai-verify/duplication.sh"
+        failures=0
+        # Consumed dynamically by check_jscpd (lib/ai-verify/duplication.sh) below.
+        # shellcheck disable=SC2034
+        VERIFY_JSCPD=1
+        VERIFY_TIMEOUT=20
+        # shellcheck disable=SC2034
+        JSCPD_MIN_TOKENS=50
+        # shellcheck disable=SC2034
+        JSCPD_WARN_PCT=5
+        # shellcheck disable=SC2034
+        JSCPD_FAIL_PCT=""
+        # shellcheck disable=SC2034
+        JSCPD_PATHS=""
+        export PATH="$tmp/bin:$PATH"
+        export FAKE_JSCPD_PCT=0
+        export JSCPD_RECORD="$tmp/jscpd.calls"
+        check_jscpd
+        local calls
+        calls="$(cat "$JSCPD_RECORD")"
+        # Nothing changed in "changed" scope, so linecount_scoped_files is
+        # empty and check_jscpd must fall back to "." rather than invoking
+        # jscpd with zero path arguments.
+        [[ "$calls" == ". "* || "$calls" == *" ."* ]]
+    ) || rc=$?
+    rm -rf "$tmp"
+    return "$rc"
+}
+run_test "check_jscpd: falls back to '.' when the scoped file list is empty" test_jscpd_default_paths_fallback_to_dot_when_scope_empty
+
 # ── Phase 2 coverage: lib/ai-verify/plan-status.sh ──────────────────────────
 test_plan_status_checklist_counts() {
     local tmp rc=0
@@ -1781,6 +1938,180 @@ test_run_verify_full_invokes_phpunit_and_pest() {
     ((rc == 0)) && [[ "$out" == *"phpunit:"* ]] && [[ "$out" == *"pest:"* ]]
 }
 run_test "VERIFY_FULL=1 invokes vendor/bin/phpunit and vendor/bin/pest" test_run_verify_full_invokes_phpunit_and_pest
+
+test_run_verify_full_invokes_deptrac_and_composer_require_checker() {
+    local tmp rc=0 out
+    tmp="$(mktemp -d)"
+    mkdir -p "$tmp/work/vendor/bin"
+    _write_fake_recorder "$tmp/work/vendor/bin" "$tmp/tool.calls" deptrac
+    _write_fake_recorder "$tmp/work/vendor/bin" "$tmp/tool.calls" composer-require-checker
+    printf '{"name":"t/t","require":{}}\n' >"$tmp/work/composer.json"
+    (
+        cd "$tmp/work"
+        git init -q
+        git config user.email t@t.t
+        git config user.name t
+        git add -A
+        git commit -q -m init
+        AI_LOG_DIR="$tmp/logs" AI_EVENT_LOG="$tmp/logs/ev.jsonl" \
+            AI_VERIFY_TEST_MODE=0 AI_VERIFY_SCOPE=changed VERIFY_FULL=1 \
+            VERIFY_LINECOUNT=0 VERIFY_SECRETS=0 VERIFY_LINKS=0 \
+            "$BASH_BIN" "$SCRIPT" . >/dev/null 2>&1
+    )
+    rc=$?
+    out="$(cat "$tmp/tool.calls" 2>/dev/null)"
+    rm -rf "$tmp"
+    ((rc == 0)) && [[ "$out" == *"deptrac:analyse"* ]] && [[ "$out" == *"composer-require-checker:check composer.json"* ]]
+}
+run_test "VERIFY_FULL=1 invokes vendor/bin/deptrac analyse and composer-require-checker check" test_run_verify_full_invokes_deptrac_and_composer_require_checker
+
+# Hide a single named binary from PATH by symlinking every other real PATH
+# executable into a fresh dir (mirrors test-common.sh's build_path_without,
+# duplicated locally since this suite has no shared harness file).
+_ai_verify_path_without() {
+    local fakebin="$1" hide="$2"
+    mkdir -p "$fakebin"
+    local dir f base
+    local -a dirs=()
+    IFS=':' read -ra dirs <<<"$PATH"
+    for dir in "${dirs[@]}"; do
+        [[ -d "$dir" ]] || continue
+        for f in "$dir"/*; do
+            [[ -x "$f" && -f "$f" ]] || continue
+            base="$(basename "$f")"
+            [[ "$base" == "$hide" ]] && continue
+            [[ -e "$fakebin/$base" ]] && continue
+            ln -s "$f" "$fakebin/$base" 2>/dev/null || true
+        done
+    done
+    printf '%s\n' "$fakebin"
+}
+
+test_run_verify_pnpm_js_tool_matrix() {
+    local tmp rc=0 out
+    tmp="$(mktemp -d)"
+    _write_fake_recorder "$tmp/bin" "$tmp/tool.calls" pnpm
+    mkdir -p "$tmp/work/src"
+    (
+        cd "$tmp/work"
+        git init -q
+        git config user.email t@t.t
+        git config user.name t
+        printf '{"name":"t","devDependencies":{"eslint":"^8.0.0","typescript":"^5.0.0","vue-tsc":"^1.0.0","nuxt":"^3.0.0","@graphql-codegen/cli":"^5.0.0","@graphql-eslint/eslint-plugin":"^3.0.0","@biomejs/biome":"^1.0.0","knip":"^5.0.0"}}\n' >package.json
+        printf '{}\n' >tsconfig.json
+        printf 'generates: {}\n' >codegen.yml
+        git add -A
+        git commit -q -m init
+        PATH="$tmp/bin:$PATH" AI_LOG_DIR="$tmp/logs" AI_EVENT_LOG="$tmp/logs/ev.jsonl" \
+            AI_VERIFY_TEST_MODE=0 AI_VERIFY_SCOPE=changed VERIFY_FULL=0 \
+            VERIFY_LINECOUNT=0 VERIFY_SECRETS=0 VERIFY_LINKS=0 \
+            "$BASH_BIN" "$SCRIPT" . >/dev/null 2>&1
+    )
+    rc=$?
+    out="$(cat "$tmp/tool.calls" 2>/dev/null)"
+    rm -rf "$tmp"
+    ((rc == 0)) &&
+        [[ "$out" == *"pnpm:exec eslint ."* ]] &&
+        [[ "$out" == *"pnpm:exec tsc --noEmit"* ]] &&
+        [[ "$out" == *"pnpm:exec vue-tsc --noEmit"* ]] &&
+        [[ "$out" == *"pnpm:exec nuxi typecheck"* ]] &&
+        [[ "$out" == *"pnpm:exec graphql-codegen"* ]] &&
+        [[ "$out" == *"pnpm:exec graphql-eslint ."* ]] &&
+        [[ "$out" == *"pnpm:exec biome check ."* ]] &&
+        [[ "$out" == *"pnpm:exec knip"* ]]
+}
+run_test "ai_verify_run pnpm branch: eslint/tsc/vue-tsc/nuxt/graphql-codegen/graphql-eslint/biome/knip all dispatch via dependency detection" test_run_verify_pnpm_js_tool_matrix
+
+test_run_verify_pnpm_full_invokes_playwright_and_vitest() {
+    local tmp rc=0 out
+    tmp="$(mktemp -d)"
+    _write_fake_recorder "$tmp/bin" "$tmp/tool.calls" pnpm
+    mkdir -p "$tmp/work"
+    (
+        cd "$tmp/work"
+        git init -q
+        git config user.email t@t.t
+        git config user.name t
+        printf '{"name":"t","devDependencies":{"@playwright/test":"^1.0.0","vitest":"^1.0.0"}}\n' >package.json
+        git add -A
+        git commit -q -m init
+        PATH="$tmp/bin:$PATH" AI_LOG_DIR="$tmp/logs" AI_EVENT_LOG="$tmp/logs/ev.jsonl" \
+            AI_VERIFY_TEST_MODE=0 AI_VERIFY_SCOPE=changed VERIFY_FULL=1 \
+            VERIFY_LINECOUNT=0 VERIFY_SECRETS=0 VERIFY_LINKS=0 \
+            "$BASH_BIN" "$SCRIPT" . >/dev/null 2>&1
+    )
+    rc=$?
+    out="$(cat "$tmp/tool.calls" 2>/dev/null)"
+    rm -rf "$tmp"
+    ((rc == 0)) && [[ "$out" == *"pnpm:exec playwright test"* ]] && [[ "$out" == *"pnpm:exec vitest run"* ]]
+}
+run_test "VERIFY_FULL=1 pnpm branch invokes dedicated playwright test and vitest run" test_run_verify_pnpm_full_invokes_playwright_and_vitest
+
+test_run_verify_pnpm_test_script_gated_by_verify_full() {
+    local tmp rc_full=0 rc_off=0 out_full out_off
+    tmp="$(mktemp -d)"
+    _write_fake_recorder "$tmp/bin" "$tmp/tool.calls" pnpm
+    mkdir -p "$tmp/work"
+    (
+        cd "$tmp/work"
+        git init -q
+        git config user.email t@t.t
+        git config user.name t
+        printf '{"name":"t","scripts":{"test":"vitest run"}}\n' >package.json
+        git add -A
+        git commit -q -m init
+        PATH="$tmp/bin:$PATH" AI_LOG_DIR="$tmp/logs" AI_EVENT_LOG="$tmp/logs/ev.jsonl" \
+            AI_VERIFY_TEST_MODE=0 AI_VERIFY_SCOPE=changed VERIFY_FULL=1 \
+            VERIFY_LINECOUNT=0 VERIFY_SECRETS=0 VERIFY_LINKS=0 \
+            "$BASH_BIN" "$SCRIPT" . >/dev/null 2>&1
+    )
+    rc_full=$?
+    out_full="$(cat "$tmp/tool.calls" 2>/dev/null)"
+    : >"$tmp/tool.calls"
+    (
+        cd "$tmp/work"
+        PATH="$tmp/bin:$PATH" AI_LOG_DIR="$tmp/logs2" AI_EVENT_LOG="$tmp/logs2/ev.jsonl" \
+            AI_VERIFY_TEST_MODE=0 AI_VERIFY_SCOPE=changed VERIFY_FULL=0 \
+            VERIFY_LINECOUNT=0 VERIFY_SECRETS=0 VERIFY_LINKS=0 \
+            "$BASH_BIN" "$SCRIPT" . >/dev/null 2>&1
+    )
+    rc_off=$?
+    out_off="$(cat "$tmp/tool.calls" 2>/dev/null)"
+    rm -rf "$tmp"
+    ((rc_full == 0)) && ((rc_off == 0)) &&
+        [[ "$out_full" == *"pnpm:test"* ]] &&
+        [[ "$out_off" != *"pnpm:test"* ]]
+}
+run_test "pnpm 'test' script runs only under VERIFY_FULL=1, skipped otherwise" test_run_verify_pnpm_test_script_gated_by_verify_full
+
+test_run_verify_npm_fallback_when_pnpm_absent() {
+    local tmp rc=0 out fakebin
+    tmp="$(mktemp -d)"
+    fakebin="$(_ai_verify_path_without "$tmp/bin" pnpm)"
+    _write_fake_recorder "$tmp/npmbin" "$tmp/tool.calls" npm
+    mkdir -p "$tmp/work"
+    (
+        cd "$tmp/work"
+        git init -q
+        git config user.email t@t.t
+        git config user.name t
+        printf '{"name":"t","scripts":{"lint":"eslint .","typecheck":"tsc --noEmit","test":"vitest run"}}\n' >package.json
+        git add -A
+        git commit -q -m init
+        PATH="$tmp/npmbin:$fakebin" AI_LOG_DIR="$tmp/logs" AI_EVENT_LOG="$tmp/logs/ev.jsonl" \
+            AI_VERIFY_TEST_MODE=0 AI_VERIFY_SCOPE=changed VERIFY_FULL=1 \
+            VERIFY_LINECOUNT=0 VERIFY_SECRETS=0 VERIFY_LINKS=0 \
+            "$BASH_BIN" "$SCRIPT" . >/dev/null 2>&1
+    )
+    rc=$?
+    out="$(cat "$tmp/tool.calls" 2>/dev/null)"
+    rm -rf "$tmp"
+    ((rc == 0)) &&
+        [[ "$out" == *"npm:run lint"* ]] &&
+        [[ "$out" == *"npm:run typecheck"* ]] &&
+        [[ "$out" == *"npm:test"* ]]
+}
+run_test "package.json JS steps fall back to npm run/npm test when pnpm is not on PATH" test_run_verify_npm_fallback_when_pnpm_absent
 
 test_run_verify_secrets_1_invokes_gitleaks() {
     local tmp rc=0 out
