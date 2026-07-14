@@ -829,6 +829,152 @@ PHP
 }
 run_test "append_log_entry: skips durable php log when SESSION_ID is unset" test_append_log_entry_durable_log_skipped_without_session_id
 
+test_append_log_entry_durable_log_skipped_when_agent_log_php_missing() {
+    local tmpd
+    tmpd="$(test_tmpdir)"
+    # tools/ai/ directory intentionally absent: the file-existence guard in
+    # append_log_entry ([[ -f "$repo_root/tools/ai/agent-log.php" ]]) must skip
+    # the php invocation cleanly, regardless of whether php itself is on PATH.
+    AI_LOG_DIR="$tmpd/logs" AI_EVENT_LOG="$tmpd/logs/events.jsonl" \
+        AI_LOG_REPO_ROOT="$tmpd" AI_SESSION_DURABLE_LOG=1 SESSION_ID="sess-1" \
+        append_log_entry '{"a":1}'
+    [[ -f "$tmpd/logs/events.jsonl" ]]
+    [[ ! -d "$tmpd/tools" ]]
+}
+run_test "append_log_entry: skips durable php log cleanly when tools/ai/agent-log.php is absent" test_append_log_entry_durable_log_skipped_when_agent_log_php_missing
+
+test_append_log_entry_triggers_rotation() {
+    local tmpd
+    tmpd="$(test_tmpdir)"
+    mkdir -p "$tmpd/logs"
+    # Pre-seed an oversized event log so append_log_entry's internal
+    # rotate_log_if_needed_locked call (before the append) rotates it out of
+    # the way; the fresh append must land in a newly-created, small file.
+    head -c 200 /dev/zero | tr '\0' 'x' >"$tmpd/logs/events.jsonl"
+    AI_LOG_DIR="$tmpd/logs" AI_EVENT_LOG="$tmpd/logs/events.jsonl" \
+        AI_LOG_MAX_BYTES=100 \
+        append_log_entry '{"a":1}'
+    [[ -f "$tmpd/logs/events.jsonl" ]]
+    local rotated_count
+    rotated_count="$(find "$tmpd/logs" -name 'events.jsonl.*.bak' | wc -l | tr -d ' ')"
+    assert_eq "1" "$rotated_count"
+    # The live file now holds only the new (small) entry, not the old 200 bytes.
+    local size
+    size="$(wc -c <"$tmpd/logs/events.jsonl" | tr -d ' ')"
+    ((size < 200))
+}
+run_test "append_log_entry: rotates an oversized event log before appending" test_append_log_entry_triggers_rotation
+
+# ── Section: init_log_repo_context ─────────────────────────────────────────────
+
+printf '\ninit_log_repo_context\n'
+
+test_init_log_repo_context_resolves_and_caches() {
+    local tmpd
+    tmpd="$(test_tmpdir)"
+    (
+        cd "$tmpd"
+        git init -q
+        git config user.email t@t.t
+        git config user.name t
+        git commit -q -m init --allow-empty
+        unset AI_LOG_REPO_ROOT AI_LOG_GIT_BRANCH AI_LOG_GIT_COMMIT
+        init_log_repo_context
+        [[ -n "$AI_LOG_GIT_COMMIT" && "$AI_LOG_GIT_COMMIT" != "unknown" ]]
+        [[ -n "$AI_LOG_REPO_ROOT" ]]
+        # Caching: a pinned sentinel value must survive a second call within
+        # the same process (the ":=" pattern only resolves when unset).
+        AI_LOG_GIT_BRANCH="pinned-value"
+        init_log_repo_context
+        assert_eq "pinned-value" "$AI_LOG_GIT_BRANCH"
+    )
+}
+run_test "init_log_repo_context: resolves git metadata once and caches per process" test_init_log_repo_context_resolves_and_caches
+
+# ── Section: log_json (remaining branches) ─────────────────────────────────────
+
+printf '\nlog_json (remaining branches)\n'
+
+test_log_json_explicit_severity_override() {
+    local tmpd
+    tmpd="$(test_tmpdir)"
+    # guard.start would otherwise infer severity=info; _severity must override.
+    AI_LOG_DIR="$tmpd" AI_EVENT_LOG="$tmpd/events.jsonl" \
+        log_json "guard.start" '{"_severity":"warn","note":"x"}' "common"
+    local sev detail_sev
+    sev="$(head -1 "$tmpd/events.jsonl" | jq -r '.severity')"
+    detail_sev="$(head -1 "$tmpd/events.jsonl" | jq -r '.details._severity // "stripped"')"
+    assert_eq "warn" "$sev"
+    assert_eq "stripped" "$detail_sev"
+}
+run_test "log_json: explicit _severity payload key overrides derived severity and is stripped" test_log_json_explicit_severity_override
+
+test_log_json_status_override_blocked() {
+    local tmpd
+    tmpd="$(test_tmpdir)"
+    AI_LOG_DIR="$tmpd" AI_EVENT_LOG="$tmpd/events.jsonl" \
+        log_json "guard.start" '{"_status":"blocked"}' "common"
+    local status
+    status="$(head -1 "$tmpd/events.jsonl" | jq -r '.execution.status')"
+    assert_eq "blocked" "$status"
+}
+run_test "log_json: _status accepts 'blocked' as a valid override value" test_log_json_status_override_blocked
+
+test_log_json_severity_error_for_timeout() {
+    local tmpd
+    tmpd="$(test_tmpdir)"
+    AI_LOG_DIR="$tmpd" AI_EVENT_LOG="$tmpd/events.jsonl" \
+        log_json "verify.timeout" '{}' "ai-verify"
+    local status sev
+    status="$(head -1 "$tmpd/events.jsonl" | jq -r '.execution.status')"
+    sev="$(head -1 "$tmpd/events.jsonl" | jq -r '.severity')"
+    assert_eq "timeout" "$status"
+    assert_eq "error" "$sev"
+}
+run_test "log_json: *.timeout derives execution.status=timeout and severity=error" test_log_json_severity_error_for_timeout
+
+test_log_json_malformed_payload_wraps_as_raw() {
+    local tmpd
+    tmpd="$(test_tmpdir)"
+    AI_LOG_DIR="$tmpd" AI_EVENT_LOG="$tmpd/events.jsonl" \
+        log_json "x.y" 'not valid json' "c"
+    local raw
+    raw="$(head -1 "$tmpd/events.jsonl" | jq -r '.details.raw')"
+    assert_eq "not valid json" "$raw"
+}
+run_test "log_json: non-JSON payload falls back to {raw: payload} instead of crashing" test_log_json_malformed_payload_wraps_as_raw
+
+test_log_json_default_payload_when_omitted() {
+    local tmpd
+    tmpd="$(test_tmpdir)"
+    AI_LOG_DIR="$tmpd" AI_EVENT_LOG="$tmpd/events.jsonl" \
+        log_json "bare.event"
+    local etype details
+    etype="$(head -1 "$tmpd/events.jsonl" | jq -r '.event_type')"
+    details="$(head -1 "$tmpd/events.jsonl" | jq -c '.details')"
+    assert_eq "bare.event" "$etype"
+    assert_eq "{}" "$details"
+}
+run_test "log_json: payload argument defaults to {} when omitted" test_log_json_default_payload_when_omitted
+
+test_log_json_actor_and_trace_fields() {
+    local tmpd
+    tmpd="$(test_tmpdir)"
+    AI_LOG_DIR="$tmpd" AI_EVENT_LOG="$tmpd/events.jsonl" \
+        ACTOR_ID="my-actor" DELEGATED_BY="parent-actor" TRACE_ID="trace-1" TASK_ID="task-1" \
+        log_json "a.b" '{}' "caller"
+    local actor_id delegated_by trace_id task_id
+    actor_id="$(head -1 "$tmpd/events.jsonl" | jq -r '.actor.id')"
+    delegated_by="$(head -1 "$tmpd/events.jsonl" | jq -r '.actor.delegated_by')"
+    trace_id="$(head -1 "$tmpd/events.jsonl" | jq -r '.trace_id')"
+    task_id="$(head -1 "$tmpd/events.jsonl" | jq -r '.task_id')"
+    assert_eq "my-actor" "$actor_id"
+    assert_eq "parent-actor" "$delegated_by"
+    assert_eq "trace-1" "$trace_id"
+    assert_eq "task-1" "$task_id"
+}
+run_test "log_json: ACTOR_ID/DELEGATED_BY/TRACE_ID/TASK_ID env vars populate actor/trace/task fields" test_log_json_actor_and_trace_fields
+
 # ── Section: classify_command ─────────────────────────────────────────────────
 
 printf '\nclassify_command\n'
