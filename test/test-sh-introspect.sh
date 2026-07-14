@@ -9,6 +9,9 @@ SCRIPT="$REPO_ROOT/libexec/sh-introspect"
 TARGET="libexec/ai-rollback"
 cd "$REPO_ROOT"
 
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
 PASS=0 FAIL=0 SKIP=0
 run_test() {
     local name="$1"; shift; local _rc=0
@@ -47,6 +50,101 @@ test_list() {
     printf '%s' "$out" | grep -q 'ai-search'
 }
 run_test "--list enumerates commands with summaries" test_list
+
+test_introspect_flag() {
+    local out _rc=0
+    out="$("$BASH_BIN" "$SCRIPT" --introspect 2>&1)" || _rc=$?
+    [[ "$_rc" -eq 0 && "$out" == *'"schema"'* ]]
+}
+run_test "--introspect self-describes via JSON re-exec" test_introspect_flag
+
+test_format_json_eq() {
+    local out
+    out="$("$BASH_BIN" "$SCRIPT" --format json "$TARGET" 2>&1 || true)"
+    [[ -n "$out" ]] && printf '%s' "$out" | grep -q '"schema"'
+}
+run_test "--format json (space form) renders JSON" test_format_json_eq
+
+test_json_flag_shorthand() {
+    local out
+    out="$("$BASH_BIN" "$SCRIPT" --json "$TARGET" 2>&1 || true)"
+    [[ -n "$out" ]] && printf '%s' "$out" | grep -q '"schema"'
+}
+run_test "--json shorthand flag renders JSON" test_json_flag_shorthand
+
+test_missing_file_arg_text() {
+    local out _rc=0
+    out="$("$BASH_BIN" "$SCRIPT" 2>&1)" || _rc=$?
+    [[ "$_rc" -eq 2 && "$out" == *"missing FILE argument"* ]]
+}
+run_test "missing FILE argument fails with text error, exit 2" test_missing_file_arg_text
+
+test_no_such_file_text() {
+    local out _rc=0
+    out="$("$BASH_BIN" "$SCRIPT" "$TMP/does-not-exist.sh" 2>&1)" || _rc=$?
+    [[ "$_rc" -eq 2 && "$out" == *"no such file"* ]]
+}
+run_test "no such file fails with text error, exit 2" test_no_such_file_text
+
+test_list_missing_dir() {
+    local out _rc=0
+    out="$("$BASH_BIN" "$SCRIPT" --list "$TMP/no-such-dir" 2>&1)" || _rc=$?
+    [[ "$_rc" -eq 2 && "$out" == *"not a directory"* ]]
+}
+run_test "--list on a missing directory fails, exit 2" test_list_missing_dir
+
+test_list_default_dir() {
+    # `--list` with no explicit directory defaults to `.` and should still
+    # exercise the shift/consume-arg logic without erroring.
+    (
+        cd "$TMP" || exit 1
+        printf '#!/usr/bin/env bash\n# a fixture script\n' >fixture.sh
+        chmod +x fixture.sh
+        "$BASH_BIN" "$SCRIPT" --list >/dev/null 2>&1
+    )
+}
+run_test "--list with no directory argument defaults to ." test_list_default_dir
+
+# Fixture with no leading doc-comment block at all: description/usage/examples/
+# flags/env/requires should all render as empty in the text report.
+FIXTURE_MINIMAL="$TMP/minimal.sh"
+cat >"$FIXTURE_MINIMAL" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+echo hi
+EOF
+test_minimal_fixture_text() {
+    local out
+    out="$("$BASH_BIN" "$SCRIPT" "$FIXTURE_MINIMAL" 2>&1 || true)"
+    [[ "$out" == *"minimal.sh"* && "$out" == *"(static introspection"* ]]
+}
+run_test "fixture with no doc comments still renders a minimal report" test_minimal_fixture_text
+
+# Fixture that has no `# Usage:`/`# Example:` header block, but does have a
+# `usage() { cat <<EOF ... EOF }` heredoc — exercises extract_usage_heredoc's
+# fallback path.
+FIXTURE_HEREDOC="$TMP/heredoc-usage.sh"
+cat >"$FIXTURE_HEREDOC" <<'EOF'
+#!/usr/bin/env bash
+# A fixture with a heredoc-based usage function instead of a comment block.
+set -euo pipefail
+usage() {
+    cat <<USAGE
+heredoc-usage.sh [--flag]
+  runs the fixture
+USAGE
+}
+if [[ "${1:-}" == "--help" ]]; then usage; exit 0; fi
+case "${1:-}" in
+    --flag) shift ;;
+esac
+EOF
+test_heredoc_usage_fallback() {
+    local out
+    out="$("$BASH_BIN" "$SCRIPT" "$FIXTURE_HEREDOC" 2>&1 || true)"
+    [[ "$out" == *"heredoc-usage.sh [--flag]"* ]]
+}
+run_test "extract_usage_heredoc fallback picks up heredoc usage() body" test_heredoc_usage_fallback
 
 if command -v jq >/dev/null 2>&1; then
     test_json_envelope() {
