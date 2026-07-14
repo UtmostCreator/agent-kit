@@ -149,8 +149,22 @@ scopes and guardrails, prefer structured (`AI_OUTPUT=json`) output, and run
 
 ## 🛠️ Runtime
 
-**Core:** Bash 4.4+, Git, `ripgrep` (`rg`), and `jq`.
-**Optional** (unlock extra capabilities): `fd`, GitHub CLI, Node.js/Repomix, SCC, ShellCheck.
+**Core (required for basically every command):** Bash 4.4+, Git, `ripgrep` (`rg`), and `jq`.
+
+**Optional (unlock specific commands):**
+
+| Package(s) | Unlocks |
+|---|---|
+| `fd`/`fdfind`, `ast-grep`/`sg`, `sd`, `comby` | `search files`/`struct`/`symbols`, `edit ast-grep`/`sd`/`comby` |
+| `repomix` (Node), `files-to-prompt`, `code2prompt` | `context pack`/`file`/`generate`/`tree` |
+| `yq`, `mlr`/`csvcut`, `xmllint` | `structured yaml`/`csv`/`xml`, `inspect data` |
+| GitHub CLI (`gh`) | `git pr-context` |
+| `lychee`, `markdownlint`, `phpunit`/`paratest`, `bats` | `verify docs`, `test run`/`all` (consumer project's own tests) |
+| `watchexec` or `entr`, `tar` | `session watch`/`watch-loop`, `session checkpoint` (untracked-file archive) |
+| `bat`, `just`, SCC, ShellCheck | Prettier `preview-file`, `repo tasks` justfile detection, dev-only checks |
+
+See **[docs/PACKAGES.md](docs/PACKAGES.md)** for exactly which package each of
+the 24 commands uses, why, and a real captured example.
 
 ## 🧪 Development
 

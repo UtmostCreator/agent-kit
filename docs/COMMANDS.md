@@ -1,6 +1,8 @@
 # Command map
 
 The exact supported options and output schema are authoritative in each command's `--help` output.
+For the packages each command depends on, why, and a real captured example, see
+[PACKAGES.md](PACKAGES.md).
 
 Commands are shown as `agent-kit <command>`. If you set the optional alias
 `alias akit='agent-kit'`, the short form `akit <command>` works everywhere
