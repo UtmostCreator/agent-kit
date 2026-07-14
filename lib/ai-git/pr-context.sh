@@ -132,7 +132,10 @@ ai_git_pr_context_main() {
 
     if [[ "$want_pack" == "1" ]]; then
         section "Packing PR files as AI context"
-        "${AI_GIT_LIBEXEC_DIR:?AI_GIT_LIBEXEC_DIR must be set by the loader}/ai-diff-context" pr "$pr"
+        # ai-diff-context was fused into ai-context (mode "diff") during the
+        # thin-loader migration (see libexec/ai-context); libexec/ai-diff-context
+        # no longer exists as a standalone entrypoint.
+        "${AI_GIT_LIBEXEC_DIR:?AI_GIT_LIBEXEC_DIR must be set by the loader}/ai-context" diff pr "$pr"
     fi
 
     log_json "gh-pr-context.done" \
