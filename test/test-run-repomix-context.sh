@@ -140,7 +140,11 @@ run_test "require_bins dies with 'required tools not found' when scc is missing"
 # secrets-scan failure: a committed fake RSA private key reliably trips
 # gitleaks' default private-key rule (a plain AWS-example key in a .env file
 # does not, by default rule set — verified empirically).
-if command -v gitleaks >/dev/null 2>&1; then
+# This runs the real (unstubbed) $SCRIPT, whose require_bins call (line 61
+# of run-repomix-context) hard-requires scc and repomix before it ever
+# reaches the secrets-scan section this test targets -- gate on all three,
+# not just gitleaks, for the same reason as the die-branch tests below.
+if command -v gitleaks >/dev/null 2>&1 && command -v scc >/dev/null 2>&1 && command -v repomix >/dev/null 2>&1; then
     test_secrets_scan_failure() {
         local secroot out
         secroot="$(mktemp -d)"
@@ -166,7 +170,7 @@ EOF
     }
     run_test "require_clean_secret_scan dies when a committed secret is detected" test_secrets_scan_failure
 else
-    skip_test "require_clean_secret_scan dies when a committed secret is detected" "gitleaks not installed"
+    skip_test "require_clean_secret_scan dies when a committed secret is detected" "gitleaks, scc, or repomix not installed"
 fi
 
 # Missing generated index/plan/manifest/bundles and bundle_count==0 die
@@ -185,73 +189,81 @@ build_fake_tree_root() {
     chmod +x "$fakeroot/libexec/internal/run-repomix-context"
 }
 
-test_die_missing_index() {
-    local fakeroot cleanroot
-    fakeroot="$(mktemp -d)"
-    cleanroot="$(mktemp -d)"
-    (cd "$cleanroot" && git init -q && printf 'hi\n' >f.txt && git add -A \
-        && git -c user.email=t@t -c user.name=t commit -qm init) >/dev/null 2>&1
-    build_fake_tree_root "$fakeroot"
-    printf '#!/usr/bin/env bash\nexit 0\n' >"$fakeroot/libexec/internal/repomix-context-tree"
-    chmod +x "$fakeroot/libexec/internal/repomix-context-tree"
-    local out
-    out="$("$BASH_BIN" "$fakeroot/libexec/internal/run-repomix-context" "$cleanroot" --top 1 2>&1)"
-    local rc=$?
-    [[ $rc -ne 0 ]] && [[ "$out" == *"missing generated index"* ]]
-}
-run_test "die: missing generated index when the tree script writes nothing" test_die_missing_index
+# All five die branches below run through a real (copied) run-repomix-context,
+# whose very first require_bins call hard-requires scc and repomix (line 61 of
+# the real script) before it ever reaches the missing-artifact checks these
+# tests target. Without both installed, require_bins dies first with its own
+# "required tools not found" message, not the die-branch message each test
+# expects -- exactly the failure this repo's CI hits, since it never installs
+# scc/repomix. Gate on both being present, matching the sibling tests above.
+if command -v scc >/dev/null 2>&1 && command -v repomix >/dev/null 2>&1; then
+    test_die_missing_index() {
+        local fakeroot cleanroot
+        fakeroot="$(mktemp -d)"
+        cleanroot="$(mktemp -d)"
+        (cd "$cleanroot" && git init -q && printf 'hi\n' >f.txt && git add -A \
+            && git -c user.email=t@t -c user.name=t commit -qm init) >/dev/null 2>&1
+        build_fake_tree_root "$fakeroot"
+        printf '#!/usr/bin/env bash\nexit 0\n' >"$fakeroot/libexec/internal/repomix-context-tree"
+        chmod +x "$fakeroot/libexec/internal/repomix-context-tree"
+        local out
+        out="$("$BASH_BIN" "$fakeroot/libexec/internal/run-repomix-context" "$cleanroot" --top 1 2>&1)"
+        local rc=$?
+        [[ $rc -ne 0 ]] && [[ "$out" == *"missing generated index"* ]]
+    }
+    run_test "die: missing generated index when the tree script writes nothing" test_die_missing_index
 
-test_die_missing_plan() {
-    local fakeroot cleanroot
-    fakeroot="$(mktemp -d)"
-    cleanroot="$(mktemp -d)"
-    (cd "$cleanroot" && git init -q && printf 'hi\n' >f.txt && git add -A \
-        && git -c user.email=t@t -c user.name=t commit -qm init) >/dev/null 2>&1
-    build_fake_tree_root "$fakeroot"
-    cat >"$fakeroot/libexec/internal/repomix-context-tree" <<'EOF'
+    test_die_missing_plan() {
+        local fakeroot cleanroot
+        fakeroot="$(mktemp -d)"
+        cleanroot="$(mktemp -d)"
+        (cd "$cleanroot" && git init -q && printf 'hi\n' >f.txt && git add -A \
+            && git -c user.email=t@t -c user.name=t commit -qm init) >/dev/null 2>&1
+        build_fake_tree_root "$fakeroot"
+        cat >"$fakeroot/libexec/internal/repomix-context-tree" <<'EOF'
 #!/usr/bin/env bash
 mkdir -p "$2/.repomix-context/tree-context"
 printf x >"$2/.repomix-context/tree-context/index.md"
 exit 0
 EOF
-    chmod +x "$fakeroot/libexec/internal/repomix-context-tree"
-    local out
-    out="$("$BASH_BIN" "$fakeroot/libexec/internal/run-repomix-context" "$cleanroot" --top 1 2>&1)"
-    local rc=$?
-    [[ $rc -ne 0 ]] && [[ "$out" == *"missing generated plan"* ]]
-}
-run_test "die: missing generated plan when only the index was written" test_die_missing_plan
+        chmod +x "$fakeroot/libexec/internal/repomix-context-tree"
+        local out
+        out="$("$BASH_BIN" "$fakeroot/libexec/internal/run-repomix-context" "$cleanroot" --top 1 2>&1)"
+        local rc=$?
+        [[ $rc -ne 0 ]] && [[ "$out" == *"missing generated plan"* ]]
+    }
+    run_test "die: missing generated plan when only the index was written" test_die_missing_plan
 
-test_die_missing_manifest() {
-    local fakeroot cleanroot
-    fakeroot="$(mktemp -d)"
-    cleanroot="$(mktemp -d)"
-    (cd "$cleanroot" && git init -q && printf 'hi\n' >f.txt && git add -A \
-        && git -c user.email=t@t -c user.name=t commit -qm init) >/dev/null 2>&1
-    build_fake_tree_root "$fakeroot"
-    cat >"$fakeroot/libexec/internal/repomix-context-tree" <<'EOF'
+    test_die_missing_manifest() {
+        local fakeroot cleanroot
+        fakeroot="$(mktemp -d)"
+        cleanroot="$(mktemp -d)"
+        (cd "$cleanroot" && git init -q && printf 'hi\n' >f.txt && git add -A \
+            && git -c user.email=t@t -c user.name=t commit -qm init) >/dev/null 2>&1
+        build_fake_tree_root "$fakeroot"
+        cat >"$fakeroot/libexec/internal/repomix-context-tree" <<'EOF'
 #!/usr/bin/env bash
 mkdir -p "$2/.repomix-context/tree-context"
 printf x >"$2/.repomix-context/tree-context/index.md"
 printf '{}' >"$2/.repomix-context/tree-context/tree-plan.json"
 exit 0
 EOF
-    chmod +x "$fakeroot/libexec/internal/repomix-context-tree"
-    local out
-    out="$("$BASH_BIN" "$fakeroot/libexec/internal/run-repomix-context" "$cleanroot" --top 1 2>&1)"
-    local rc=$?
-    [[ $rc -ne 0 ]] && [[ "$out" == *"missing generated manifest"* ]]
-}
-run_test "die: missing generated manifest when index+plan were written" test_die_missing_manifest
+        chmod +x "$fakeroot/libexec/internal/repomix-context-tree"
+        local out
+        out="$("$BASH_BIN" "$fakeroot/libexec/internal/run-repomix-context" "$cleanroot" --top 1 2>&1)"
+        local rc=$?
+        [[ $rc -ne 0 ]] && [[ "$out" == *"missing generated manifest"* ]]
+    }
+    run_test "die: missing generated manifest when index+plan were written" test_die_missing_manifest
 
-test_die_missing_bundles_dir() {
-    local fakeroot cleanroot
-    fakeroot="$(mktemp -d)"
-    cleanroot="$(mktemp -d)"
-    (cd "$cleanroot" && git init -q && printf 'hi\n' >f.txt && git add -A \
-        && git -c user.email=t@t -c user.name=t commit -qm init) >/dev/null 2>&1
-    build_fake_tree_root "$fakeroot"
-    cat >"$fakeroot/libexec/internal/repomix-context-tree" <<'EOF'
+    test_die_missing_bundles_dir() {
+        local fakeroot cleanroot
+        fakeroot="$(mktemp -d)"
+        cleanroot="$(mktemp -d)"
+        (cd "$cleanroot" && git init -q && printf 'hi\n' >f.txt && git add -A \
+            && git -c user.email=t@t -c user.name=t commit -qm init) >/dev/null 2>&1
+        build_fake_tree_root "$fakeroot"
+        cat >"$fakeroot/libexec/internal/repomix-context-tree" <<'EOF'
 #!/usr/bin/env bash
 mkdir -p "$2/.repomix-context/tree-context"
 printf x >"$2/.repomix-context/tree-context/index.md"
@@ -259,22 +271,22 @@ printf '{}' >"$2/.repomix-context/tree-context/tree-plan.json"
 printf '{}' >"$2/.repomix-context/tree-context/tree-manifest.json"
 exit 0
 EOF
-    chmod +x "$fakeroot/libexec/internal/repomix-context-tree"
-    local out
-    out="$("$BASH_BIN" "$fakeroot/libexec/internal/run-repomix-context" "$cleanroot" --top 1 2>&1)"
-    local rc=$?
-    [[ $rc -ne 0 ]] && [[ "$out" == *"missing generated bundles directory"* ]]
-}
-run_test "die: missing generated bundles directory when index+plan+manifest were written" test_die_missing_bundles_dir
+        chmod +x "$fakeroot/libexec/internal/repomix-context-tree"
+        local out
+        out="$("$BASH_BIN" "$fakeroot/libexec/internal/run-repomix-context" "$cleanroot" --top 1 2>&1)"
+        local rc=$?
+        [[ $rc -ne 0 ]] && [[ "$out" == *"missing generated bundles directory"* ]]
+    }
+    run_test "die: missing generated bundles directory when index+plan+manifest were written" test_die_missing_bundles_dir
 
-test_die_bundle_count_zero() {
-    local fakeroot cleanroot
-    fakeroot="$(mktemp -d)"
-    cleanroot="$(mktemp -d)"
-    (cd "$cleanroot" && git init -q && printf 'hi\n' >f.txt && git add -A \
-        && git -c user.email=t@t -c user.name=t commit -qm init) >/dev/null 2>&1
-    build_fake_tree_root "$fakeroot"
-    cat >"$fakeroot/libexec/internal/repomix-context-tree" <<'EOF'
+    test_die_bundle_count_zero() {
+        local fakeroot cleanroot
+        fakeroot="$(mktemp -d)"
+        cleanroot="$(mktemp -d)"
+        (cd "$cleanroot" && git init -q && printf 'hi\n' >f.txt && git add -A \
+            && git -c user.email=t@t -c user.name=t commit -qm init) >/dev/null 2>&1
+        build_fake_tree_root "$fakeroot"
+        cat >"$fakeroot/libexec/internal/repomix-context-tree" <<'EOF'
 #!/usr/bin/env bash
 mkdir -p "$2/.repomix-context/tree-context/bundles"
 printf x >"$2/.repomix-context/tree-context/index.md"
@@ -282,13 +294,20 @@ printf '{}' >"$2/.repomix-context/tree-context/tree-plan.json"
 printf '{}' >"$2/.repomix-context/tree-context/tree-manifest.json"
 exit 0
 EOF
-    chmod +x "$fakeroot/libexec/internal/repomix-context-tree"
-    local out
-    out="$("$BASH_BIN" "$fakeroot/libexec/internal/run-repomix-context" "$cleanroot" --top 1 2>&1)"
-    local rc=$?
-    [[ $rc -ne 0 ]] && [[ "$out" == *"no context bundles generated"* ]]
-}
-run_test "die: bundle_count == 0 when the bundles directory is empty" test_die_bundle_count_zero
+        chmod +x "$fakeroot/libexec/internal/repomix-context-tree"
+        local out
+        out="$("$BASH_BIN" "$fakeroot/libexec/internal/run-repomix-context" "$cleanroot" --top 1 2>&1)"
+        local rc=$?
+        [[ $rc -ne 0 ]] && [[ "$out" == *"no context bundles generated"* ]]
+    }
+    run_test "die: bundle_count == 0 when the bundles directory is empty" test_die_bundle_count_zero
+else
+    skip_test "die: missing generated index when the tree script writes nothing" "scc or repomix not installed"
+    skip_test "die: missing generated plan when only the index was written" "scc or repomix not installed"
+    skip_test "die: missing generated manifest when index+plan were written" "scc or repomix not installed"
+    skip_test "die: missing generated bundles directory when index+plan+manifest were written" "scc or repomix not installed"
+    skip_test "die: bundle_count == 0 when the bundles directory is empty" "scc or repomix not installed"
+fi
 
 printf '\n=== Results ===\n'
 printf '  Passed: %d  Failed: %d  Skipped: %d\n' "$PASS" "$FAIL" "$SKIP"
