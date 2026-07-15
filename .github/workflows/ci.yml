@@ -24,6 +24,11 @@ jobs:
     timeout-minutes: 20
 
     steps:
+      - name: Harden the runner (audit-only; observes egress, never blocks)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
       - name: Checkout exact event revision without external actions
         env:
           REPOSITORY: ${{ github.repository }}
@@ -58,6 +63,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
+      - name: Harden the runner (audit-only; observes egress, never blocks)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
       - name: Checkout exact event revision without external actions
         env:
           REPOSITORY: ${{ github.repository }}
