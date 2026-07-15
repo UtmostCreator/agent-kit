@@ -11,7 +11,7 @@
   <img alt="No telemetry" src="https://img.shields.io/badge/telemetry-none-success?style=for-the-badge"/>
   <br/>
   <a href="https://github.com/UtmostCreator/agent-kit/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/UtmostCreator/agent-kit/ci.yml?style=for-the-badge&label=CI&logo=github"/></a>
-  <img alt="Tests" src="https://img.shields.io/badge/tests-497%20passing-2ea44f?style=for-the-badge&logo=checkmarx&logoColor=white"/>
+  <img alt="Tests" src="https://img.shields.io/badge/tests-655%20passing-2ea44f?style=for-the-badge&logo=checkmarx&logoColor=white"/>
   <img alt="Command coverage" src="https://img.shields.io/badge/command%20coverage-100%25-2ea44f?style=for-the-badge"/>
   <a href="https://www.npmjs.com/package/@utmostcreator/agent-kit"><img alt="npm" src="https://img.shields.io/npm/v/@utmostcreator/agent-kit?style=for-the-badge&logo=npm&color=cb3837"/></a>
   <a href="https://github.com/UtmostCreator/agent-kit/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/UtmostCreator/agent-kit?style=for-the-badge&color=ffcc00"/></a>
@@ -22,7 +22,7 @@ scoped search, context packing, guarded edits, rollback, test selection, and
 evidence-based verification. One agent-agnostic `agent-kit` command; every script
 is **self-documenting** via `--help` / `--introspect` and runs **100% on your machine**.
 
-`Search · Context · Edit · Rollback · Test · Verify`
+`Context · Search · Edit · Rollback · Test · Verify`
 
 </div>
 
@@ -39,16 +39,16 @@ agent-kit search text "TODO" .  # your first search
 
 ## 🤔 Why AgentKit? (vs. running `rg` / `git` / `grep` yourself)
 
-|                          | Raw shell tools                    | 🧰 AgentKit                                                   |
-| ------------------------ | ---------------------------------- | ------------------------------------------------------------ |
-| **Structured output**    | text you parse by hand             | JSON envelopes (`--introspect`, `AI_OUTPUT=json`)            |
-| **One interface**        | remember each tool's flags         | `agent-kit search` over ripgrep + git-grep + ast-grep        |
-| **Guarded edits**        | none — a bad `sed` is forever      | plan-first edits with scope checks, snapshots, and rollback  |
-| **Test selection**       | manual                             | `agent-kit test-select changed`                              |
-| **Proof of completion**  | manual                             | `agent-kit verify` — an evidence gate before you say "done"  |
-| **Self-documenting**     | man pages vary wildly              | every command: `--help` + a runnable example, `--introspect` |
-| **Agent-agnostic**       | —                                  | one surface for Claude Code, Copilot, OpenCode, or a human   |
-| **Runtime**              | —                                  | Bash + Git + `rg` + `jq`. No PHP, no Node required, no telemetry |
+|                         | Raw shell tools               | 🧰 AgentKit                                                      |
+| ----------------------- | ----------------------------- | ---------------------------------------------------------------- |
+| **Structured output**   | text you parse by hand        | JSON envelopes (`--introspect`, `AI_OUTPUT=json`)                |
+| **One interface**       | remember each tool's flags    | `agent-kit search` over ripgrep + git-grep + ast-grep            |
+| **Guarded edits**       | none — a bad `sed` is forever | plan-first edits with scope checks, snapshots, and rollback      |
+| **Test selection**      | manual                        | `agent-kit test-select changed`                                  |
+| **Proof of completion** | manual                        | `agent-kit verify` — an evidence gate before you say "done"      |
+| **Self-documenting**    | man pages vary wildly         | every command: `--help` + a runnable example, `--introspect`     |
+| **Agent-agnostic**      | —                             | one surface for Claude Code, Copilot, OpenCode, or a human       |
+| **Runtime**             | —                             | Bash + Git + `rg` + `jq`. No PHP, no Node required, no telemetry |
 
 ## ✨ What's inside
 
@@ -146,7 +146,7 @@ scopes and guardrails, prefer structured (`AI_OUTPUT=json`) output, and run
 ## 🔒 Safety & privacy
 
 - **Runs entirely on your machine** — no telemetry, no analytics, no cloud sync. Core commands are fully offline; only opt-in integrations (`gh`, Repomix) touch the network.
-- **Guardrails, not a sandbox** — AgentKit reduces accidental repository damage, but it is *not* an OS sandbox. Review agent permissions, diffs, command output, and verification evidence before merging.
+- **Guardrails, not a sandbox** — AgentKit reduces accidental repository damage, but it is _not_ an OS sandbox. Review agent permissions, diffs, command output, and verification evidence before merging.
 - **Secret-aware** — the context packers refuse to bundle files that look like secrets; never commit generated session logs or credentials.
 
 ## 🛠️ Runtime
@@ -155,18 +155,18 @@ scopes and guardrails, prefer structured (`AI_OUTPUT=json`) output, and run
 
 **Optional (unlock specific commands):**
 
-| Package(s) | Unlocks |
-|---|---|
-| `fd`/`fdfind`, `ast-grep`/`sg`, `sd`, `comby` | `search files`/`struct`/`symbols`, `edit ast-grep`/`sd`/`comby` |
-| `repomix` (Node), `files-to-prompt`, `code2prompt` | `context pack`/`file`/`generate`/`tree` |
-| `yq`, `mlr`/`csvcut`, `xmllint` | `structured yaml`/`csv`/`xml`, `inspect data` |
-| GitHub CLI (`gh`) | `git pr-context` |
-| `lychee`, `markdownlint`, `phpunit`/`paratest`, `bats` | `verify docs`, `test run`/`all` (consumer project's own tests) |
-| `watchexec` or `entr`, `tar` | `session watch`/`watch-loop`, `session checkpoint` (untracked-file archive) |
-| `bat`, `just`, SCC, ShellCheck | Prettier `preview-file`, `repo tasks` justfile detection, dev-only checks |
+| Package(s)                                             | Unlocks                                                                     |
+| ------------------------------------------------------ | --------------------------------------------------------------------------- |
+| `fd`/`fdfind`, `ast-grep`/`sg`, `sd`, `comby`          | `search files`/`struct`/`symbols`, `edit ast-grep`/`sd`/`comby`             |
+| `repomix` (Node), `files-to-prompt`, `code2prompt`     | `context pack`/`file`/`generate`/`tree`                                     |
+| `yq`, `mlr`/`csvcut`, `xmllint`                        | `structured yaml`/`csv`/`xml`, `inspect data`                               |
+| GitHub CLI (`gh`)                                      | `git pr-context`                                                            |
+| `lychee`, `markdownlint`, `phpunit`/`paratest`, `bats` | `verify docs`, `test run`/`all` (consumer project's own tests)              |
+| `watchexec` or `entr`, `tar`                           | `session watch`/`watch-loop`, `session checkpoint` (untracked-file archive) |
+| `bat`, `just`, SCC, ShellCheck                         | Prettier `preview-file`, `repo tasks` justfile detection, dev-only checks   |
 
 See **[docs/PACKAGES.md](docs/PACKAGES.md)** for exactly which package each of
-the 24 commands uses, why, and a real captured example.
+the 25 commands uses, why, and a real captured example.
 
 ## 🧪 Development
 
@@ -176,9 +176,9 @@ the 24 commands uses, why, and a real captured example.
 bash scripts/gen-examples.sh > docs/EXAMPLES.md   # regenerate the examples doc
 ```
 
-**Test coverage:** the suite runs **497 passing test cases** across 26 test
-files, exercising **all 24 public commands (100% command coverage)**. This
-figure is *command coverage* — the share of shipped commands with a dedicated
+**Test coverage:** the suite runs **655 passing test cases** across 27 test
+files, exercising **all 25 public commands (100% command coverage)**. This
+figure is _command coverage_ — the share of shipped commands with a dedicated
 test — not statement coverage. For real line coverage, run
 `./scripts/coverage.sh` — as of this writing it measures **69.62% line
 coverage (5611/8060 executable lines)** across `bin/`, `lib/`, and `libexec/`,
