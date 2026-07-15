@@ -181,6 +181,90 @@ test_unknown_option() {
 }
 run_test "unknown option fails" test_unknown_option
 
+# --help / -h prints usage and exits 0.
+test_help_flag() {
+    local out
+    out="$("$BASH_BIN" "$SCRIPT" "login" "$TMP/src" --help)"
+    [[ "$out" == *"Usage:"* ]]
+}
+run_test "--help prints usage" test_help_flag
+
+test_h_flag() {
+    local out
+    out="$("$BASH_BIN" "$SCRIPT" "login" "$TMP/src" -h)"
+    [[ "$out" == *"Usage:"* ]]
+}
+run_test "-h prints usage" test_h_flag
+
+# --mode=X / --context=N / --type=X equals-form flags.
+test_mode_equals() {
+    local out
+    out="$("$BASH_BIN" "$SCRIPT" "login" "$TMP/src" --mode=php --files)"
+    [[ "$out" == *".php"* ]]
+}
+run_test "--mode=X equals-form filters to .php files" test_mode_equals
+
+test_context_equals() {
+    local out lines
+    out="$("$BASH_BIN" "$SCRIPT" "login" "$TMP/src/app.php" --context=1)"
+    lines="$(echo "$out" | wc -l | tr -d ' ')"
+    ((lines > 1))
+}
+run_test "--context=N equals-form adds surrounding lines" test_context_equals
+
+test_type_equals() {
+    local out
+    out="$("$BASH_BIN" "$SCRIPT" "login" "$TMP/src" --type=js --files)"
+    [[ "$out" == *".js"* ]]
+}
+run_test "--type=X equals-form filters by extension" test_type_equals
+
+# Mode: all (disables default ignore rules; -uuu).
+test_mode_all() {
+    local out
+    out="$("$BASH_BIN" "$SCRIPT" "login" "$TMP/src" --mode all)"
+    [[ "$out" == *"login"* ]]
+}
+run_test "mode all searches with -uuu" test_mode_all
+
+# Mode: tracked (git grep; exits early with the git grep exit code).
+test_mode_tracked() {
+    local out rc=0
+    git -C "$TMP" init -q
+    git -C "$TMP" config user.email "test@example.com"
+    git -C "$TMP" config user.name "Test User"
+    git -C "$TMP" add src/app.php
+    out="$("$BASH_BIN" "$SCRIPT" "login" "$TMP" --mode tracked)" || rc=$?
+    [[ "$out" == *"login"* ]] && ((rc == 0))
+}
+run_test "mode tracked uses git grep" test_mode_tracked
+
+test_mode_tracked_no_match_exit() {
+    git -C "$TMP" init -q 2>/dev/null || true
+    ! "$BASH_BIN" "$SCRIPT" "definitely_no_match_xyz_$$" "$TMP" --mode tracked >/dev/null 2>&1
+}
+run_test "mode tracked propagates git grep's non-zero exit on no match" test_mode_tracked_no_match_exit
+
+# Mode: blade
+test_mode_blade() {
+    mkdir -p "$TMP/resources/views"
+    echo '{{ $login }}' > "$TMP/resources/views/home.blade.php"
+    local out
+    out="$("$BASH_BIN" "$SCRIPT" "login" "$TMP/resources" --mode blade --files)"
+    [[ "$out" == *".blade.php"* ]]
+}
+run_test "mode blade filters to .blade.php files" test_mode_blade
+
+# Mode: kotlin
+test_mode_kotlin() {
+    mkdir -p "$TMP/app/src"
+    echo 'fun login() {}' > "$TMP/app/src/Login.kt"
+    local out
+    out="$("$BASH_BIN" "$SCRIPT" "login" "$TMP/app/src" --mode kotlin --files)"
+    [[ "$out" == *".kt"* ]]
+}
+run_test "mode kotlin filters to .kt/.kts files" test_mode_kotlin
+
 printf '\n=== Results ===\n'
 printf '  Passed: %d  Failed: %d  Skipped: %d\n' "$PASS" "$FAIL" "$SKIP"
 ((FAIL == 0)) && printf '\033[0;32mPASSED\033[0m\n' || { printf '\033[0;31mFAILED\033[0m\n'; exit 1; }
