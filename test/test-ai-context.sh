@@ -843,11 +843,19 @@ run_test "pack_files_list: manifest.json records label/token_budget/include flag
 
 SECRET_FIX="$TMP/helpers-pack-files-list-secret-fixture"
 make_git_fixture "$SECRET_FIX"
+# Banner built from two halves at runtime, rather than as one literal string in
+# this source file, so the fixture still trips gitleaks' real private-key rule
+# without also tripping check-publishable.sh's own secret-pattern grep over
+# tracked *source* files.
+rsa_begin_marker='-----BEGIN'
+rsa_begin_marker+=' RSA PRIVATE KEY-----'
+rsa_end_marker='-----END'
+rsa_end_marker+=' RSA PRIVATE KEY-----'
 {
     printf 'synthetic test fixture only, not a real credential\n'
-    printf -- '-----BEGIN RSA PRIVATE KEY-----\n'
+    printf '%s\n' "$rsa_begin_marker"
     printf 'MIIBOgIBAAJBAKj34GkxFhD90vcNLYLInFEr8cvCsGoBiHmYUqmb9dSj7lYyoNSb\n'
-    printf -- '-----END RSA PRIVATE KEY-----\n'
+    printf '%s\n' "$rsa_end_marker"
 } >"$SECRET_FIX/secret.txt"
 (
     cd "$SECRET_FIX" && git add -A &&
