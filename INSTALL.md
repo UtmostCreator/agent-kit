@@ -25,6 +25,15 @@ Optional tools unlock additional commands: `fd`, `gh`, Node.js with Repomix, SCC
 
 All methods install the same `agent-kit` command.
 
+Want proof a release archive was really built by this repo's CI, not
+tampered with in transit? Every tagged release is cryptographically
+attested to its source commit:
+
+```bash
+gh attestation verify agent-kit-<version>.tar.gz --repo UtmostCreator/agent-kit
+sha256sum --check SHA256SUMS
+```
+
 ## Project-local install (vendor the toolkit inside a repo)
 
 To make a single repository self-contained — so every checkout and CI job has the

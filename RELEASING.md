@@ -142,11 +142,21 @@ Pushing the tag triggers `.github/workflows/release.yml`, which:
 - runs `scripts/package-release.sh v0.1.0` to build
   `dist/agent-kit-0.1.0.tar.gz`, `.zip`, and `SHA256SUMS`,
 - publishes a GitHub release named `AgentKit v0.1.0` with those files attached
-  and auto-generated notes.
+  and auto-generated notes,
+- then, in a separate downstream `attest` job scoped to only
+  `id-token`/`attestations`/`contents:read` permissions, downloads the
+  just-published tarball and attests it with `actions/attest-build-provenance`.
 
 Watch it: `gh run watch` (or the Actions tab). If it fails, fix forward with a
 new commit and a new patch tag — don't force-push or delete the tag once
 others may have fetched it.
+
+Verify a release was really built by this repo's CI, from this commit:
+
+```bash
+gh attestation verify agent-kit-0.1.0.tar.gz --repo UtmostCreator/agent-kit
+sha256sum --check SHA256SUMS
+```
 
 ## 4. npm
 
