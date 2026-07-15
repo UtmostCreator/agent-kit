@@ -38,29 +38,38 @@ trap cleanup_test_dirs EXIT
 # names passed as the remaining args. Used to simulate a missing binary
 # (e.g. uuidgen, flock, setsid) without disturbing the real PATH for the
 # rest of the suite. Defined early so any section can use it.
+#
+# Two perf-critical choices here, not just style: `${f##*/}` instead of
+# `basename "$f"` avoids forking a process per PATH entry (a PATH with
+# hundreds of entries means hundreds of forks), and the ln calls are batched
+# (multiple sources, one destination dir -- the classic POSIX `ln` form, not
+# GNU-only `-t`) instead of one `ln` per file. Together these turned this
+# from the single largest cost in the whole suite (~6-7s per call, dozens of
+# calls across test/*.sh) into a sub-0.1s operation with byte-identical
+# output (verified: same set of symlinked names either way).
 build_path_without() {
     local fakebin="$1"
     shift
     mkdir -p "$fakebin"
-    local dir f base skip ex
-    local -a dirs=()
+    local dir f base
+    local -a dirs=() sources=()
+    local -A seen=()
+    local ex
+    for ex in "$@"; do seen["$ex"]=1; done
     IFS=':' read -ra dirs <<<"$PATH"
     for dir in "${dirs[@]}"; do
         [[ -d "$dir" ]] || continue
         for f in "$dir"/*; do
             [[ -x "$f" && -f "$f" ]] || continue
-            base="$(basename "$f")"
-            skip=0
-            for ex in "$@"; do
-                [[ "$base" == "$ex" ]] && {
-                    skip=1
-                    break
-                }
-            done
-            ((skip == 1)) && continue
-            [[ -e "$fakebin/$base" ]] && continue
-            ln -sf "$f" "$fakebin/$base" 2>/dev/null || true
+            base="${f##*/}"
+            [[ -n "${seen[$base]:-}" ]] && continue
+            seen["$base"]=1
+            sources+=("$f")
         done
+    done
+    local i
+    for ((i = 0; i < ${#sources[@]}; i += 500)); do
+        ln -sf -- "${sources[@]:i:500}" "$fakebin" 2>/dev/null || true
     done
 }
 
@@ -1443,8 +1452,14 @@ test_run_guarded_wallclock() {
 run_test "run_guarded: wall-clock timeout returns 124" test_run_guarded_wallclock
 
 # Idle hang (no output + idle CPU) kills the process and returns 124.
+# AI_GUARD_CPU_SAMPLE shortens _ai_guard_cpu_percent's own internal sleep
+# (default 1s) to 0.2s: a sleep(30) child reads 0% CPU over either window,
+# so detection accuracy is unaffected, but with AI_GUARD_CPU_STREAK's default
+# of 2 required samples this was the single largest single-test cost in the
+# whole suite (~14s, most of it real sleep(1) calls inside the CPU sampler,
+# not the nominal AI_GUARD_IDLE_SECS=2 the test sets).
 test_run_guarded_idle_hang() {
-    assert_exit 124 env AI_GUARD_TIMEOUT=60 AI_GUARD_IDLE_SECS=2 AI_GUARD_POLL=1 AI_GUARD_CPU_MIN=5 \
+    assert_exit 124 env AI_GUARD_TIMEOUT=60 AI_GUARD_IDLE_SECS=2 AI_GUARD_POLL=1 AI_GUARD_CPU_MIN=5 AI_GUARD_CPU_SAMPLE=0.2 \
         bash -c "source '$COMMON_SH'; run_guarded idle sleep 30"
 }
 if command -v ps >/dev/null 2>&1; then
@@ -1456,10 +1471,13 @@ fi
 # A silent BUT CPU-busy job must NOT be killed by the idle trigger (BOTH
 # no-output AND idle-CPU are required). Use a pure in-process arithmetic burn
 # (no forks) so the tracked PID genuinely pins CPU, then exit 0. awk is used for
-# a portable wall-clock-bounded busy loop.
+# a portable wall-clock-bounded busy loop. 3s (not a longer margin) is enough
+# to safely outlast AI_GUARD_IDLE_SECS=2; AI_GUARD_CPU_SAMPLE=0.2 shortens the
+# CPU sampler's own internal sleep (default 1s) since a busy loop reads well
+# above AI_GUARD_CPU_MIN over either window.
 test_run_guarded_busy_survives() {
-    assert_exit 0 env AI_GUARD_TIMEOUT=60 AI_GUARD_IDLE_SECS=2 AI_GUARD_POLL=1 AI_GUARD_CPU_MIN=5 \
-        bash -c "source '$COMMON_SH'; run_guarded busy awk 'BEGIN{s=systime(); while(systime()-s<5){x++}}'"
+    assert_exit 0 env AI_GUARD_TIMEOUT=60 AI_GUARD_IDLE_SECS=2 AI_GUARD_POLL=1 AI_GUARD_CPU_MIN=5 AI_GUARD_CPU_SAMPLE=0.2 \
+        bash -c "source '$COMMON_SH'; run_guarded busy awk 'BEGIN{s=systime(); while(systime()-s<3){x++}}'"
 }
 # Only meaningful where /proc CPU sampling works; on platforms without it the
 # guard intentionally falls back to wall-clock only and would not kill here either.

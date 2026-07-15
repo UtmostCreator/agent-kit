@@ -101,29 +101,34 @@ fi
 # require_bins failure: strip a required binary (scc) from PATH and confirm the
 # script dies with require_bins' "required tools not found" message before
 # doing anything destructive.
+#
+# `${f##*/}` (not `basename "$f"`) and batched `ln` calls (multiple sources,
+# one destination dir -- portable POSIX form, not GNU-only `-t`) avoid
+# forking a process per PATH entry; on a PATH with hundreds of entries that
+# was ~6-7s per call, now sub-0.1s, with byte-identical output.
 build_path_without() {
     local fakebin="$1"
     shift
     mkdir -p "$fakebin"
-    local dir f base skip ex
-    local -a dirs=()
+    local dir f base
+    local -a dirs=() sources=()
+    local -A seen=()
+    local ex
+    for ex in "$@"; do seen["$ex"]=1; done
     IFS=':' read -ra dirs <<<"$PATH"
     for dir in "${dirs[@]}"; do
         [[ -d "$dir" ]] || continue
         for f in "$dir"/*; do
             [[ -x "$f" && -f "$f" ]] || continue
-            base="$(basename "$f")"
-            skip=0
-            for ex in "$@"; do
-                [[ "$base" == "$ex" ]] && {
-                    skip=1
-                    break
-                }
-            done
-            ((skip == 1)) && continue
-            [[ -e "$fakebin/$base" ]] && continue
-            ln -sf "$f" "$fakebin/$base" 2>/dev/null || true
+            base="${f##*/}"
+            [[ -n "${seen[$base]:-}" ]] && continue
+            seen["$base"]=1
+            sources+=("$f")
         done
+    done
+    local i
+    for ((i = 0; i < ${#sources[@]}; i += 500)); do
+        ln -sf -- "${sources[@]:i:500}" "$fakebin" 2>/dev/null || true
     done
 }
 

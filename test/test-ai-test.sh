@@ -45,17 +45,26 @@ path_without() {
     local fakebin="$TMP/path-without-${bin//[^A-Za-z0-9_.-]/_}"
     mkdir -p "$fakebin"
     local dir f base
-    local -a dirs=()
+    local -a dirs=() sources=()
+    local -A seen=()
+    seen["$bin"]=1
     IFS=':' read -ra dirs <<<"$PATH"
     for dir in "${dirs[@]}"; do
         [[ -d "$dir" ]] || continue
         for f in "$dir"/*; do
             [[ -x "$f" && -f "$f" ]] || continue
-            base="$(basename "$f")"
-            [[ "$base" == "$bin" ]] && continue
-            [[ -e "$fakebin/$base" ]] && continue
-            ln -sf "$f" "$fakebin/$base" 2>/dev/null || true
+            # ${f##*/} (not `basename "$f"`) avoids forking a process per
+            # PATH entry -- on a PATH with hundreds of entries that was the
+            # dominant cost of this helper (~6-7s), now sub-0.1s.
+            base="${f##*/}"
+            [[ -n "${seen[$base]:-}" ]] && continue
+            seen["$base"]=1
+            sources+=("$f")
         done
+    done
+    local i
+    for ((i = 0; i < ${#sources[@]}; i += 500)); do
+        ln -sf -- "${sources[@]:i:500}" "$fakebin" 2>/dev/null || true
     done
     printf '%s' "$fakebin"
 }

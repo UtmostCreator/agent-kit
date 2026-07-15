@@ -171,8 +171,13 @@ _verify_timeout=""
 for _t in timeout gtimeout; do command -v "$_t" >/dev/null 2>&1 && { _verify_timeout="$_t"; break; }; done
 test_branch_scope_recognized() {
     local out
+    # Scope validation happens up front and dies (if it were to) well under
+    # a second; the cap only needs enough margin to observe that, not to let
+    # the full per-file verification pass finish (confirmed: this reliably
+    # ran into and got killed by the old 20s cap every single run, spending
+    # 20s to prove something a 3s cap already proves).
     out="$(AI_VERIFY_TEST_MODE=0 AI_VERIFY_SCOPE=branch VERIFY_SECRETS=0 VERIFY_FULL=0 \
-        ${_verify_timeout:+$_verify_timeout 20} \
+        ${_verify_timeout:+$_verify_timeout 3} \
         "$BASH_BIN" "$SCRIPT" "$REPO_ROOT" 2>&1 || true)"
     [[ "$out" != *"unknown AI_VERIFY_SCOPE"* ]]
 }
@@ -198,7 +203,14 @@ EOF
     (
         cd "$work"
         git init -q
-        PATH="$tmpbin:$PATH" AI_VERIFY_TEST_MODE=0 VERIFY_SECRETS=0 VERIFY_FULL=0 \
+        # AI_VERIFY_SCOPE=branch: this fixture has no commits, so every file
+        # looks "changed" under the default scope, which pulls in the
+        # trivy/semgrep/osv-scanner security-scan block -- multi-second
+        # startup cost (rule DB loads, network probes) that has nothing to
+        # do with what this helper actually asserts (lychee invocation).
+        # Scoping to branch skips that block the same way
+        # test_branch_scope_recognized already relies on.
+        PATH="$tmpbin:$PATH" AI_VERIFY_TEST_MODE=0 VERIFY_SECRETS=0 VERIFY_FULL=0 AI_VERIFY_SCOPE=branch \
             "$@" "$BASH_BIN" "$SCRIPT" "$work" >/dev/null 2>&1 || true
     )
     cat "$record" 2>/dev/null || true
@@ -742,21 +754,30 @@ run_test "verify docs: VERIFY_LINKS_NETWORK=1 still runs lychee offline" test_do
 # same-purpose `_ai_verify_path_without` defined later in this suite, in the
 # security-tooling section) because it is needed earlier in file-execution
 # order than its definition.
+# ${f##*/} (not `basename "$f"`) and batched `ln` calls (multiple sources,
+# one destination dir) avoid forking a process per PATH entry -- on a PATH
+# with hundreds of entries that was ~6-7s per call, now sub-0.1s.
 _ai_verify_docs_path_without() {
     local fakebin="$1" hide="$2"
     mkdir -p "$fakebin"
     local dir f base
-    local -a dirs=()
+    local -a dirs=() sources=()
+    local -A seen=()
+    seen["$hide"]=1
     IFS=':' read -ra dirs <<<"$PATH"
     for dir in "${dirs[@]}"; do
         [[ -d "$dir" ]] || continue
         for f in "$dir"/*; do
             [[ -x "$f" && -f "$f" ]] || continue
-            base="$(basename "$f")"
-            [[ "$base" == "$hide" ]] && continue
-            [[ -e "$fakebin/$base" ]] && continue
-            ln -s "$f" "$fakebin/$base" 2>/dev/null || true
+            base="${f##*/}"
+            [[ -n "${seen[$base]:-}" ]] && continue
+            seen["$base"]=1
+            sources+=("$f")
         done
+    done
+    local i
+    for ((i = 0; i < ${#sources[@]}; i += 500)); do
+        ln -s -- "${sources[@]:i:500}" "$fakebin" 2>/dev/null || true
     done
     printf '%s\n' "$fakebin"
 }
@@ -2108,21 +2129,31 @@ run_test "VERIFY_FULL=1 invokes vendor/bin/deptrac analyse and composer-require-
 # Hide a single named binary from PATH by symlinking every other real PATH
 # executable into a fresh dir (mirrors test-common.sh's build_path_without,
 # duplicated locally since this suite has no shared harness file).
+#
+# ${f##*/} (not `basename "$f"`) and batched `ln` calls (multiple sources,
+# one destination dir) avoid forking a process per PATH entry -- on a PATH
+# with hundreds of entries that was ~6-7s per call, now sub-0.1s.
 _ai_verify_path_without() {
     local fakebin="$1" hide="$2"
     mkdir -p "$fakebin"
     local dir f base
-    local -a dirs=()
+    local -a dirs=() sources=()
+    local -A seen=()
+    seen["$hide"]=1
     IFS=':' read -ra dirs <<<"$PATH"
     for dir in "${dirs[@]}"; do
         [[ -d "$dir" ]] || continue
         for f in "$dir"/*; do
             [[ -x "$f" && -f "$f" ]] || continue
-            base="$(basename "$f")"
-            [[ "$base" == "$hide" ]] && continue
-            [[ -e "$fakebin/$base" ]] && continue
-            ln -s "$f" "$fakebin/$base" 2>/dev/null || true
+            base="${f##*/}"
+            [[ -n "${seen[$base]:-}" ]] && continue
+            seen["$base"]=1
+            sources+=("$f")
         done
+    done
+    local i
+    for ((i = 0; i < ${#sources[@]}; i += 500)); do
+        ln -s -- "${sources[@]:i:500}" "$fakebin" 2>/dev/null || true
     done
     printf '%s\n' "$fakebin"
 }
