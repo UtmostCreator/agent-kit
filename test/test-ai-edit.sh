@@ -274,6 +274,54 @@ else
     skip_test "sd apply modifies file and returns applied JSON" "requires rg, sd, jq"
 fi
 
+# sd_apply() (lib/ai-edit/plan-apply.sh) is otherwise entirely untested on any
+# host without the real `sd` binary installed (this one included). Install a
+# minimal `sd FROM TO FILE` stand-in (literal in-place substitution via sed)
+# ahead of the real PATH so require_bins/`command -v sd` finds it, and prove
+# sd_apply's read-loop actually invokes it once per planned file.
+if need_sd_plan; then
+    test_sd_apply_with_fake_sd_binary() {
+        local work="$TMP/apply-fake-sd" fakebin="$TMP/fakebin-sd" out
+        make_repo "$work"
+        mkdir -p "$fakebin"
+        cat >"$fakebin/sd" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+from="$1" to="$2" file="$3"
+tmp="$(mktemp)"
+sed "s/${from//\//\\/}/${to//\//\\/}/g" "$file" >"$tmp" && mv "$tmp" "$file"
+EOF
+        chmod +x "$fakebin/sd"
+        out="$(
+            cd "$work"
+            AI_LOG_DIR="$TMP/logs-fake-sd" \
+                AI_EVENT_LOG="$TMP/logs-fake-sd/events.jsonl" \
+                PATH="$fakebin:$PATH" \
+                "$BASH_BIN" "$SCRIPT" sd OldName NewName . --apply --no-verify --format json
+        )"
+        jq -e '.status=="applied" and .apply==true and (.plannedChanges|length)==1' <<<"$out" >/dev/null
+        grep -q 'NewName' "$work/a.txt"
+    }
+    run_test "sd_apply invokes a stand-in sd binary once per planned file" test_sd_apply_with_fake_sd_binary
+else
+    skip_test "sd_apply invokes a stand-in sd binary once per planned file" "requires rg, jq"
+fi
+
+# sd_plan's rg-error path (rc >= 2, distinct from rc==1 no-match): an
+# unbalanced character class is an invalid regex, so rg exits 2.
+if need_sd_plan; then
+    test_sd_plan_rg_error() {
+        local work="$TMP/sd-rg-error" out rc=0
+        make_repo "$work"
+        out="$(run_edit "$work" sd '[' NewName . --format json 2>/dev/null)" || rc=$?
+        ((rc != 0)) || return 1
+        jq -e '.status=="error" and (.errors|join(" ")|test("rg failed"))' <<<"$out" >/dev/null
+    }
+    run_test "sd_plan surfaces a real rg error (invalid regex) distinctly from no-match" test_sd_plan_rg_error
+else
+    skip_test "sd_plan surfaces a real rg error (invalid regex) distinctly from no-match" "requires rg, jq"
+fi
+
 # --- patch mode -------------------------------------------------------------
 # patch mode needs only git + jq (git apply ships with git), so it does not
 # depend on rg/sd availability.
@@ -321,6 +369,18 @@ if need_patch; then
         grep -q 'NewName' "$work/a.txt"
     }
     run_test "patch apply modifies file and returns applied JSON" test_patch_apply_modifies_file
+
+    test_patch_max_files_blocks() {
+        local work="$TMP/patch-max-files" out rc=0
+        make_repo "$work"
+        make_patch "$work/change.patch" "$work"
+        out="$(run_edit "$work" patch change.patch . --max-files 0 --format json 2>/dev/null)" || rc=$?
+        ((rc != 0))
+        jq -e '.status=="limit_exceeded" and (.errors|join(" ")|test("max-files exceeded"))' <<<"$out" >/dev/null
+        grep -q 'OldName' "$work/a.txt"
+        ! grep -q 'NewName' "$work/a.txt"
+    }
+    run_test "patch_plan max-files exceeded blocks before mutation" test_patch_max_files_blocks
 
     test_patch_stdin_apply() {
         local work="$TMP/patch-stdin" out
@@ -401,6 +461,7 @@ EOF
 else
     skip_test "patch dry-run plans changed file and does not modify" "requires git, jq"
     skip_test "patch apply modifies file and returns applied JSON" "requires git, jq"
+    skip_test "patch_plan max-files exceeded blocks before mutation" "requires git, jq"
     skip_test "patch reads diff from stdin and applies" "requires git, jq"
     skip_test "patch with .git path is blocked" "requires git, jq"
     skip_test "patch targeting .env is blocked" "requires git, jq"
