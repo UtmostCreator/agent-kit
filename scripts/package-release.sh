@@ -16,6 +16,12 @@ if [[ $(<VERSION) != "$version" ]]; then
     exit 1
 fi
 
+npm_version=$(jq -r '.version' package.json)
+if [[ "$npm_version" != "$version" ]]; then
+    printf 'error: package.json version (%s) does not match tag (%s)\n' "$npm_version" "$tag" >&2
+    exit 1
+fi
+
 ./scripts/check-publishable.sh
 
 name="agent-kit-${version}"
