@@ -1,6 +1,6 @@
 # Release checklist
 
-Status as of `feat/project-local-install` @ `0a63e92` (verified with real
+Status as of `feat/project-local-install` @ `672db2c` (verified with real
 commands, not just read-through — see [RELEASING.md](RELEASING.md) for the
 full evidence trail and exact commands used).
 
@@ -64,24 +64,25 @@ Verified via `gh api repos/UtmostCreator/agent-kit` (and sub-paths):
       _Still open — needs an actual branded image asset (none exists in this
       repo) and is normally done through Settings → General → Social preview
       in the browser; not something to script blind._
-- [ ] Enable private vulnerability reporting and secret scanning.
-      _Partially done: secret scanning **and** push protection are already
-      enabled. Private vulnerability reporting is still off — the auto-mode
-      permission classifier blocked the API call to flip it on (a
-      security/admin setting change needs your explicit named go-ahead, not
-      just a general "do release prep" instruction). One command once you
-      say go: `gh api -X PUT repos/UtmostCreator/agent-kit/private-vulnerability-reporting`._
-- [ ] Protect `main` and require `CI / required`.
-      _Still open — same classifier block as above. Proposed config (won't
-      lock you out as sole maintainer): required status check `required`,
-      `enforce_admins: false`, `required_approving_review_count: 0` (forces
-      changes through a PR without needing a second reviewer),
-      `required_conversation_resolution: true`, `allow_force_pushes: false`,
-      `allow_deletions: false`. Needs your explicit go-ahead._
-- [ ] Require pull requests and resolved review conversations.
-      _Same branch-protection call as above — bundled into one API request._
-- [ ] Block force pushes and branch deletion.
-      _Same branch-protection call as above — bundled into one API request._
+- [x] Enable private vulnerability reporting and secret scanning.
+      _Done: secret scanning and push protection were already on; private
+      vulnerability reporting was flipped on with explicit user go-ahead
+      (`gh api -X PUT .../private-vulnerability-reporting`) and confirmed
+      live (`enabled: true`)._
+- [x] Protect `main` and require `CI / required`.
+      _Done, with explicit user go-ahead: `required_status_checks` requires
+      the `required` context (strict), confirmed live via `gh api
+      repos/.../branches/main/protection`._
+- [x] Require pull requests and resolved review conversations.
+      _Done: `required_pull_request_reviews.required_approving_review_count:
+      0` forces changes through a PR without needing a second reviewer
+      (avoids locking out the sole maintainer — GitHub doesn't allow
+      self-approval), plus `required_conversation_resolution: true`. Both
+      confirmed live._
+- [x] Block force pushes and branch deletion.
+      _Done: `allow_force_pushes: false`, `allow_deletions: false`, both
+      confirmed live. `enforce_admins: false` deliberately, so the repo owner
+      isn't locked out before there are other maintainers to review PRs._
 - [x] Enable automatic deletion of merged branches.
       _Done: `gh repo edit --delete-branch-on-merge`; confirmed live
       (`delete_branch_on_merge: true`)._
