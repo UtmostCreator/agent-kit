@@ -3,29 +3,56 @@ set -euo pipefail
 
 usage() {
     cat <<'EOF'
-Usage: ./install.sh [--prefix PATH] [--bindir PATH]
+Usage: ./install.sh [--prefix PATH] [--bindir PATH] [--project [DIR]]
 
-Defaults:
+Global install (default):
   --prefix  ${XDG_DATA_HOME:-$HOME/.local/share}/agent-kit
   --bindir  $HOME/.local/bin
+
+Project-local install (vendor the toolkit inside a repo):
+  --project [DIR]   Install into <DIR>/<name>/{toolkit,bin}. DIR defaults to the
+                    git top-level (else the current dir). The folder <name> is
+                    configurable via AGENTKIT_DIR_NAME (default: .agent-kit), so a
+                    repo can wire tools to one stable, renamable location.
+                    Equivalent to:
+                      --prefix <DIR>/.agent-kit/toolkit --bindir <DIR>/.agent-kit/bin
+  Env: AGENTKIT_PROJECT_DIR=<DIR> also enables project mode; AGENTKIT_DIR_NAME
+       overrides the folder name. An explicit --prefix always wins.
 EOF
 }
 
 source_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
 prefix=${XDG_DATA_HOME:-$HOME/.local/share}/agent-kit
 bindir=$HOME/.local/bin
+# Project-local install target. project_dir non-empty (via env or --project) routes
+# the install into <project_dir>/<dir_name>/{toolkit,bin}. dir_name is configurable so
+# consuming repos can rename the vendored folder without touching this installer.
+project_dir=${AGENTKIT_PROJECT_DIR:-}
+dir_name=${AGENTKIT_DIR_NAME:-.agent-kit}
+prefix_explicit=0
 
 while (($# > 0)); do
     case "$1" in
         --prefix)
             (($# >= 2)) || { printf 'error: --prefix requires a path\n' >&2; exit 2; }
             prefix=$2
+            prefix_explicit=1
             shift 2
             ;;
         --bindir)
             (($# >= 2)) || { printf 'error: --bindir requires a path\n' >&2; exit 2; }
             bindir=$2
             shift 2
+            ;;
+        --project)
+            # Optional DIR value; a bare --project resolves to the git top-level / cwd.
+            if (($# >= 2)) && [[ "$2" != -* ]]; then
+                project_dir=$2
+                shift 2
+            else
+                project_dir=${project_dir:-.}
+                shift
+            fi
             ;;
         -h|--help)
             usage
@@ -38,6 +65,19 @@ while (($# > 0)); do
             ;;
     esac
 done
+
+# Resolve a project-local install target into <project_dir>/<dir_name>/{toolkit,bin}.
+# An explicit --prefix always overrides project mode.
+if [[ -n "$project_dir" && "$prefix_explicit" == 0 ]]; then
+    if [[ "$project_dir" == "." ]]; then
+        project_dir=$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)
+    fi
+    [[ -d "$project_dir" ]] || { printf 'error: --project dir not found: %s\n' "$project_dir" >&2; exit 2; }
+    project_dir=$(cd -- "$project_dir" && pwd -P)
+    prefix="$project_dir/$dir_name/toolkit"
+    bindir="$project_dir/$dir_name/bin"
+    project_mode=1
+fi
 
 for command in bash git rg jq; do
     command -v "$command" >/dev/null 2>&1 || {
@@ -130,7 +170,12 @@ cleanup
 
 printf 'Installed AgentKit to %s\n' "$prefix"
 printf 'Command: %s/agent-kit\n' "$bindir"
-case ":$PATH:" in
-    *":$bindir:"*) ;;
-    *) printf 'Add %s to PATH.\n' "$bindir" ;;
-esac
+if [[ "${project_mode:-0}" == 1 ]]; then
+    printf 'Project-local install (%s). Invoke via %s/agent-kit, or wire your repo to %s.\n' \
+        "$dir_name" "$bindir" "$prefix"
+else
+    case ":$PATH:" in
+        *":$bindir:"*) ;;
+        *) printf 'Add %s to PATH.\n' "$bindir" ;;
+    esac
+fi

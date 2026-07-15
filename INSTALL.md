@@ -25,6 +25,42 @@ Optional tools unlock additional commands: `fd`, `gh`, Node.js with Repomix, SCC
 
 All methods install the same `agent-kit` command.
 
+## Project-local install (vendor the toolkit inside a repo)
+
+To make a single repository self-contained — so every checkout and CI job has the
+toolkit without a global install — install it **project-locally**:
+
+```bash
+# from anywhere inside the target repo (installs into <repo-root>/.agent-kit/)
+/path/to/agent-kit/install.sh --project
+
+# or point at a specific project directory
+./install.sh --project /path/to/repo
+```
+
+This creates:
+
+```
+<repo-root>/.agent-kit/
+├── toolkit/   # the AgentKit install (bin, lib, libexec, share, …)
+└── bin/
+    └── agent-kit   # wrapper; invoke tools as .agent-kit/bin/agent-kit <command>
+```
+
+**Configurable folder name.** The default vendored folder is `.agent-kit`. Rename it
+in one place with `AGENTKIT_DIR_NAME` (the installer and any consuming repo can agree
+on the same variable):
+
+```bash
+AGENTKIT_DIR_NAME=.tools ./install.sh --project        # -> <repo>/.tools/{toolkit,bin}
+AGENTKIT_PROJECT_DIR=/path/to/repo ./install.sh         # env form of --project
+```
+
+An explicit `--prefix` always overrides project mode. Recommended default for
+consuming repos: keep `.agent-kit/` and reference `.agent-kit/toolkit/libexec/<name>`
+(or the `.agent-kit/bin/agent-kit <command>` dispatcher) through a single config value
+so the folder can be moved/renamed without touching every caller.
+
 ## One-line network install (curl \| bash)
 
 ```bash
