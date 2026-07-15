@@ -93,13 +93,20 @@ run_discovery() {
     fi
 
     require_bins rg
+    # NOTE: these globs deliberately omit the "/**" suffix. rg anchors an
+    # unanchored "!name/**" glob to the search root's OWN path components
+    # when that root is passed as an absolute path outside the cwd, so it
+    # silently fails to exclude anything (confirmed: `rg --files -g
+    # '!vendor/**' /abs/root` still lists /abs/root/vendor/...). The bare
+    # "!name" form (already used successfully by rg-code.sh's BASE_EXCLUDES)
+    # excludes the directory by name regardless of root path shape.
     local rg_args=(
         --files
-        -g '!vendor/**'
-        -g '!node_modules/**'
-        -g '!dist/**'
-        -g '!.git/**'
-        -g '!.repomix-context/**'
+        -g '!vendor'
+        -g '!node_modules'
+        -g '!dist'
+        -g '!.git'
+        -g '!.repomix-context'
     )
 
     if [[ "$INCLUDE_HIDDEN" == "1" ]]; then
