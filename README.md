@@ -11,9 +11,9 @@
   <img alt="No telemetry" src="https://img.shields.io/badge/telemetry-none-success?style=for-the-badge"/>
   <br/>
   <a href="https://github.com/UtmostCreator/agent-kit/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/UtmostCreator/agent-kit/ci.yml?style=for-the-badge&label=CI&logo=github"/></a>
-  <img alt="Tests" src="https://img.shields.io/badge/tests-655%20passing-2ea44f?style=for-the-badge&logo=checkmarx&logoColor=white"/>
+  <img alt="Tests" src="https://img.shields.io/badge/tests-855%20passing-2ea44f?style=for-the-badge&logo=checkmarx&logoColor=white"/>
   <img alt="Command coverage" src="https://img.shields.io/badge/command%20coverage-100%25-2ea44f?style=for-the-badge"/>
-  <img alt="Line coverage" src="https://img.shields.io/badge/line%20coverage-69.62%25-4c9?style=for-the-badge"/>
+  <img alt="Line coverage" src="https://img.shields.io/badge/line%20coverage-69.85%25-4c9?style=for-the-badge"/>
   <a href="https://www.npmjs.com/package/@utmostcreator/agent-kit"><img alt="npm" src="https://img.shields.io/npm/v/@utmostcreator/agent-kit?style=for-the-badge&logo=npm&color=cb3837"/></a>
   <a href="https://github.com/UtmostCreator/agent-kit/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/UtmostCreator/agent-kit?style=for-the-badge&color=ffcc00"/></a>
   <br/>
@@ -195,8 +195,8 @@ scopes and guardrails, prefer structured (`AI_OUTPUT=json`) output, and run
 | `watchexec` or `entr`, `tar`                           | `session watch`/`watch-loop`, `session checkpoint` (untracked-file archive) |
 | `bat`, `just`, SCC, ShellCheck                         | Prettier `preview-file`, `repo tasks` justfile detection, dev-only checks   |
 
-See **[docs/PACKAGES.md](docs/PACKAGES.md)** for exactly which package each of
-the 25 commands uses, why, and a real captured example.
+See **[docs/PACKAGES.md](docs/PACKAGES.md)** for exactly which package each
+command uses, why, and a real captured example.
 
 ## 🧪 Development
 
@@ -206,12 +206,12 @@ the 25 commands uses, why, and a real captured example.
 bash scripts/gen-examples.sh > docs/EXAMPLES.md   # regenerate the examples doc
 ```
 
-**Test coverage:** the suite runs **655 passing test cases** across 27 test
-files, exercising **all 25 public commands (100% command coverage)**. This
+**Test coverage:** the suite runs **855 passing test cases** across 30 test
+files, exercising **all 28 public commands (100% command coverage)**. This
 figure is _command coverage_ — the share of shipped commands with a dedicated
 test — not statement coverage. For real line coverage, run
-`./scripts/coverage.sh` — as of this writing it measures **69.62% line
-coverage (5611/8060 executable lines)** across `bin/`, `lib/`, and `libexec/`,
+`./scripts/coverage.sh` — as of this writing it measures **69.85% line
+coverage (5830/8347 executable lines)** across `bin/`, `lib/`, and `libexec/`,
 up from an initial 44.79% baseline (see `TODO/coverage-todo.md` for the
 phased plan behind that climb — safety-critical guarded-mutation/rollback
 paths, the canonical `ai-verify` and `ai-search` engines, the repomix

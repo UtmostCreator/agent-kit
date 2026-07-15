@@ -119,7 +119,8 @@ render_tool_list_json() {
     local first=1 entry
     printf '['
     for entry in "${_arr[@]}"; do
-        # shellcheck disable=SC2086 -- entry is a controlled space-joined spec.
+        # entry is a controlled space-joined spec; word-split it deliberately.
+        # shellcheck disable=SC2086
         set -- $entry
         ((first)) || printf ','
         first=0

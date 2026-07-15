@@ -45,6 +45,50 @@ approved). `pack-context`, `run-repomix-file`, `ai-diff-context`, `query-usage`,
 
 Use `agent-kit --help`, `agent-kit <command> --help`, or the executable's direct `--help` output before automation. Do not infer unsupported flags from this overview.
 
+## Every command — canonical + short forms
+
+The complete surface (`agent-kit --list` prints the same set live). The `ak`
+column is the short alias installed alongside `agent-kit`; the `ai-` prefix is
+optional, so `ak search` and `ak ai-search` both resolve. Group commands (e.g.
+`context`, `git`, `repo`) take a mode as their first argument — see the rows
+above and each command's `--help`.
+
+| Canonical | Short | Purpose |
+|---|---|---|
+| `agent-kit s` | `ak s` | **Short search** — default text mode, auto-detected root; mode flags switch families. Sugar over `search`. |
+| `agent-kit search` | `ak search` | Unified repository search across `rg`, `git grep`, `fd`, `git log/diff`, and `ast-grep`, behind one JSON envelope. |
+| `agent-kit search-multi` | `ak search-multi` | Run one search mode against several queries (also `agent-kit search batch`). |
+| `agent-kit search-introspect` | `ak search-introspect` | Print the full search capability map — modes, flags, env (also `agent-kit search capabilities`). |
+| `agent-kit rg-code` | `ak rg-code` | Code-search wrapper with repo-aware ripgrep defaults. |
+| `agent-kit fd-files` | `ak fd-files` | Repo-aware file discovery (fd wrapper). |
+| `agent-kit preview-file` | `ak preview-file` | Safely preview a bounded slice of a text file (also `agent-kit inspect file`). |
+| `agent-kit context` | `ak context` | Context-building group: `diff` · `pack` · `file` · `generate` · `tree` · `status` · `ensure` · `estimate`. |
+| `agent-kit edit` | `ak edit` | Guarded, reviewable edits (sd / comby / ast-grep / patch) with dry-run, scope checks, snapshots. |
+| `agent-kit rollback` | `ak rollback` | Review and apply repository-local rollback snapshots. |
+| `agent-kit session` | `ak session` | Session-support group: `checkpoint` (snapshot) · `watch` (re-run on change). |
+| `agent-kit session-checkpoint` | `ak session-checkpoint` | Create a repository-local snapshot checkpoint (also `agent-kit session checkpoint`). |
+| `agent-kit watch-loop` | `ak watch-loop` | Re-run a command whenever watched files change (also `agent-kit session watch`). |
+| `agent-kit test` | `ak test` | Test group: `select` (relevant tests, read-only) · `run` (focused) · `all` (whole suite). |
+| `agent-kit verify` | `ak verify` | Project-aware verification gate; `docs`, `refs`, and `--language` modes. |
+| `agent-kit git` | `ak git` | Git-inspection group: `origin` · `history` · `blame` · `pr-context`. |
+| `agent-kit repo` | `ak repo` | Repository-metadata group: `tasks` · `stats` · `tools` · `status`. |
+| `agent-kit repo-stats` | `ak repo-stats` | Count git-tracked files (also `agent-kit repo stats`). |
+| `agent-kit repo-tool-inventory` | `ak repo-tool-inventory` | List every command with a one-line summary (also `agent-kit repo tools`). |
+| `agent-kit task` | `ak task` | Discover defined project tasks (also `agent-kit repo tasks`). |
+| `agent-kit file-freshness` | `ak file-freshness` | Show which docs/config files have uncommitted changes (also `agent-kit repo status`). |
+| `agent-kit refactor-scan` | `ak refactor-scan` | Rank refactor candidates by scc complexity and lizard NLOC. |
+| `agent-kit inspect` | `ak inspect` | Read-only inspection group: `file` · `data` · `shell`. |
+| `agent-kit structured` | `ak structured` | Structured-data queries: json / yaml / csv / xml (also `agent-kit inspect data`). |
+| `agent-kit sh-introspect` | `ak sh-introspect` | Static introspector — a script's contract without executing it (also `agent-kit inspect shell`). |
+| `agent-kit doctor` | `ak doctor` | Installation + environment health (Bash, tools, PATH, git-tree); text or `--json`. |
+| `agent-kit completion` | `ak completion` | Print a generated shell-completion definition for bash / zsh / fish (`auto` detects). |
+| `agent-kit all-f-into-one` | `ak all-f-into-one` | Combine multiple files into a single concatenated bundle. |
+
+Two global forms round out the surface: `agent-kit --version [--json]` (version,
+optionally as an `ai.version/v1` envelope) and `agent-kit --list` (the live
+command list). Compatibility/internal engines under `libexec/internal/` are not
+public commands.
+
 ## `agent-kit search` in depth
 
 `agent-kit search` is a single facade over five search backends — `rg`, `git
