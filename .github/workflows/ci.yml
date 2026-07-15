@@ -53,15 +53,63 @@ jobs:
       - name: Run lint and tests
         run: ./scripts/check.sh
 
+  workflow-security:
+    name: workflow-security
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact event revision without external actions
+        env:
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          COMMIT_SHA: ${{ github.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${REPOSITORY}.git"
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            git fetch --no-tags --depth=1 origin "refs/pull/${PR_NUMBER}/merge"
+          else
+            git fetch --no-tags --depth=1 origin "${COMMIT_SHA}"
+          fi
+          git checkout --detach FETCH_HEAD
+
+      - name: Install pinned actionlint + zizmor (checksum-verified)
+        run: |
+          set -euo pipefail
+          cd "$(mktemp -d)"
+          curl -fsSL -o actionlint.tar.gz \
+            "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz"
+          echo "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8  actionlint.tar.gz" | sha256sum -c -
+          tar xzf actionlint.tar.gz actionlint
+          sudo install -m 0755 actionlint /usr/local/bin/actionlint
+
+          curl -fsSL -o zizmor.tar.gz \
+            "https://github.com/zizmorcore/zizmor/releases/download/v1.27.0/zizmor-x86_64-unknown-linux-gnu.tar.gz"
+          echo "277f2bd8fd37cf60c42ab7afca6faa884e65440fa31e02b44bdaae60f62a358f  zizmor.tar.gz" | sha256sum -c -
+          tar xzf zizmor.tar.gz zizmor
+          sudo install -m 0755 zizmor /usr/local/bin/zizmor
+
+          actionlint -version
+          zizmor --version
+
+      - name: actionlint
+        run: actionlint -color
+
+      - name: zizmor
+        run: zizmor --strict-collection --persona=regular --min-severity=medium .
+
   required:
     name: required
     if: ${{ always() }}
-    needs: [checks]
+    needs: [checks, workflow-security]
     runs-on: ubuntu-24.04
     steps:
-      - name: Confirm matrix success
+      - name: Confirm matrix and workflow-security success
         env:
-          RESULT: ${{ needs.checks.result }}
+          CHECKS_RESULT: ${{ needs.checks.result }}
+          WORKFLOW_SECURITY_RESULT: ${{ needs.workflow-security.result }}
         run: |
           set -euo pipefail
-          [[ "$RESULT" == "success" ]]
+          [[ "$CHECKS_RESULT" == "success" && "$WORKFLOW_SECURITY_RESULT" == "success" ]]

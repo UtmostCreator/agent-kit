@@ -51,6 +51,10 @@ full evidence trail and exact commands used).
 - [ ] Confirm Apache-2.0 compatibility for all included code and dependencies.
       _Not verified this session — needs a license/dependency audit, not a
       script._
+- [x] Run workflow static analysis.
+      _Enforced by the `workflow-security` job in `ci.yml` (pinned, checksum-
+      verified `actionlint` + `zizmor`), which is required to pass alongside
+      `checks` via the `required` job before the CI check goes green._
 
 ## GitHub configuration
 

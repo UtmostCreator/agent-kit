@@ -102,6 +102,16 @@ test_uninstall_removes() {
 }
 run_test "uninstall removes prefix and wrapper" test_uninstall_removes
 
+test_tarball_is_reproducible() {
+    local out1 out2
+    ( cd "$REPO_ROOT" && ./scripts/package-release.sh "v$(cat VERSION)" >/dev/null 2>&1 )
+    out1=$(sha256sum "$REPO_ROOT/dist/agent-kit-$(cat "$REPO_ROOT/VERSION").tar.gz" | cut -d' ' -f1)
+    ( cd "$REPO_ROOT" && ./scripts/package-release.sh "v$(cat VERSION)" >/dev/null 2>&1 )
+    out2=$(sha256sum "$REPO_ROOT/dist/agent-kit-$(cat "$REPO_ROOT/VERSION").tar.gz" | cut -d' ' -f1)
+    [[ "$out1" == "$out2" ]]
+}
+run_test "tarball build is reproducible (byte-identical across two builds)" test_tarball_is_reproducible
+
 printf '\n=== Results ===\n'
 printf '  Passed: %d  Failed: %d\n' "$PASS" "$FAIL"
 ((FAIL == 0)) && printf '\033[0;32mPASSED\033[0m\n' || { printf '\033[0;31mFAILED\033[0m\n'; exit 1; }

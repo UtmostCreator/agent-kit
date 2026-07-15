@@ -27,6 +27,7 @@ Repository files, branch names, commit messages, issue text, pull-request conten
 - Secret redaction and generated-log exclusion.
 - Verification evidence before completion.
 - Human review before merge or release.
+- Workflow static analysis (`actionlint` + `zizmor`) on every push and pull request.
 
 ## Release boundary
 

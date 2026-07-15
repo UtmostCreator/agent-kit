@@ -149,6 +149,7 @@ scopes and guardrails, prefer structured (`AI_OUTPUT=json`) output, and run
 - **Runs entirely on your machine** — no telemetry, no analytics, no cloud sync. Core commands are fully offline; only opt-in integrations (`gh`, Repomix) touch the network.
 - **Guardrails, not a sandbox** — AgentKit reduces accidental repository damage, but it is _not_ an OS sandbox. Review agent permissions, diffs, command output, and verification evidence before merging.
 - **Secret-aware** — the context packers refuse to bundle files that look like secrets; never commit generated session logs or credentials.
+- **Workflow files are themselves audited** — `actionlint` and `zizmor` statically check `.github/workflows/*.yml` for syntax errors, injection patterns, and permission drift on every push and pull request.
 
 ## 🛠️ Runtime
 
