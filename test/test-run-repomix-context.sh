@@ -71,9 +71,31 @@ if command -v scc >/dev/null 2>&1 && command -v repomix >/dev/null 2>&1; then
         [[ -n "$(jq -r '.ts' "$manifest")" ]] || return 1
     }
     run_test "run-manifest.json has root/index/plan/manifest/bundles/bundle_count/ts" test_run_manifest_content
+
+    # "context tree generation failed" die branch: forward an extra --style
+    # that overrides the hardcoded `--style xml` (repomix-context-tree's
+    # common-option parser keeps the LAST occurrence of a flag it sees), so
+    # the underlying tree build fails on an unsupported style and this
+    # script's own `if ! bash "$TREE_SCRIPT" ...; then die ...` branch fires
+    # for real -- unlike the missing-artifact die branches below, this one
+    # runs the real script at its real path (no fakeroot copy needed), so it
+    # is the only die branch here that can register with the line-coverage
+    # tracer (which requires the executing file to live under the real repo
+    # root).
+    test_die_tree_generation_failed() {
+        local fix out
+        fix="$(mktemp -d)"
+        (cd "$fix" && git init -q && printf 'hi\n' >f.txt && git add -A \
+            && git -c user.email=t@t -c user.name=t commit -qm init) >/dev/null 2>&1
+        out="$("$BASH_BIN" "$SCRIPT" "$fix" --top 1 --style bogus 2>&1)"
+        local rc=$?
+        [[ $rc -ne 0 ]] && [[ "$out" == *"context tree generation failed"* ]]
+    }
+    run_test "die: context tree generation failed when the tree script itself fails" test_die_tree_generation_failed
 else
     skip_test "delegates to repomix-context-tree" "scc or repomix not installed"
     skip_test "run-manifest.json has root/index/plan/manifest/bundles/bundle_count/ts" "scc or repomix not installed"
+    skip_test "die: context tree generation failed when the tree script itself fails" "scc or repomix not installed"
 fi
 
 # require_bins failure: strip a required binary (scc) from PATH and confirm the
