@@ -96,30 +96,51 @@ test_origin_help() {
 }
 run_test "origin --help prints usage" test_origin_help
 
+# Fixture: main (1 commit) + feature (current, 1 commit ahead) + a
+# remote-tracking origin/main pointing at the same commit as main. Used for
+# every "origin" test below that isn't itself exercising a specific
+# candidate-search scenario, so they get a deterministic answer (best
+# candidate: local "main", priority 0 via base-pattern match) regardless of
+# what remotes/branches the ambient checkout happens to have. This matters
+# because CI's no-external-actions checkout (see .github/workflows/ci.yml)
+# does a bare `git fetch --depth=1` into a detached HEAD with no local
+# branches and no origin/* refs at all — running these tests directly against
+# that checkout left every one of them with nothing to detect and no
+# origin/main fallback ref to honor, which is exactly what CI's first real
+# run surfaced.
+ORIGIN_BASIC_FIX="$TMP/origin-basic-fixture"
+make_git_fixture "$ORIGIN_BASIC_FIX" main
+(
+    cd "$ORIGIN_BASIC_FIX" &&
+        git update-ref refs/remotes/origin/main "$(git rev-parse main)" &&
+        git checkout -q -b feature &&
+        git -c user.email=t@t -c user.name=t commit -q --allow-empty -m "feature work"
+) >/dev/null 2>&1
+
 test_origin_default_name() {
     local out
-    out="$("$BASH_BIN" "$SCRIPT" origin 2>/dev/null || true)"
+    out="$(cd "$ORIGIN_BASIC_FIX" && "$BASH_BIN" "$SCRIPT" origin 2>/dev/null || true)"
     [[ -n "$out" ]]
 }
 run_test "origin prints a non-empty origin branch name" test_origin_default_name
 
 test_origin_field_base() {
     local out
-    out="$("$BASH_BIN" "$SCRIPT" origin --field base 2>/dev/null || true)"
+    out="$(cd "$ORIGIN_BASIC_FIX" && "$BASH_BIN" "$SCRIPT" origin --field base 2>/dev/null || true)"
     [[ "$out" =~ ^[0-9a-f]{7,40}$ ]]
 }
 run_test "origin --field base prints a merge-base sha" test_origin_field_base
 
 test_origin_field_count() {
     local out
-    out="$("$BASH_BIN" "$SCRIPT" origin --field count 2>/dev/null || true)"
+    out="$(cd "$ORIGIN_BASIC_FIX" && "$BASH_BIN" "$SCRIPT" origin --field count 2>/dev/null || true)"
     [[ "$out" =~ ^[0-9]+$ ]]
 }
 run_test "origin --field count prints an integer distance" test_origin_field_count
 
 test_origin_field_all() {
     local out
-    out="$("$BASH_BIN" "$SCRIPT" origin --field all 2>/dev/null || true)"
+    out="$(cd "$ORIGIN_BASIC_FIX" && "$BASH_BIN" "$SCRIPT" origin --field all 2>/dev/null || true)"
     [[ "$(awk -F'\t' '{print NF}' <<<"$out")" == "3" ]]
 }
 run_test "origin --field all prints name<TAB>base<TAB>count" test_origin_field_all
@@ -127,7 +148,7 @@ run_test "origin --field all prints name<TAB>base<TAB>count" test_origin_field_a
 if command -v jq >/dev/null 2>&1; then
     test_origin_json() {
         local out
-        out="$("$BASH_BIN" "$SCRIPT" origin --json 2>/dev/null || true)"
+        out="$(cd "$ORIGIN_BASIC_FIX" && "$BASH_BIN" "$SCRIPT" origin --json 2>/dev/null || true)"
         jq -e '.tool == "git-branch-origin" and (.origin_branch|type=="string") and (.merge_base|type=="string") and (.distance|type=="number")' <<<"$out" >/dev/null
     }
     run_test "origin --json emits a valid envelope" test_origin_json
@@ -137,8 +158,8 @@ fi
 
 test_origin_override() {
     local out
-    out="$(GIT_ORIGIN_REF=origin/main "$BASH_BIN" "$SCRIPT" origin --field name 2>/dev/null || true)"
-    [[ -n "$out" ]]
+    out="$(cd "$ORIGIN_BASIC_FIX" && GIT_ORIGIN_REF=origin/main "$BASH_BIN" "$SCRIPT" origin --field name 2>/dev/null || true)"
+    [[ "$out" == "origin/main" ]]
 }
 run_test "origin GIT_ORIGIN_REF override is honored" test_origin_override
 
@@ -151,7 +172,7 @@ run_test "origin invalid --field exits non-zero" test_origin_bad_field
 
 test_origin_field_equals_form() {
     local out
-    out="$("$BASH_BIN" "$SCRIPT" origin --field=count 2>/dev/null || true)"
+    out="$(cd "$ORIGIN_BASIC_FIX" && "$BASH_BIN" "$SCRIPT" origin --field=count 2>/dev/null || true)"
     [[ "$out" =~ ^[0-9]+$ ]]
 }
 run_test "origin --field=count equals-form is parsed" test_origin_field_equals_form
@@ -387,13 +408,24 @@ else
             git -c user.email=t@t -c user.name=t commit -qm init
     ) >/dev/null 2>&1
 
-    test_pr_context_pack() {
-        local out
-        out="$(cd "$PR_PACK_FIX" && PATH="$PR_GH_BIN:$PATH" OUTPUT_DIR="$TMP/pr-pack-out" AI_SESSION_DURABLE_LOG=0 FAKE_GH_FILES="README.md" "$BASH_BIN" "$SCRIPT" pr-context 1 --pack 2>&1)"
-        [[ "$out" == *"Packing PR files as AI context"* ]] || return 1
-        compgen -G "$TMP/pr-pack-out/*.xml" >/dev/null
-    }
-    run_test "pr-context --pack packs PR files via ai-context diff pr" test_pr_context_pack
+    # --pack shells out to `ai-context diff pr`, which in turn needs a real
+    # packer (repomix/files-to-prompt/code2prompt) on PATH to produce output;
+    # with none installed it dies (by design, see test-ai-context.sh's own
+    # "auto backend dies when no packer is installed" case), so skip here too
+    # instead of failing outright — this is what CI's first real run hit,
+    # since it installs none of the three.
+    if command -v repomix >/dev/null 2>&1 || command -v files-to-prompt >/dev/null 2>&1 ||
+        command -v code2prompt >/dev/null 2>&1; then
+        test_pr_context_pack() {
+            local out
+            out="$(cd "$PR_PACK_FIX" && PATH="$PR_GH_BIN:$PATH" OUTPUT_DIR="$TMP/pr-pack-out" AI_SESSION_DURABLE_LOG=0 FAKE_GH_FILES="README.md" "$BASH_BIN" "$SCRIPT" pr-context 1 --pack 2>&1)"
+            [[ "$out" == *"Packing PR files as AI context"* ]] || return 1
+            compgen -G "$TMP/pr-pack-out/*.xml" >/dev/null
+        }
+        run_test "pr-context --pack packs PR files via ai-context diff pr" test_pr_context_pack
+    else
+        skip_test "pr-context --pack packs PR files via ai-context diff pr" "no context packer installed"
+    fi
 
     test_pr_context_log_json() {
         local log_dir out
