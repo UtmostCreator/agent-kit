@@ -16,6 +16,9 @@
   <img alt="Line coverage" src="https://img.shields.io/badge/line%20coverage-69.62%25-4c9?style=for-the-badge"/>
   <a href="https://www.npmjs.com/package/@utmostcreator/agent-kit"><img alt="npm" src="https://img.shields.io/npm/v/@utmostcreator/agent-kit?style=for-the-badge&logo=npm&color=cb3837"/></a>
   <a href="https://github.com/UtmostCreator/agent-kit/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/UtmostCreator/agent-kit?style=for-the-badge&color=ffcc00"/></a>
+  <br/>
+  <img alt="Reproducible build" src="https://img.shields.io/badge/reproducible%20build-verified-2ea44f?style=for-the-badge"/>
+  <a href="SECURITY.md"><img alt="Security policy" src="https://img.shields.io/badge/security-policy-2ea44f?style=for-the-badge"/></a>
 </p>
 
 A curated collection of dependency-light **Bash** scripts for working inside a repository —
