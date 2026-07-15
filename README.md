@@ -180,16 +180,24 @@ bash scripts/gen-examples.sh > docs/EXAMPLES.md   # regenerate the examples doc
 files, exercising **all 24 public commands (100% command coverage)**. This
 figure is *command coverage* — the share of shipped commands with a dedicated
 test — not statement coverage. For real line coverage, run
-`./scripts/coverage.sh` — as of this writing it measures **62.38% line
-coverage (5002/8019 executable lines)** across `bin/`, `lib/`, and `libexec/`,
+`./scripts/coverage.sh` — as of this writing it measures **69.62% line
+coverage (5611/8060 executable lines)** across `bin/`, `lib/`, and `libexec/`,
 up from an initial 44.79% baseline (see `TODO/coverage-todo.md` for the
-phased plan behind that jump — safety-critical guarded-mutation/rollback
-paths, the canonical `ai-verify` engine, the repomix internal engines, and
-`ai-diff-context`/`ai-context`). The remaining gap is concentrated in
-language-specific `ai-verify` backends that need a dedicated Kotlin/Android/
-Gradle fixture project (tracked separately) and a handful of commands slated
-for removal before stable release per `TODO/todo.md`, which aren't worth
-further test investment.
+phased plan behind that climb — safety-critical guarded-mutation/rollback
+paths, the canonical `ai-verify` and `ai-search` engines, the repomix
+internal engines, `ai-diff-context`/`ai-context`, `ai-git`, the `ai-test`
+cluster, and a broad sweep of thin libexec wrappers). The remaining gap is
+concentrated in language-specific `ai-verify` backends that need a dedicated
+Kotlin/Android/Gradle fixture project (tracked separately), plus a real,
+now well-evidenced ceiling in the native tracer itself: `scripts/lib/
+cov-hook.sh`'s `DEBUG`-trap collector fires once per top-level Bash command,
+not once per physical line, so interior lines of multi-line `jq`/`awk`
+blocks, array literals, `case` pattern lines, and a few other constructs
+can never independently register as "covered" regardless of how much a
+function is exercised — confirmed by direct reproduction across several
+files. Chasing the remainder would mean gaming the metric rather than
+finding real gaps; see the KNOWN LIMITATION comment in `scripts/lib/
+cov-hook.sh` for detail.
 
 The default engine is a native, pure-Bash `DEBUG`-trap collector
 (`scripts/lib/cov-hook.sh`, no external dependency): kcov's ptrace-based
