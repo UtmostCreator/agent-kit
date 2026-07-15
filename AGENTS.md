@@ -49,6 +49,11 @@ This repository provides safety-focused shell tools for coding agents working in
 ./scripts/check-publishable.sh
 ```
 
+If a CI run, `scripts/check.sh`, or any `test/test-*.sh` file is noticeably
+slow, profile it immediately instead of guessing a cause. See
+`docs/CI_PERFORMANCE.md` for the method and a log of prior findings —
+guessing wrong here has previously cost a full investigation session.
+
 Run a focused test while iterating:
 
 ```bash
