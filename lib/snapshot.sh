@@ -66,10 +66,16 @@ snapshot_create() {
     # shellcheck disable=SC2164
     popd >/dev/null
 
+    # Note: the jq variable is $label_arg, not $label — "label" is a jq
+    # grammar keyword (the `label $out | ...` construct) and jq < 1.7 (e.g.
+    # the Ubuntu 22.04 apt package, jq 1.6) rejects `$label` as a variable
+    # identifier with a compile error. Since this jq call's output is
+    # redirected straight to a file (not wrapped in `|| true`), that compile
+    # error would abort snapshot creation entirely under `set -e`.
     jq -n \
         --arg version "2" \
         --arg session "$session" \
-        --arg label "$label" \
+        --arg label_arg "$label" \
         --arg base_ref "$base_ref" \
         --arg root "$root" \
         --arg patch_file "$patch_file" \
@@ -81,7 +87,7 @@ snapshot_create() {
         '{
           version: ($version | tonumber),
           session: $session,
-          label: $label,
+          label: $label_arg,
           base_ref: $base_ref,
           root: $root,
           patch_file: $patch_file,

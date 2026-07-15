@@ -85,11 +85,13 @@ run_guarded() {
     if [[ -r "/proc/$child_pid/stat" ]] || command -v ps >/dev/null 2>&1; then
         cpu_supported=1
     fi
+    # $label_arg, not $label — "label" is a jq grammar keyword and jq < 1.7
+    # (e.g. Ubuntu 22.04's apt jq 1.6) rejects it as a variable identifier.
     log_json "guard.start" "$(jq -cn \
-        --arg label "$label" --arg pid "$child_pid" \
+        --arg label_arg "$label" --arg pid "$child_pid" \
         --argjson wall "$wall" --argjson idle "$idle_secs" \
         --argjson cpu_min "$cpu_min" --argjson cpu_supported "$cpu_supported" \
-        '{label:$label, pid:($pid|tonumber), wall:$wall, idle_secs:$idle, cpu_min:$cpu_min, cpu_sampling:($cpu_supported==1)}')" 2>/dev/null || true
+        '{label:$label_arg, pid:($pid|tonumber), wall:$wall, idle_secs:$idle, cpu_min:$cpu_min, cpu_sampling:($cpu_supported==1)}')" 2>/dev/null || true
 
     local start_ts last_change_ts now elapsed idle_for last_size cur_size
     start_ts="$(date +%s)"
@@ -174,13 +176,13 @@ run_guarded() {
     )"
 
     if ((killed)); then
-        log_json "guard.killed" "$(jq -cn --arg label "$label" --arg reason "$reason" \
+        log_json "guard.killed" "$(jq -cn --arg label_arg "$label" --arg reason "$reason" \
             --argjson elapsed "$((${now:-0} - start_ts))" --arg tail "$tail_out" \
-            '{label:$label, reason:$reason, elapsed_s:$elapsed, last_output:$tail}')" 2>/dev/null || true
+            '{label:$label_arg, reason:$reason, elapsed_s:$elapsed, last_output:$tail}')" 2>/dev/null || true
         log_warn "run_guarded killed '$label': $reason"
     else
-        log_json "guard.done" "$(jq -cn --arg label "$label" --argjson rc "$rc" \
-            '{label:$label, exit_code:$rc}')" 2>/dev/null || true
+        log_json "guard.done" "$(jq -cn --arg label_arg "$label" --argjson rc "$rc" \
+            '{label:$label_arg, exit_code:$rc}')" 2>/dev/null || true
     fi
 
     cat "$out_file" 2>/dev/null || true

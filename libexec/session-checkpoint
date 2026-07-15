@@ -43,4 +43,6 @@ snapshot="$(snapshot_create "$label")"
 
 printf 'checkpoint created: %s\n' "$snapshot"
 
-log_json "checkpoint.create" "$(jq -cn --arg snapshot "$snapshot" --arg label "$label" '{snapshot:$snapshot, label:$label}')"
+# $label_arg, not $label — "label" is a jq grammar keyword and jq < 1.7
+# (e.g. Ubuntu 22.04's apt jq 1.6) rejects it as a variable identifier.
+log_json "checkpoint.create" "$(jq -cn --arg snapshot "$snapshot" --arg label_arg "$label" '{snapshot:$snapshot, label:$label_arg}')"

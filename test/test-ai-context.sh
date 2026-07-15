@@ -203,7 +203,17 @@ test_pack_token_budget_warns_when_exceeded() {
     err="$(cd "$PACK_FIX" && OUTPUT_DIR="$TMP/pack-out-budget" TOKEN_BUDGET=1 "$BASH_BIN" "$SCRIPT" pack auto --include "README.md" 2>&1 >/dev/null || true)"
     grep -qi 'exceeding budget' <<<"$err"
 }
-run_test "pack: warns when packed output exceeds TOKEN_BUDGET" test_pack_token_budget_warns_when_exceeded
+# `pack auto` needs at least one real packer on PATH (repomix,
+# files-to-prompt, or code2prompt — see ai_context_pack_select_backend); none
+# of them are installed by this repo's own CI workflow, so without this guard
+# the test fails on "no supported context packer found" instead of the
+# TOKEN_BUDGET warning it's actually meant to exercise.
+if command -v repomix >/dev/null 2>&1 || command -v files-to-prompt >/dev/null 2>&1 ||
+    command -v code2prompt >/dev/null 2>&1; then
+    run_test "pack: warns when packed output exceeds TOKEN_BUDGET" test_pack_token_budget_warns_when_exceeded
+else
+    skip_test "pack: warns when packed output exceeds TOKEN_BUDGET" "no context packer installed"
+fi
 
 # ===========================================================================
 # file (formerly test-run-repomix-file.sh)
@@ -653,7 +663,15 @@ test_collect_related_tests_finds_matching_test() {
         [[ "$out" == *"tests/FooTest.php"* ]]
     )
 }
-run_test "collect_related_tests: finds PHP Test naming-convention match" test_collect_related_tests_finds_matching_test
+# fd is an optional, feature-gated tool (README's "Optional" tier, not
+# "Core"), and collect_related_tests' PHP-naming-convention branch is fd-only
+# by design (it soft-degrades to a no-op with a log_warn when fd is absent,
+# same as this repo's own CI workflow, which never installs fd/fd-find).
+if command -v fd >/dev/null 2>&1; then
+    run_test "collect_related_tests: finds PHP Test naming-convention match" test_collect_related_tests_finds_matching_test
+else
+    skip_test "collect_related_tests: finds PHP Test naming-convention match" "fd not installed"
+fi
 
 test_collect_related_tests_skips_when_include_tests_off() {
     (
@@ -816,7 +834,16 @@ test_pack_files_list_secrets_scan_passes_clean_fixture() {
         [[ -f "$out" && -f "${out%.xml}.manifest.json" ]]
     )
 }
-run_test "pack_files_list: secrets scan passes on a clean fixture and packs" test_pack_files_list_secrets_scan_passes_clean_fixture
+# pack_files_list's non-dry-run path (exercised here) requires repomix or
+# files-to-prompt on PATH (see its own `elif command -v files-to-prompt`
+# fallback below); neither is installed by this repo's CI workflow, so
+# without this guard the test fails on "no context packer available" instead
+# of ever reaching the secrets-scan behavior it's meant to cover.
+if command -v repomix >/dev/null 2>&1 || command -v files-to-prompt >/dev/null 2>&1; then
+    run_test "pack_files_list: secrets scan passes on a clean fixture and packs" test_pack_files_list_secrets_scan_passes_clean_fixture
+else
+    skip_test "pack_files_list: secrets scan passes on a clean fixture and packs" "no context packer installed"
+fi
 
 test_pack_files_list_manifest_fields() {
     (
@@ -839,7 +866,12 @@ test_pack_files_list_manifest_fields() {
             [[ "$(jq -r '.token_budget' "$manifest")" == "80000" ]]
     )
 }
-run_test "pack_files_list: manifest.json records label/token_budget/include flags" test_pack_files_list_manifest_fields
+# Same packer dependency as the secrets-scan test above.
+if command -v repomix >/dev/null 2>&1 || command -v files-to-prompt >/dev/null 2>&1; then
+    run_test "pack_files_list: manifest.json records label/token_budget/include flags" test_pack_files_list_manifest_fields
+else
+    skip_test "pack_files_list: manifest.json records label/token_budget/include flags" "no context packer installed"
+fi
 
 SECRET_FIX="$TMP/helpers-pack-files-list-secret-fixture"
 make_git_fixture "$SECRET_FIX"

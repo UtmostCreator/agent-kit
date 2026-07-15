@@ -285,15 +285,22 @@ pack_files_list() {
     estimated_input_tokens="$(estimate_files_tokens "${files[@]}")"
 
     if [[ "$DRY_RUN" == "1" ]]; then
+        # Note: the jq variable is named $label_arg, not $label — "label" is a
+        # jq grammar keyword (the `label $out | ...` control-flow construct),
+        # and jq versions before 1.7 (e.g. jq 1.6, the Ubuntu 22.04 apt
+        # package) reject `$label` as a variable identifier with a compile
+        # error, which — combined with `set -e` — silently produced no output
+        # at all here. The JSON *key* below is still plain `label`; only the
+        # $-prefixed variable name needed to change.
         jq -n \
-            --arg label "$label" \
+            --arg label_arg "$label" \
             --arg output "$out_file" \
             --argjson files "$(printf '%s\n' "${files[@]}" | jq -R . | jq -s .)" \
             --argjson estimated_tokens "$estimated_input_tokens" \
             --argjson token_budget "$TOKEN_BUDGET" \
             '{
               dry_run: true,
-              label: $label,
+              label: $label_arg,
               output: $output,
               file_count: ($files | length),
               estimated_input_tokens: $estimated_tokens,
@@ -353,8 +360,9 @@ pack_files_list() {
         log_ok "Context packed: ~${tokens} tokens"
     fi
 
+    # See the dry-run branch above for why this is $label_arg, not $label.
     jq -n \
-        --arg label "$label" \
+        --arg label_arg "$label" \
         --arg out "$out_file" \
         --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
         --argjson files "$(printf '%s\n' "${files[@]}" | jq -R . | jq -s .)" \
@@ -366,7 +374,7 @@ pack_files_list() {
         --argjson strict_tokens "$STRICT_TOKENS" \
         --arg split_output "$SPLIT_OUTPUT" \
         '{
-          label: $label,
+          label: $label_arg,
           output: $out,
           ts: $ts,
           file_count: ($files | length),

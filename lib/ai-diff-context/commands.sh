@@ -170,7 +170,13 @@ cmd_touched() {
     local pattern="${positional[0]:-}"
     [[ -n "$pattern" ]] || die "pattern required"
 
-    require_bins fd rg
+    # fd is documented as an optional tool (README's "Optional (feature-gated)"
+    # tier), not core — only rg is required here. fd merely adds a
+    # filename-pattern match alongside rg's content match; skip it gracefully
+    # (matching collect_related_tests' existing fd-optional handling) instead
+    # of hard-dying when it is absent (e.g. on stock Ubuntu runners that never
+    # install fd/fd-find).
+    require_bins rg
     section "Files matching: $pattern"
 
     local root
@@ -179,7 +185,11 @@ cmd_touched() {
 
     root="$(git_root)"
     mapfile -t files < <({
-        fd --hidden -E vendor -E node_modules -E dist -E .git "$pattern" "$root"
+        if command -v fd >/dev/null 2>&1; then
+            fd --hidden -E vendor -E node_modules -E dist -E .git "$pattern" "$root"
+        else
+            log_warn "fd not installed; skipping filename-pattern match"
+        fi
         rg -l --hidden -g '!vendor' -g '!node_modules' -g '!dist' -g '!.git' "$pattern" "$root" 2>/dev/null || true
     } | sort -u | filter_existing)
 
