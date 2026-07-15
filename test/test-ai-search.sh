@@ -824,15 +824,21 @@ else
     exit 1
 fi
 
-# legacy-file-list (changed/staged): every positional-count branch.
+# legacy-file-list (changed/staged): every positional-count branch. The
+# 0-positional and 1-positional-non-directory cases below default root to
+# ".", i.e. THIS repo checkout -- whether it currently has any uncommitted
+# tracked-file changes is real, live git state outside this test's control,
+# so accept ok|no_matches rather than asserting a specific outcome.
 run_search_batch changed
-expect_jq "batch legacy changed (0 positionals) -> ok" '.[0].status == "ok"'
+expect_jq "batch legacy changed (0 positionals) -> ok|no_matches" \
+    '.[0].status=="ok" or .[0].status=="no_matches"'
 
 run_search_batch changed "$phase2_repo"
 expect_jq "batch legacy changed (1 positional, directory) -> ok" '.[0].status == "ok"'
 
 run_search_batch changed some-legacy-query-text
-expect_jq "batch legacy changed (1 positional, non-directory) -> ok" '.[0].status == "ok"'
+expect_jq "batch legacy changed (1 positional, non-directory) -> ok|no_matches" \
+    '.[0].status=="ok" or .[0].status=="no_matches"'
 
 run_search_batch changed dummy "$phase2_repo"
 expect_jq "batch legacy changed (2 positionals) -> ok" '.[0].status == "ok"'
