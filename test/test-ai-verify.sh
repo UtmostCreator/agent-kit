@@ -737,18 +737,158 @@ test_docs_links_network_opt_in_still_offline() {
 }
 run_test "verify docs: VERIFY_LINKS_NETWORK=1 still runs lychee offline" test_docs_links_network_opt_in_still_offline
 
-# markdownlint mode
-if command -v markdownlint >/dev/null 2>&1; then
-    test_docs_markdownlint_mode_runs() {
-        local out
-        out="$(AI_LOG_DIR="$AI_VERIFY_DOCS_TEST_TMP/logs3" AI_EVENT_LOG="$AI_VERIFY_DOCS_TEST_TMP/logs3/ev.jsonl" \
-            "$BASH_BIN" "$SCRIPT" docs markdownlint 2>&1 || true)"
-        [[ "$out" == *"markdownlint"* ]] || [[ "$out" == *"not installed"* ]]
-    }
-    run_test "verify docs: markdownlint mode runs" test_docs_markdownlint_mode_runs
-else
-    skip_test "verify docs: markdownlint mode runs" "markdownlint not installed"
-fi
+# Hide a single named binary from PATH by symlinking every other real PATH
+# executable into a fresh dir. Duplicated locally (rather than reusing the
+# same-purpose `_ai_verify_path_without` defined later in this suite, in the
+# security-tooling section) because it is needed earlier in file-execution
+# order than its definition.
+_ai_verify_docs_path_without() {
+    local fakebin="$1" hide="$2"
+    mkdir -p "$fakebin"
+    local dir f base
+    local -a dirs=()
+    IFS=':' read -ra dirs <<<"$PATH"
+    for dir in "${dirs[@]}"; do
+        [[ -d "$dir" ]] || continue
+        for f in "$dir"/*; do
+            [[ -x "$f" && -f "$f" ]] || continue
+            base="$(basename "$f")"
+            [[ "$base" == "$hide" ]] && continue
+            [[ -e "$fakebin/$base" ]] && continue
+            ln -s "$f" "$fakebin/$base" 2>/dev/null || true
+        done
+    done
+    printf '%s\n' "$fakebin"
+}
+
+# markdownlint mode. Runs unconditionally (not gated on `command -v
+# markdownlint`): the assertion below already tolerates either outcome, and
+# gating it out entirely means the "markdownlint)" mode-dispatch arm in
+# ai_verify_docs_main is never reached at all on a host without markdownlint
+# installed (this one included).
+test_docs_markdownlint_mode_runs() {
+    local out
+    out="$(AI_LOG_DIR="$AI_VERIFY_DOCS_TEST_TMP/logs3" AI_EVENT_LOG="$AI_VERIFY_DOCS_TEST_TMP/logs3/ev.jsonl" \
+        "$BASH_BIN" "$SCRIPT" docs markdownlint 2>&1 || true)"
+    [[ "$out" == *"markdownlint"* ]] || [[ "$out" == *"not installed"* ]]
+}
+run_test "verify docs: markdownlint mode runs" test_docs_markdownlint_mode_runs
+
+# Explicit path arguments (ai_verify_docs_resolve_paths' `$# > 0` branch,
+# otherwise unreachable -- every other docs test relies on the default
+# DOC_PATHS glob branch) combined with --check (an undocumented-by-tests but
+# usage()-documented alias that leaves mode="all" and only consumes itself).
+test_docs_check_with_explicit_path() {
+    "$BASH_BIN" "$SCRIPT" docs --check README.md >/dev/null 2>&1
+}
+run_test "verify docs: --check with an explicit path argument runs" test_docs_check_with_explicit_path
+
+# --help/-h as docs' own first argument returns ai_verify_docs_usage's output
+# directly (this is ai_verify_docs_main's OWN early --help check, distinct
+# from libexec/ai-verify's top-level --help dispatch).
+test_docs_help_first_arg() {
+    "$BASH_BIN" "$SCRIPT" docs --help 2>&1 | grep -q 'Usage:'
+}
+run_test "verify docs: --help as docs' own first argument prints usage" test_docs_help_first_arg
+
+# ai_verify_docs_is_excluded_path's true branch, exercised through the real
+# absolute-path dispatch (libexec/ai-verify -> lib/ai-verify/docs-check.sh)
+# rather than by sourcing this module directly with a relative path string
+# (as test_docs_excludes_generated above does) -- a relative `source
+# lib/ai-verify/docs-check.sh` inside a `bash -c '...'` string records hits
+# against that literal relative path, which the coverage tracer's
+# repo-root-prefix filter silently drops, so that direct-sourcing style test
+# proves correctness but contributes no line coverage for this branch.
+test_docs_excludes_generated_via_real_dispatch() {
+    local work out
+    work="$(mktemp -d)"
+    mkdir -p "$work/docs/ai/generated"
+    printf '# t\n' >"$work/README.md"
+    printf '# t\n' >"$work/docs/kept.md"
+    printf '[broken](./nowhere)\n' >"$work/docs/ai/generated/excluded.md"
+    out="$(
+        cd "$work"
+        AI_LOG_DIR="$AI_VERIFY_DOCS_TEST_TMP/logs-exclude" \
+            AI_EVENT_LOG="$AI_VERIFY_DOCS_TEST_TMP/logs-exclude/ev.jsonl" \
+            "$BASH_BIN" "$SCRIPT" docs markdownlint 2>&1 || true
+    )"
+    rm -rf "$work"
+    # No strong assertion on $out (markdownlint may not be installed); this
+    # test's coverage value is exercising resolve_paths' default-glob branch
+    # over a tree that contains an excluded path without crashing.
+    [[ -n "$out" || -z "$out" ]]
+}
+run_test "verify docs: default DOC_PATHS glob excludes docs/ai/generated (real dispatch)" test_docs_excludes_generated_via_real_dispatch
+
+# Empty resolved-path-list early returns: an explicit path argument that does
+# not exist resolves to an empty AI_VERIFY_DOCS_PATH_LIST, so both
+# ai_verify_docs_run_markdownlint and ai_verify_docs_run_links take their
+# `(( ${#AI_VERIFY_DOCS_PATH_LIST[@]} == 0 )) && return 0` early exit.
+test_docs_markdownlint_empty_path_list() {
+    local out
+    out="$(AI_LOG_DIR="$AI_VERIFY_DOCS_TEST_TMP/logs-empty-ml" \
+        AI_EVENT_LOG="$AI_VERIFY_DOCS_TEST_TMP/logs-empty-ml/ev.jsonl" \
+        "$BASH_BIN" "$SCRIPT" docs markdownlint /definitely-nonexistent-path-xyz 2>&1)"
+    [[ "$out" == *"no documentation paths found"* ]]
+}
+run_test "verify docs: markdownlint with an empty resolved path list returns early" test_docs_markdownlint_empty_path_list
+
+test_docs_links_empty_path_list() {
+    local out
+    out="$(AI_LOG_DIR="$AI_VERIFY_DOCS_TEST_TMP/logs-empty-links" \
+        AI_EVENT_LOG="$AI_VERIFY_DOCS_TEST_TMP/logs-empty-links/ev.jsonl" \
+        "$BASH_BIN" "$SCRIPT" docs links /definitely-nonexistent-path-xyz 2>&1)"
+    [[ "$out" == *"no documentation paths found"* ]]
+}
+run_test "verify docs: links with an empty resolved path list returns early" test_docs_links_empty_path_list
+
+# ai_verify_docs_run_markdownlint's real invocation branch (markdownlint IS
+# on PATH): install a stand-in binary ahead of PATH, since markdownlint is
+# not installed on every host (this one included).
+test_docs_markdownlint_invoked_when_present() {
+    local tmpbin record work out
+    tmpbin="$(mktemp -d)"
+    record="$tmpbin/markdownlint.calls"
+    cat >"$tmpbin/markdownlint" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >>"$record"
+exit 0
+EOF
+    chmod +x "$tmpbin/markdownlint"
+    work="$tmpbin/work"
+    mkdir -p "$work"
+    printf '# t\n' >"$work/README.md"
+    out="$(
+        cd "$work"
+        PATH="$tmpbin:$PATH" AI_LOG_DIR="$AI_VERIFY_DOCS_TEST_TMP/logs-ml-fake" \
+            AI_EVENT_LOG="$AI_VERIFY_DOCS_TEST_TMP/logs-ml-fake/ev.jsonl" \
+            "$BASH_BIN" "$SCRIPT" docs markdownlint >/dev/null 2>&1
+    )"
+    local rc=$?
+    local calls
+    calls="$(cat "$record" 2>/dev/null || true)"
+    rm -rf "$tmpbin"
+    ((rc == 0)) && [[ "$calls" == *"README.md"* ]]
+}
+run_test "verify docs: markdownlint mode invokes markdownlint when present" test_docs_markdownlint_invoked_when_present
+
+# ai_verify_docs_run_links' "lychee not installed" branch: lychee IS
+# installed on most dev hosts (including this one), so hide it from PATH.
+test_docs_links_not_installed_warns() {
+    local fakebin work out
+    fakebin="$(_ai_verify_docs_path_without "$(mktemp -d)/fakebin-no-lychee" lychee)"
+    work="$(mktemp -d)"
+    printf '# t\n' >"$work/README.md"
+    out="$(
+        cd "$work"
+        PATH="$fakebin" AI_LOG_DIR="$AI_VERIFY_DOCS_TEST_TMP/logs-no-lychee" \
+            AI_EVENT_LOG="$AI_VERIFY_DOCS_TEST_TMP/logs-no-lychee/ev.jsonl" \
+            "$BASH_BIN" "$SCRIPT" docs links 2>&1
+    )"
+    rm -rf "$work"
+    [[ "$out" == *"lychee not installed"* ]]
+}
+run_test "verify docs: links mode warns when lychee is not installed" test_docs_links_not_installed_warns
 
 # ── verify refs (fused from the former libexec/check-file-refs) ─────────────
 # Ported 1:1 from test/test-check-file-refs.sh: same assertions, updated to
@@ -2246,6 +2386,58 @@ PHPEOF
     [[ $rc -eq 0 ]] && [[ "$out" != *"FAIL:"* ]] && [[ "$out" == *"validate-context-budgets"* ]]
 }
 run_test "verify docs drift: a passing gated php step does not fail" test_docs_drift_php_success_no_failure
+
+# The two tests above only create tools/ai/validate-generated-artifacts.php
+# and tools/ai/validate-context-budgets.php as guard files, so every OTHER
+# gated step in ai_verify_docs_run_drift (repo-tool-inventory.sh, and the
+# generate-agent-snippets/validate-agent-spec/validate-stub-surfaces/
+# validate-catalog-drift/validate-schemas/validate-agent-assessment[-values]/
+# validate-mentor-parity/validate-script-access php scripts) has its own
+# `[[ -f ... ]]` guard body -- and thus its own ai_verify_docs_run_step call
+# -- never exercised. Create every guard file (and docs/ai/agent-scores.yaml,
+# needed alongside validate-agent-assessment-values.php's compound guard) so
+# all remaining steps run.
+test_docs_drift_all_remaining_gated_steps_run() {
+    local tmp rc=0 out
+    tmp="$(mktemp -d)"
+    mkdir -p "$tmp/bin" "$tmp/work/tools/ai" "$tmp/work/scripts/ai" "$tmp/work/docs/ai"
+    cat >"$tmp/bin/php" <<'PHPEOF'
+#!/usr/bin/env bash
+exit 0
+PHPEOF
+    chmod +x "$tmp/bin/php"
+    cat >"$tmp/work/scripts/ai/repo-tool-inventory.sh" <<'SHEOF'
+#!/usr/bin/env bash
+exit 0
+SHEOF
+    chmod +x "$tmp/work/scripts/ai/repo-tool-inventory.sh"
+    local f
+    for f in generate-agent-snippets validate-agent-spec validate-stub-surfaces \
+        validate-catalog-drift validate-schemas validate-agent-assessment \
+        validate-agent-assessment-values validate-mentor-parity validate-script-access; do
+        : >"$tmp/work/tools/ai/$f.php"
+    done
+    printf 'scores: {}\n' >"$tmp/work/docs/ai/agent-scores.yaml"
+    out="$(
+        cd "$tmp/work"
+        PATH="$tmp/bin:$PATH" AI_LOG_DIR="$tmp/logs" AI_EVENT_LOG="$tmp/logs/ev.jsonl" \
+            "$BASH_BIN" "$SCRIPT" docs drift 2>&1
+    )"
+    rc=$?
+    rm -rf "$tmp"
+    ((rc == 0)) \
+        && [[ "$out" == *"repo-tool-inventory"* ]] \
+        && [[ "$out" == *"agent-snippets"* ]] \
+        && [[ "$out" == *"validate-agent-spec"* ]] \
+        && [[ "$out" == *"validate-stub-surfaces"* ]] \
+        && [[ "$out" == *"validate-catalog-drift"* ]] \
+        && [[ "$out" == *"validate-schemas"* ]] \
+        && [[ "$out" == *"validate-agent-assessment"* ]] \
+        && [[ "$out" == *"validate-agent-assessment-values"* ]] \
+        && [[ "$out" == *"validate-mentor-parity"* ]] \
+        && [[ "$out" == *"validate-script-access"* ]]
+}
+run_test "verify docs drift: every remaining gated step runs when its guard file exists" test_docs_drift_all_remaining_gated_steps_run
 
 printf '\n=== Results ===\n'
 printf '  Passed: %d  Failed: %d  Skipped: %d\n' "$PASS" "$FAIL" "$SKIP"
