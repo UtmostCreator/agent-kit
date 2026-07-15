@@ -13,6 +13,7 @@
   <a href="https://github.com/UtmostCreator/agent-kit/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/UtmostCreator/agent-kit/ci.yml?style=for-the-badge&label=CI&logo=github"/></a>
   <img alt="Tests" src="https://img.shields.io/badge/tests-655%20passing-2ea44f?style=for-the-badge&logo=checkmarx&logoColor=white"/>
   <img alt="Command coverage" src="https://img.shields.io/badge/command%20coverage-100%25-2ea44f?style=for-the-badge"/>
+  <img alt="Line coverage" src="https://img.shields.io/badge/line%20coverage-69.62%25-4c9?style=for-the-badge"/>
   <a href="https://www.npmjs.com/package/@utmostcreator/agent-kit"><img alt="npm" src="https://img.shields.io/npm/v/@utmostcreator/agent-kit?style=for-the-badge&logo=npm&color=cb3837"/></a>
   <a href="https://github.com/UtmostCreator/agent-kit/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/UtmostCreator/agent-kit?style=for-the-badge&color=ffcc00"/></a>
 </p>

@@ -54,32 +54,42 @@ full evidence trail and exact commands used).
 
 ## GitHub configuration
 
-Verified via `gh api repos/UtmostCreator/agent-kit` (and sub-paths) this
-session — all still open except the repo name itself:
+Verified via `gh api repos/UtmostCreator/agent-kit` (and sub-paths):
 
-- [ ] Set the description and topics from `GITHUB_METADATA.md`.
-      _Confirmed empty (`description: null`, `topics: []`)._
+- [x] Set the description and topics from `GITHUB_METADATA.md`.
+      _Done: applied via `gh repo edit --description ... --add-topic ...`;
+      confirmed live — description matches `GITHUB_METADATA.md` exactly and
+      all 19 suggested topics are set._
 - [ ] Upload a social preview image.
-      _Not checked — no API field queried for this; verify manually in
-      Settings → General._
+      _Still open — needs an actual branded image asset (none exists in this
+      repo) and is normally done through Settings → General → Social preview
+      in the browser; not something to script blind._
 - [ ] Enable private vulnerability reporting and secret scanning.
       _Partially done: secret scanning **and** push protection are already
-      enabled. Private vulnerability reporting is confirmed **off**
-      (`.../private-vulnerability-reporting` → `enabled: false`) — turn it on._
+      enabled. Private vulnerability reporting is still off — the auto-mode
+      permission classifier blocked the API call to flip it on (a
+      security/admin setting change needs your explicit named go-ahead, not
+      just a general "do release prep" instruction). One command once you
+      say go: `gh api -X PUT repos/UtmostCreator/agent-kit/private-vulnerability-reporting`._
 - [ ] Protect `main` and require `CI / required`.
-      _Confirmed not configured (`.../branches/main/protection` → 404 Branch
-      not protected)._
+      _Still open — same classifier block as above. Proposed config (won't
+      lock you out as sole maintainer): required status check `required`,
+      `enforce_admins: false`, `required_approving_review_count: 0` (forces
+      changes through a PR without needing a second reviewer),
+      `required_conversation_resolution: true`, `allow_force_pushes: false`,
+      `allow_deletions: false`. Needs your explicit go-ahead._
 - [ ] Require pull requests and resolved review conversations.
-      _Tied to the same branch-protection settings above — not configured._
+      _Same branch-protection call as above — bundled into one API request._
 - [ ] Block force pushes and branch deletion.
-      _Tied to the same branch-protection settings above — not configured._
-- [ ] Enable automatic deletion of merged branches.
-      _Confirmed off (`delete_branch_on_merge: false`)._
+      _Same branch-protection call as above — bundled into one API request._
+- [x] Enable automatic deletion of merged branches.
+      _Done: `gh repo edit --delete-branch-on-merge`; confirmed live
+      (`delete_branch_on_merge: true`)._
 
 Note: the repository itself is **already named `agent-kit`**
 (`UtmostCreator/agent-kit`, confirmed via `gh api`) — the one item this
 checklist doesn't explicitly list but that RELEASING.md's step 0 used to
-treat as still-open. Nothing else in this section has been done yet.
+treat as still-open.
 
 ## Release
 

@@ -36,26 +36,30 @@ release-ready as of this writing:
   `"version"` doesn't match the tag (previously only `VERSION` was checked —
   a real gap, since a silent `package.json` drift would have let step 4
   (`npm publish`) ship under the wrong version with nothing catching it).
-- The GitHub repo is **already renamed** to `agent-kit` (confirmed via
-  `gh api repos/UtmostCreator/agent-kit`) and secret scanning + push
-  protection are already enabled. Still open, confirmed via the same API
-  calls: description/topics are unset, `main` has no branch protection,
-  "delete branch on merge" is off, and private vulnerability reporting is
-  disabled — see step 0 below and the checkboxes in
-  [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md).
+- The GitHub repo is **already renamed** to `agent-kit`, and its
+  **description, topics, and "delete branch on merge" are now set** (applied
+  via `gh repo edit`, confirmed live via `gh api`). Secret scanning + push
+  protection were already on. **Still open, and needs your explicit
+  go-ahead**, not just a general "do release prep" instruction: private
+  vulnerability reporting, and branch protection on `main` — these are
+  security/governance settings, and the auto-mode permission classifier
+  correctly declined to flip them on its own initiative. See step 0 below for
+  the exact commands and the proposed branch-protection config.
 
 `feat/project-local-install` is `release/v0.1.0-prep` plus several commits
 ahead, with nothing in the other direction (a clean fast-forward: `git log
 --oneline release/v0.1.0-prep..feat/project-local-install`). **The next
 action** is:
 
-1. Fast-forward (or PR-merge) `release/v0.1.0-prep` — and eventually `main` —
+1. Decide on private vulnerability reporting + branch protection (step 0,
+   items 3-4) — say the word and it's one command each.
+2. Fast-forward (or PR-merge) `release/v0.1.0-prep` — and eventually `main` —
    up to `feat/project-local-install`'s tip, so the branch actually used for
    the release carries all of this prep work. Nothing has been pushed to
-   `origin` beyond `main`'s original single commit yet.
-2. Then work through the **remaining open items in step 0 below** (repo
-   description/topics, branch protection, auto-delete-merged-branches,
-   private vulnerability reporting) — the rename itself is already done.
+   `origin` beyond `main`'s original single commit yet. Note: if branch
+   protection goes on *before* this merge, a direct `git push origin main`
+   will be rejected and you'll need to go through a PR instead — sequence
+   accordingly.
 
 ## 0. One-time repo setup
 
@@ -65,20 +69,36 @@ These only need to happen once, before the first tag:
    `gh api repos/UtmostCreator/agent-kit` resolves correctly and the old name
    (`agent-repo-tools`) redirects. The local `origin` remote is already
    updated to match (`git remote -v`).
-2. **Still open** — set the description and topics from
-   [GITHUB_METADATA.md](GITHUB_METADATA.md) (Settings → General, and the gear
-   icon next to "About"). Confirmed empty via
-   `gh api repos/UtmostCreator/agent-kit --jq '{description,topics}'`.
-3. **Still open** — enable branch protection on `main`: require the
-   `required` CI check, require PRs with resolved conversations, block
-   force-push and deletion, enable auto-delete of merged branches. Confirmed
-   not configured via `gh api repos/UtmostCreator/agent-kit/branches/main/protection`
-   (404) and `delete_branch_on_merge: false`.
-4. **Partially done** — secret scanning and push protection are already
-   enabled (Settings → Security confirms `secret_scanning: enabled`), but
-   private vulnerability reporting is still off (`gh api
-   repos/UtmostCreator/agent-kit/private-vulnerability-reporting` →
-   `enabled: false`) — turn it on.
+2. ~~Set the description and topics from [GITHUB_METADATA.md](GITHUB_METADATA.md)~~
+   — **already done** via `gh repo edit --description ... --add-topic ...`;
+   confirmed live (`gh api repos/UtmostCreator/agent-kit --jq
+   '{description,topics}'`). ~~Enable automatic deletion of merged
+   branches~~ — **already done** (`delete_branch_on_merge: true`).
+3. **Still open, needs your go-ahead** — enable branch protection on `main`:
+   require the `required` CI check, require PRs, block force-push and
+   deletion. Proposed config (chosen so the sole-maintainer workflow doesn't
+   get locked out): `enforce_admins: false`, `required_approving_review_count: 0`
+   (forces changes through a PR without needing a second reviewer, since
+   GitHub doesn't allow self-approval), `required_conversation_resolution: true`,
+   `allow_force_pushes: false`, `allow_deletions: false`. One command once you
+   confirm:
+   ```bash
+   gh api -X PUT repos/UtmostCreator/agent-kit/branches/main/protection \
+     -f 'required_status_checks[strict]=true' \
+     -f 'required_status_checks[contexts][]=required' \
+     -F enforce_admins=false \
+     -F 'required_pull_request_reviews[required_approving_review_count]=0' \
+     -F required_conversation_resolution=true \
+     -F allow_force_pushes=false \
+     -F allow_deletions=false \
+     -F 'restrictions='
+   ```
+4. **Still open, needs your go-ahead** — secret scanning and push protection
+   are already enabled; private vulnerability reporting is confirmed off.
+   One command once you confirm:
+   ```bash
+   gh api -X PUT repos/UtmostCreator/agent-kit/private-vulnerability-reporting
+   ```
 5. Log in to the tools you'll need locally: `gh auth login` (already done in
    this environment), `npm login` (npm account must have publish rights to
    the `@utmostcreator` scope).
