@@ -134,10 +134,18 @@ cmd_show_manifest() {
     local untracked_list
     local untracked_archive
 
+    # "label:" must stay in explicit colon form, not the bare `label,`
+    # shorthand — jq < 1.7 (e.g. jq 1.6, Ubuntu 22.04's apt package) treats
+    # "label" as a reserved grammar keyword and rejects it as a bare
+    # shorthand object key with a compile error (confirmed against the real
+    # jq 1.6 binary), the same class of bug already fixed for `$label`
+    # elsewhere (see lib/snapshot.sh). Since this jq call isn't guarded by
+    # `|| true`, that compile error would abort cmd_show_manifest entirely
+    # under `set -e`.
     jq '{
       version,
       session,
-      label,
+      label: .label,
       base_ref,
       root,
       patch_file,

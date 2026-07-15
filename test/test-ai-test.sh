@@ -27,22 +27,37 @@ run_test() {
 }
 skip_test() { SKIP=$((SKIP+1)); printf '  \033[0;33m⊘\033[0m %s (skipped: %s)\n' "$1" "$2"; }
 
-# Returns $PATH with every directory that resolves $1 via `command -v`
-# stripped out, repeating until $1 is genuinely unresolvable (a binary can
-# be reachable from more than one PATH entry, e.g. a real install plus a
-# profile-manager symlink farm). Used by isolation tests below that need a
-# binary to be truly absent. Bounded to avoid looping forever on a PATH that
-# can never fully hide the binary.
+# Prints a drop-in replacement PATH (a single flat directory of symlinks)
+# that resolves every executable currently on $PATH except $1. Used by
+# isolation tests below that need a binary to be truly absent.
+#
+# This symlinks-everything-but-X approach (not whole-directory removal) is
+# required for correctness on a real Linux host: system binaries share
+# directories (e.g. php and mktemp both live in /usr/bin on stock Ubuntu),
+# so stripping "every PATH entry that resolves $1" also silently deletes
+# unrelated tools the calling test still needs afterward (mktemp, grep,
+# etc.), breaking it in a way that looks unrelated to $1 at all. That only
+# went unnoticed in the Nix dev sandbox, where every tool lives in its own
+# isolated store path and never shares a directory with anything else --
+# confirmed against a real single-directory PATH layout (see PR review).
 path_without() {
-    local bin="$1" current="$PATH" resolved dir attempts=0
-    while resolved="$(PATH="$current" command -v "$bin" 2>/dev/null)"; do
-        dir="$(dirname "$resolved")"
-        current="$(printf '%s' "$current" | tr ':' '\n' | grep -vFx "$dir")"
-        current="${current//$'\n'/:}"
-        attempts=$((attempts + 1))
-        ((attempts < 20)) || break
+    local bin="$1"
+    local fakebin="$TMP/path-without-${bin//[^A-Za-z0-9_.-]/_}"
+    mkdir -p "$fakebin"
+    local dir f base
+    local -a dirs=()
+    IFS=':' read -ra dirs <<<"$PATH"
+    for dir in "${dirs[@]}"; do
+        [[ -d "$dir" ]] || continue
+        for f in "$dir"/*; do
+            [[ -x "$f" && -f "$f" ]] || continue
+            base="$(basename "$f")"
+            [[ "$base" == "$bin" ]] && continue
+            [[ -e "$fakebin/$base" ]] && continue
+            ln -sf "$f" "$fakebin/$base" 2>/dev/null || true
+        done
     done
-    printf '%s' "$current"
+    printf '%s' "$fakebin"
 }
 
 printf 'ai-test\n'
