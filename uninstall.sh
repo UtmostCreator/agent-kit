@@ -47,4 +47,18 @@ if [[ -f "$wrapper" ]] && grep -Fq -- '# agent-kit-wrapper' "$wrapper"; then
     rm -f -- "$wrapper"
 fi
 rm -rf -- "$prefix"
+
+# A project-local install (install.sh --project) nests both prefix and bindir
+# as siblings under one dedicated folder (<project>/.agent-kit/{toolkit,bin}).
+# rmdir only succeeds on a truly empty directory, so this is a no-op (not an
+# error, thanks to the || true) for a global install, where bindir is a
+# shared location (e.g. ~/.local/bin) that must never be removed, and for a
+# project-local install where the user left other files alongside ours.
+rmdir -- "$bindir" 2>/dev/null || true
+prefix_parent=$(dirname -- "$prefix")
+bindir_parent=$(dirname -- "$bindir")
+if [[ "$prefix_parent" == "$bindir_parent" ]]; then
+    rmdir -- "$prefix_parent" 2>/dev/null || true
+fi
+
 printf 'Removed AgentKit from %s\n' "$prefix"

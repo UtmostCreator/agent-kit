@@ -102,6 +102,74 @@ test_uninstall_removes() {
 }
 run_test "uninstall removes prefix and wrapper" test_uninstall_removes
 
+# ── Project-local install (install.sh --project) ────────────────────────────
+# A fresh throwaway git repo per test, so branch_scoped_files-style git
+# assumptions elsewhere in the toolkit never confuse this repo's own tree
+# with the fixture being installed into.
+make_fixture_repo() {
+    local dir="$1"
+    mkdir -p "$dir"
+    (cd "$dir" && git init -q && git config user.email t@t.t && git config user.name t)
+}
+
+test_project_install_creates_layout() {
+    local proj="$STAGE/proj1"
+    make_fixture_repo "$proj"
+    "$BASH_BIN" "$REPO_ROOT/install.sh" --project "$proj" >/dev/null 2>&1
+    [[ -f "$proj/.agent-kit/toolkit/.agent-kit-install" ]] &&
+        [[ -x "$proj/.agent-kit/bin/agent-kit" ]]
+}
+run_test "install.sh --project creates <dir>/.agent-kit/{toolkit,bin}" test_project_install_creates_layout
+
+test_project_install_wrapper_runs() {
+    local proj="$STAGE/proj1"
+    [[ "$("$proj/.agent-kit/bin/agent-kit" --version)" == *"agent-kit"* ]]
+}
+run_test "project-local wrapper actually runs (agent-kit --version)" test_project_install_wrapper_runs
+
+test_project_install_not_git_tracked() {
+    local proj="$STAGE/proj1"
+    [[ "$(cd "$proj" && git status --short -- .agent-kit)" == "?? .agent-kit/" ]]
+}
+run_test "project-local install lands untracked in the fixture repo" test_project_install_not_git_tracked
+
+test_project_uninstall_removes_everything() {
+    local proj="$STAGE/proj1"
+    "$BASH_BIN" "$REPO_ROOT/uninstall.sh" --prefix "$proj/.agent-kit/toolkit" --bindir "$proj/.agent-kit/bin" >/dev/null 2>&1
+    # Not just the toolkit and wrapper -- the whole now-empty .agent-kit
+    # folder too, matching INSTALL.md's "self-contained, cleanly removable"
+    # promise for project-local installs. (Regression: uninstall.sh used to
+    # leave an empty .agent-kit/bin/ and .agent-kit/ behind.)
+    [[ ! -e "$proj/.agent-kit" ]]
+}
+run_test "project-local uninstall leaves no trace (no leftover .agent-kit/)" test_project_uninstall_removes_everything
+
+test_project_install_custom_dir_name() {
+    local proj="$STAGE/proj2"
+    make_fixture_repo "$proj"
+    AGENTKIT_DIR_NAME=.tools "$BASH_BIN" "$REPO_ROOT/install.sh" --project "$proj" >/dev/null 2>&1
+    [[ -x "$proj/.tools/bin/agent-kit" && ! -e "$proj/.agent-kit" ]]
+}
+run_test "AGENTKIT_DIR_NAME renames the vendored folder" test_project_install_custom_dir_name
+
+test_project_env_var_form() {
+    local proj="$STAGE/proj3"
+    make_fixture_repo "$proj"
+    AGENTKIT_PROJECT_DIR="$proj" "$BASH_BIN" "$REPO_ROOT/install.sh" >/dev/null 2>&1
+    [[ -x "$proj/.agent-kit/bin/agent-kit" ]]
+}
+run_test "AGENTKIT_PROJECT_DIR env var enables project mode" test_project_env_var_form
+
+test_project_explicit_prefix_overrides_project_flag() {
+    local proj="$STAGE/proj4" explicit="$STAGE/proj4-explicit"
+    make_fixture_repo "$proj"
+    "$BASH_BIN" "$REPO_ROOT/install.sh" --project "$proj" --prefix "$explicit/opt" --bindir "$explicit/bin" >/dev/null 2>&1
+    # --project is ignored entirely: nothing lands inside the project dir,
+    # everything lands at the explicit prefix/bindir instead.
+    [[ ! -e "$proj/.agent-kit" ]] && [[ -x "$explicit/bin/agent-kit" ]]
+}
+run_test "explicit --prefix overrides --project" test_project_explicit_prefix_overrides_project_flag
+
 test_tarball_is_reproducible() {
     local out1 out2
     ( cd "$REPO_ROOT" && ./scripts/package-release.sh "v$(cat VERSION)" >/dev/null 2>&1 )
