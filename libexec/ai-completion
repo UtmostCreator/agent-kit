@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+# Print a generated shell-completion definition for agent-kit (and its short
+# alias `ak`) to stdout. Non-mutating: it only prints a file, it never touches
+# shell configuration or installs anything.
+#
+# The printed file is generated ahead of time by scripts/gen-completions.sh
+# from libexec/internal/completion-spec (itself built from
+# `sh-introspect --format=json` for every command) and committed under
+# completions/ — nothing here parses `--help` text or spawns the CLI per Tab
+# press.
+#
+# Usage:
+#   agent-kit completion bash    print the Bash completion definition
+#   agent-kit completion zsh     print the Zsh completion definition
+#   agent-kit completion fish    print the Fish completion definition
+#   agent-kit completion auto    detect the running shell and print its definition
+#
+# Example:
+#   source <(agent-kit completion bash)                                    # this session only
+#   agent-kit completion fish > ~/.config/fish/completions/agent-kit.fish  # persistent, fish
+#   echo 'source <(agent-kit completion zsh)' >> ~/.zshrc                  # persistent, zsh
+#
+# Modes: bash zsh fish auto
+#
+# Requires: none
+#
+# Exit codes: 0 on success; 2 on a missing or unrecognized shell argument, or
+#   when `auto` cannot detect a supported shell. Read-only; never mutates.
+
+set -euo pipefail
+
+# --- Early --help/-h guard: emit the static contract and exit before any logic.
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    _self="${BASH_SOURCE[0]}"
+    _here="$(cd "$(dirname "$_self")" && pwd)"
+    [[ -x "$_here/sh-introspect" ]] && exec bash "$_here/sh-introspect" --format=help "$_self"
+    sed -n '2,20p' "$_self" | sed 's/^# \{0,1\}//'
+    exit 0
+fi
+
+# --- Early --introspect guard: emit the machine-readable JSON contract and exit.
+if [[ "${1:-}" == "--introspect" ]]; then
+    _self="${BASH_SOURCE[0]}"
+    _here="$(cd "$(dirname "$_self")" && pwd)"
+    exec env AI_OUTPUT=json bash "$_here/sh-introspect" "$_self"
+fi
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SELF_DIR/.." && pwd)"
+COMPLETIONS_DIR="$ROOT_DIR/completions"
+
+# detect_shell: several signals rather than $SHELL alone, since $SHELL is the
+# user's LOGIN shell, not necessarily the shell currently asking for a
+# completion (e.g. an interactive fish session launched from a bash login).
+detect_shell() {
+    case "${FISH_VERSION:-}" in
+        ?*)
+            printf '%s\n' fish
+            return
+            ;;
+    esac
+    case "${ZSH_VERSION:-}" in
+        ?*)
+            printf '%s\n' zsh
+            return
+            ;;
+    esac
+    case "${BASH_VERSION:-}" in
+        ?*)
+            printf '%s\n' bash
+            return
+            ;;
+    esac
+    case "${SHELL##*/}" in
+        bash | zsh | fish)
+            printf '%s\n' "${SHELL##*/}"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+shell="${1:-}"
+if [[ "$shell" == "auto" ]]; then
+    if ! shell="$(detect_shell)"; then
+        echo "agent-kit completion: could not detect a supported shell (bash|zsh|fish); pass one explicitly" >&2
+        exit 2
+    fi
+fi
+
+case "$shell" in
+    bash) exec cat -- "$COMPLETIONS_DIR/agent-kit.bash" ;;
+    zsh) exec cat -- "$COMPLETIONS_DIR/_agent-kit" ;;
+    fish) exec cat -- "$COMPLETIONS_DIR/agent-kit.fish" ;;
+    "")
+        echo "agent-kit completion: missing SHELL argument (bash|zsh|fish|auto)" >&2
+        exit 2
+        ;;
+    *)
+        echo "agent-kit completion: unsupported shell '$shell' (expected bash|zsh|fish|auto)" >&2
+        exit 2
+        ;;
+esac

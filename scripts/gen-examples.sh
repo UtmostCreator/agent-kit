@@ -20,16 +20,16 @@ cat <<'EOF'
 One runnable example per command, generated from each command's own `# Example:`
 block.
 
-These snippets use the short **`akit`** alias. Enable it once (add to your shell
-rc), then every example below works verbatim:
+These snippets use the short **`ak`** alias, which every installer creates
+alongside the canonical `agent-kit`. They work verbatim after any install — no
+setup needed. For the everyday search case, `ak s QUERY` is even shorter: it
+defaults to text mode and auto-detects the repo root, so `ak s TODO` replaces
+`ak search text TODO .`.
 
-```bash
-alias akit='agent-kit'
-```
-
-The canonical command is `agent-kit` — if you have not set the alias, replace
-`akit` with `agent-kit`. The authoritative contract for any command is always
-`agent-kit <command> --help` (and `--introspect` for JSON).
+The canonical command is `agent-kit` — the two are interchangeable, so replace
+`ak` with `agent-kit` anywhere you prefer the long form (e.g. in scripts). The
+authoritative contract for any command is always `agent-kit <command> --help`
+(and `--introspect` for JSON).
 
 > Regenerate this file with: `bash scripts/gen-examples.sh > docs/EXAMPLES.md`
 
@@ -45,11 +45,11 @@ while IFS= read -r f; do
     # blank line at end-of-file that would trip `git diff --check`.
     ((first)) || printf '\n'
     first=0
-    printf '### `akit %s`\n' "${name#ai-}"
+    printf '### `ak %s`\n' "${name#ai-}"
     [[ -n "$desc" ]] && printf '%s\n' "$desc"
     printf '\n```bash\n'
     # Examples are authored with the canonical `agent-kit`; render the short
     # alias form here (safe: example lines contain only the command invocation).
-    printf '%s' "$json" | jq -r '.examples[]?' | sed -E 's/\bagent-kit /akit /g'
+    printf '%s' "$json" | jq -r '.examples[]?' | sed -E 's/\bagent-kit /ak /g'
     printf '```\n'
 done < <(find "$repo_root/libexec" -maxdepth 1 -type f | sort)

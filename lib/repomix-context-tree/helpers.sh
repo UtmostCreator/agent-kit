@@ -40,8 +40,8 @@ add_winget_paths() {
     local dir
     while IFS= read -r dir; do
         case ":$PATH:" in
-        *":$dir:"*) ;;
-        *) PATH="$PATH:$dir" ;;
+            *":$dir:"*) ;;
+            *) PATH="$PATH:$dir" ;;
         esac
     done < <(find "$base" -maxdepth 3 -type f -name '*.exe' -printf '%h\n' 2>/dev/null | sort -u)
 }
@@ -53,11 +53,11 @@ need_bin() {
 
 ext_for_style() {
     case "$1" in
-    xml) printf 'xml\n' ;;
-    markdown) printf 'md\n' ;;
-    json) printf 'json\n' ;;
-    plain) printf 'txt\n' ;;
-    *) die "unsupported style '$1'" ;;
+        xml) printf 'xml\n' ;;
+        markdown) printf 'md\n' ;;
+        json) printf 'json\n' ;;
+        plain) printf 'txt\n' ;;
+        *) die "unsupported style '$1'" ;;
     esac
 }
 

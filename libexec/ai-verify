@@ -18,6 +18,8 @@
 #   agent-kit verify docs links README.md        # check links in one doc file (read-only)
 #   agent-kit verify refs docs --ext md           # find orphaned markdown docs under docs/
 #
+# Modes: docs refs
+#
 # Requires: git
 
 set -euo pipefail
@@ -78,13 +80,13 @@ _ai_verify_idx=0
 while ((_ai_verify_idx < ${#_ai_verify_args[@]})); do
     _ai_verify_arg="${_ai_verify_args[$_ai_verify_idx]}"
     case "$_ai_verify_arg" in
-    --language)
-        _ai_verify_idx=$((_ai_verify_idx + 1))
-        AI_VERIFY_LANGUAGE="${_ai_verify_args[$_ai_verify_idx]:-}"
-        ;;
-    *)
-        [[ -z "$root" ]] && root="$_ai_verify_arg"
-        ;;
+        --language)
+            _ai_verify_idx=$((_ai_verify_idx + 1))
+            AI_VERIFY_LANGUAGE="${_ai_verify_args[$_ai_verify_idx]:-}"
+            ;;
+        *)
+            [[ -z "$root" ]] && root="$_ai_verify_arg"
+            ;;
     esac
     _ai_verify_idx=$((_ai_verify_idx + 1))
 done

@@ -10,55 +10,55 @@ parse_common_option() {
     COMMON_OPTION_CONSUMED=0
 
     case "${1:-}" in
-    --include-diffs)
-        INCLUDE_DIFFS=1
-        COMMON_OPTION_CONSUMED=1
-        return 0
-        ;;
-    --no-tests)
-        INCLUDE_TESTS=0
-        COMMON_OPTION_CONSUMED=1
-        return 0
-        ;;
-    --no-secrets-scan)
-        SECRETS_SCAN=0
-        COMMON_OPTION_CONSUMED=1
-        return 0
-        ;;
-    --dry-run)
-        DRY_RUN=1
-        COMMON_OPTION_CONSUMED=1
-        return 0
-        ;;
-    --strict)
-        STRICT_TOKENS=1
-        COMMON_OPTION_CONSUMED=1
-        return 0
-        ;;
-    --token-budget)
-        TOKEN_BUDGET="${2:?token budget required}"
-        COMMON_OPTION_CONSUMED=2
-        return 0
-        ;;
-    --token-budget=*)
-        TOKEN_BUDGET="${1#*=}"
-        COMMON_OPTION_CONSUMED=1
-        return 0
-        ;;
-    --split)
-        SPLIT_OUTPUT="${2:?split size required}"
-        COMMON_OPTION_CONSUMED=2
-        return 0
-        ;;
-    --split=*)
-        SPLIT_OUTPUT="${1#*=}"
-        COMMON_OPTION_CONSUMED=1
-        return 0
-        ;;
-    --help | -h)
-        usage
-        exit 0
-        ;;
+        --include-diffs)
+            INCLUDE_DIFFS=1
+            COMMON_OPTION_CONSUMED=1
+            return 0
+            ;;
+        --no-tests)
+            INCLUDE_TESTS=0
+            COMMON_OPTION_CONSUMED=1
+            return 0
+            ;;
+        --no-secrets-scan)
+            SECRETS_SCAN=0
+            COMMON_OPTION_CONSUMED=1
+            return 0
+            ;;
+        --dry-run)
+            DRY_RUN=1
+            COMMON_OPTION_CONSUMED=1
+            return 0
+            ;;
+        --strict)
+            STRICT_TOKENS=1
+            COMMON_OPTION_CONSUMED=1
+            return 0
+            ;;
+        --token-budget)
+            TOKEN_BUDGET="${2:?token budget required}"
+            COMMON_OPTION_CONSUMED=2
+            return 0
+            ;;
+        --token-budget=*)
+            TOKEN_BUDGET="${1#*=}"
+            COMMON_OPTION_CONSUMED=1
+            return 0
+            ;;
+        --split)
+            SPLIT_OUTPUT="${2:?split size required}"
+            COMMON_OPTION_CONSUMED=2
+            return 0
+            ;;
+        --split=*)
+            SPLIT_OUTPUT="${1#*=}"
+            COMMON_OPTION_CONSUMED=1
+            return 0
+            ;;
+        --help | -h)
+            usage
+            exit 0
+            ;;
     esac
 
     return 1
@@ -213,45 +213,45 @@ write_diff_artifact() {
     mkdir -p "$SESSION_DIR"
 
     case "$mode" in
-    since)
-        local ref="${1:?ref required}"
-        (
-            cd "$root"
-            git diff "$ref"...HEAD 2>/dev/null || git diff "$ref"
-        ) >"$diff_file" || true
-        ;;
-    unstaged)
-        (
-            cd "$root"
-            printf '# git diff\n\n'
-            git diff || true
-            printf '\n# git diff --cached\n\n'
-            git diff --cached || true
-            printf '\n# untracked files\n\n'
-            git ls-files --others --exclude-standard | sed 's/^/UNTRACKED: /' || true
-        ) >"$diff_file"
-        ;;
-    pr)
-        local pr="${1:?PR number required}"
-        require_bins gh
-        gh pr diff "$pr" >"$diff_file" 2>/dev/null || true
-        ;;
-    recent)
-        local count="${1:?count required}"
-        (
-            cd "$root"
-            git diff "HEAD~${count}"..HEAD 2>/dev/null || git diff HEAD
-        ) >"$diff_file" || true
-        ;;
-    touched)
-        (
-            cd "$root"
-            git diff -- "$@" 2>/dev/null || true
-        ) >"$diff_file" || true
-        ;;
-    *)
-        die "unknown diff artifact mode: $mode"
-        ;;
+        since)
+            local ref="${1:?ref required}"
+            (
+                cd "$root"
+                git diff "$ref"...HEAD 2>/dev/null || git diff "$ref"
+            ) >"$diff_file" || true
+            ;;
+        unstaged)
+            (
+                cd "$root"
+                printf '# git diff\n\n'
+                git diff || true
+                printf '\n# git diff --cached\n\n'
+                git diff --cached || true
+                printf '\n# untracked files\n\n'
+                git ls-files --others --exclude-standard | sed 's/^/UNTRACKED: /' || true
+            ) >"$diff_file"
+            ;;
+        pr)
+            local pr="${1:?PR number required}"
+            require_bins gh
+            gh pr diff "$pr" >"$diff_file" 2>/dev/null || true
+            ;;
+        recent)
+            local count="${1:?count required}"
+            (
+                cd "$root"
+                git diff "HEAD~${count}"..HEAD 2>/dev/null || git diff HEAD
+            ) >"$diff_file" || true
+            ;;
+        touched)
+            (
+                cd "$root"
+                git diff -- "$@" 2>/dev/null || true
+            ) >"$diff_file" || true
+            ;;
+        *)
+            die "unknown diff artifact mode: $mode"
+            ;;
     esac
 
     if [[ -s "$diff_file" ]]; then

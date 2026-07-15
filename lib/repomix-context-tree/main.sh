@@ -33,43 +33,43 @@ repomix_context_tree_main() {
             continue
         fi
         case "$1" in
-        --context-window)
-            CONTEXT_WINDOW="$2"
-            shift 2
-            ;;
-        --context-window=*)
-            CONTEXT_WINDOW="${1#*=}"
-            shift
-            ;;
-        --reserved-output)
-            RESERVED_OUTPUT="$2"
-            shift 2
-            ;;
-        --reserved-output=*)
-            RESERVED_OUTPUT="${1#*=}"
-            shift
-            ;;
-        --instruction-overhead)
-            INSTRUCTION_OVERHEAD="$2"
-            shift 2
-            ;;
-        --instruction-overhead=*)
-            INSTRUCTION_OVERHEAD="${1#*=}"
-            shift
-            ;;
-        --safety-factor)
-            SAFETY_FACTOR="$2"
-            shift 2
-            ;;
-        --safety-factor=*)
-            SAFETY_FACTOR="${1#*=}"
-            shift
-            ;;
-        --help | -h)
-            usage
-            exit 0
-            ;;
-        *) die "unknown option '$1'" ;;
+            --context-window)
+                CONTEXT_WINDOW="$2"
+                shift 2
+                ;;
+            --context-window=*)
+                CONTEXT_WINDOW="${1#*=}"
+                shift
+                ;;
+            --reserved-output)
+                RESERVED_OUTPUT="$2"
+                shift 2
+                ;;
+            --reserved-output=*)
+                RESERVED_OUTPUT="${1#*=}"
+                shift
+                ;;
+            --instruction-overhead)
+                INSTRUCTION_OVERHEAD="$2"
+                shift 2
+                ;;
+            --instruction-overhead=*)
+                INSTRUCTION_OVERHEAD="${1#*=}"
+                shift
+                ;;
+            --safety-factor)
+                SAFETY_FACTOR="$2"
+                shift 2
+                ;;
+            --safety-factor=*)
+                SAFETY_FACTOR="${1#*=}"
+                shift
+                ;;
+            --help | -h)
+                usage
+                exit 0
+                ;;
+            *) die "unknown option '$1'" ;;
         esac
     done
 
@@ -115,14 +115,14 @@ repomix_context_tree_main() {
     [[ "$INCLUDE_REPOMIXIGNORED" == "1" ]] && router_args+=(--include-repomixignored)
 
     case "$COMMAND" in
-    analyze | plan) run_analyze ;;
-    pack) run_pack ;;
-    all) run_all ;;
-    clean) run_clean ;;
-    purge) run_purge ;;
-    *)
-        usage
-        die "unknown command '$COMMAND'"
-        ;;
+        analyze | plan) run_analyze ;;
+        pack) run_pack ;;
+        all) run_all ;;
+        clean) run_clean ;;
+        purge) run_purge ;;
+        *)
+            usage
+            die "unknown command '$COMMAND'"
+            ;;
     esac
 }

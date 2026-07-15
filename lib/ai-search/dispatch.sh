@@ -16,18 +16,18 @@
 # this point, so only the simple `out`-setting backends remain here.
 run_backend() {
     case "$mode" in
-    changed-files) backend_changed_files ;;
-    staged-files) backend_staged_files ;;
-    changed-text) backend_changed_text ;;
-    staged-text) backend_staged_text ;;
-    tracked) backend_tracked ;;
-    text) backend_text ;;
-    docs | tests | config | deps | route | config-key) backend_surface ;;
-    function | method | interface | enum) backend_shortcut_text ;;
-    files) backend_files ;;
-    *)
-        fail "error" "unknown mode: $mode"
-        ;;
+        changed-files) backend_changed_files ;;
+        staged-files) backend_staged_files ;;
+        changed-text) backend_changed_text ;;
+        staged-text) backend_staged_text ;;
+        tracked) backend_tracked ;;
+        text) backend_text ;;
+        docs | tests | config | deps | route | config-key) backend_surface ;;
+        function | method | interface | enum) backend_shortcut_text ;;
+        files) backend_files ;;
+        *)
+            fail "error" "unknown mode: $mode"
+            ;;
     esac
 }
 
@@ -50,46 +50,46 @@ emit_results() {
         fi
 
         case "$route_mode" in
-        text | docs | tests | config | deps | route | config-key | function | method | interface | enum)
-            root_abs="$(canonical_root "$root")"
-            matches_json="$(printf '%s' "$out" | rg_json_to_matches)"
-            g_results_json="$(printf '%s' "$out" | rg_json_to_results "rg" "$root_abs")"
-            g_results_json="$(add_context_to_results "$root_abs" "$g_results_json")"
+            text | docs | tests | config | deps | route | config-key | function | method | interface | enum)
+                root_abs="$(canonical_root "$root")"
+                matches_json="$(printf '%s' "$out" | rg_json_to_matches)"
+                g_results_json="$(printf '%s' "$out" | rg_json_to_results "rg" "$root_abs")"
+                g_results_json="$(add_context_to_results "$root_abs" "$g_results_json")"
 
-            if [[ "$max_bytes" -gt 0 ]]; then
-                results_bytes="$(printf '%s' "$g_results_json" | wc -c | tr -d ' ')"
+                if [[ "$max_bytes" -gt 0 ]]; then
+                    results_bytes="$(printf '%s' "$g_results_json" | wc -c | tr -d ' ')"
 
-                if [[ "$results_bytes" -gt "$max_bytes" ]]; then
-                    g_truncated=true
-                    g_results_json="$(
-                        printf '%s' "$g_results_json" | jq '
+                    if [[ "$results_bytes" -gt "$max_bytes" ]]; then
+                        g_truncated=true
+                        g_results_json="$(
+                            printf '%s' "$g_results_json" | jq '
                             map(if has("context") then .context.before = [] | .context.after = [] else . end)
                         '
-                    )"
+                        )"
+                    fi
                 fi
-            fi
-            ;;
-        tracked | changed-text | staged-text | __text_fallback)
-            matches_json="$(printf '%s' "$out" | lines_to_matches)"
-            root_abs="$(canonical_root "$root")"
-            source_tool="rg"
+                ;;
+            tracked | changed-text | staged-text | __text_fallback)
+                matches_json="$(printf '%s' "$out" | lines_to_matches)"
+                root_abs="$(canonical_root "$root")"
+                source_tool="rg"
 
-            if [[ "$route_mode" == "tracked" || "$route_mode" == "__text_fallback" ]]; then
-                source_tool="git-grep"
-            fi
+                if [[ "$route_mode" == "tracked" || "$route_mode" == "__text_fallback" ]]; then
+                    source_tool="git-grep"
+                fi
 
-            g_results_json="$(printf '%s' "$out" | lines_to_structured_results "$source_tool" "$root_abs")"
-            g_results_json="$(add_context_to_results "$root_abs" "$g_results_json")"
+                g_results_json="$(printf '%s' "$out" | lines_to_structured_results "$source_tool" "$root_abs")"
+                g_results_json="$(add_context_to_results "$root_abs" "$g_results_json")"
 
-            if [[ "$max_bytes" -gt 0 ]]; then
-                results_bytes="$(printf '%s' "$g_results_json" | wc -c | tr -d ' ')"
+                if [[ "$max_bytes" -gt 0 ]]; then
+                    results_bytes="$(printf '%s' "$g_results_json" | wc -c | tr -d ' ')"
 
-                if [[ "$results_bytes" -gt "$max_bytes" ]]; then
-                    g_truncated=true
+                    if [[ "$results_bytes" -gt "$max_bytes" ]]; then
+                        g_truncated=true
 
-                    # Preserve match identity, but remove bulky context payload.
-                    g_results_json="$(
-                        printf '%s' "$g_results_json" | jq '
+                        # Preserve match identity, but remove bulky context payload.
+                        g_results_json="$(
+                            printf '%s' "$g_results_json" | jq '
                             map(
                                 if has("context") then
                                     .context.before = [] | .context.after = []
@@ -98,15 +98,15 @@ emit_results() {
                                 end
                             )
                         '
-                    )"
+                        )"
+                    fi
                 fi
-            fi
-            ;;
-        *)
-            # File-list and structural modes: plain string matches, no results[].
-            matches_json="$(printf '%s' "$out" | lines_to_matches)"
-            g_results_json="[]"
-            ;;
+                ;;
+            *)
+                # File-list and structural modes: plain string matches, no results[].
+                matches_json="$(printf '%s' "$out" | lines_to_matches)"
+                g_results_json="[]"
+                ;;
         esac
 
         # Phase 3D: count / file-only output. Aggregate the structured results into
@@ -123,29 +123,29 @@ emit_results() {
             )"
 
             case "$count_mode" in
-            files)
-                g_results_json="$(
-                    printf '%s' "$g_results_json" | jq -c '
+                files)
+                    g_results_json="$(
+                        printf '%s' "$g_results_json" | jq -c '
                         [.[].path] | unique | map({ path: . })
                     '
-                )"
-                ;;
-            count)
-                g_results_json="$(
-                    printf '%s' "$g_results_json" | jq -c '
+                    )"
+                    ;;
+                count)
+                    g_results_json="$(
+                        printf '%s' "$g_results_json" | jq -c '
                         group_by(.path)
                         | map({ path: .[0].path, count: length })
                     '
-                )"
-                ;;
-            count-matches)
-                g_results_json="$(
-                    printf '%s' "$g_results_json" | jq -c '
+                    )"
+                    ;;
+                count-matches)
+                    g_results_json="$(
+                        printf '%s' "$g_results_json" | jq -c '
                         group_by(.path)
                         | map({ path: .[0].path, count: length })
                     '
-                )"
-                ;;
+                    )"
+                    ;;
             esac
         fi
 
@@ -220,11 +220,11 @@ ai_search_main() {
 
     # Early dispatch for bespoke result shapes.
     case "$mode" in
-    diff) run_diff_mode ;;
-    history) run_history_mode ;;
-    todo) run_todo_mode ;;
-    unsafe-patterns) run_unsafe_patterns_mode ;;
-    struct | symbols | class) run_ast_mode ;;
+        diff) run_diff_mode ;;
+        history) run_history_mode ;;
+        todo) run_todo_mode ;;
+        unsafe-patterns) run_unsafe_patterns_mode ;;
+        struct | symbols | class) run_ast_mode ;;
     esac
 
     run_backend

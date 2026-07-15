@@ -92,11 +92,11 @@ abs_path() {
 
 ext_for_style() {
     case "$1" in
-    xml) printf 'xml\n' ;;
-    markdown) printf 'md\n' ;;
-    json) printf 'json\n' ;;
-    plain) printf 'txt\n' ;;
-    *) die "unsupported style '$1'" ;;
+        xml) printf 'xml\n' ;;
+        markdown) printf 'md\n' ;;
+        json) printf 'json\n' ;;
+        plain) printf 'txt\n' ;;
+        *) die "unsupported style '$1'" ;;
     esac
 }
 

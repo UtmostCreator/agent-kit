@@ -33,12 +33,12 @@
 is_standalone_safe_tool() {
     local tool="${1:?tool name required}"
     case "$tool" in
-    shellcheck | shfmt | actionlint | gitleaks | trivy | semgrep | osv-scanner | lychee)
-        return 0
-        ;;
-    *)
-        return 1
-        ;;
+        shellcheck | shfmt | actionlint | gitleaks | trivy | semgrep | osv-scanner | lychee)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
     esac
 }
 
@@ -61,28 +61,28 @@ has_composer_bin() {
 can_run_tool() {
     local tool="${1:?tool name required}"
     case "$tool" in
-    pint | phpstan | psalm | phpunit | pest | rector | phpmd | deptrac)
-        has_composer_bin "$tool"
-        ;;
-    eslint)
-        has_package_dependency eslint
-        ;;
-    biome)
-        has_package_dependency '@biomejs/biome' ||
-            has_package_dependency biome ||
-            [[ -f biome.json || -f biome.jsonc ]]
-        ;;
-    vue-tsc)
-        has_package_dependency vue-tsc
-        ;;
-    nuxt | nuxi)
-        has_package_dependency nuxt || has_package_dependency nuxi
-        ;;
-    knip)
-        has_package_dependency knip
-        ;;
-    *)
-        is_standalone_safe_tool "$tool" && command -v "$tool" >/dev/null 2>&1
-        ;;
+        pint | phpstan | psalm | phpunit | pest | rector | phpmd | deptrac)
+            has_composer_bin "$tool"
+            ;;
+        eslint)
+            has_package_dependency eslint
+            ;;
+        biome)
+            has_package_dependency '@biomejs/biome' ||
+                has_package_dependency biome ||
+                [[ -f biome.json || -f biome.jsonc ]]
+            ;;
+        vue-tsc)
+            has_package_dependency vue-tsc
+            ;;
+        nuxt | nuxi)
+            has_package_dependency nuxt || has_package_dependency nuxi
+            ;;
+        knip)
+            has_package_dependency knip
+            ;;
+        *)
+            is_standalone_safe_tool "$tool" && command -v "$tool" >/dev/null 2>&1
+            ;;
     esac
 }

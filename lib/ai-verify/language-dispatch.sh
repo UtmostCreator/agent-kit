@@ -261,10 +261,10 @@ ai_verify_language() {
     local lang="${1:?language required}"
 
     case "$lang" in
-    php | js | ts | vue | html) ;;
-    *)
-        die "unknown language: $lang"
-        ;;
+        php | js | ts | vue | html) ;;
+        *)
+            die "unknown language: $lang"
+            ;;
     esac
 
     # CRITICAL: AI_VERIFY_SCOPE defaults to "ai" (scripts/ai/ai-verify.sh), but
@@ -290,21 +290,21 @@ ai_verify_language() {
     echo "==> language:$lang"
 
     case "$lang" in
-    php)
-        run_php_language_files "${files[@]}"
-        ;;
-    js)
-        run_js_language_files "${files[@]}"
-        ;;
-    ts)
-        run_ts_language_files "${files[@]}"
-        ;;
-    vue)
-        run_vue_language_files "${files[@]}"
-        ;;
-    html)
-        run_html_language_files "${files[@]}"
-        ;;
+        php)
+            run_php_language_files "${files[@]}"
+            ;;
+        js)
+            run_js_language_files "${files[@]}"
+            ;;
+        ts)
+            run_ts_language_files "${files[@]}"
+            ;;
+        vue)
+            run_vue_language_files "${files[@]}"
+            ;;
+        html)
+            run_html_language_files "${files[@]}"
+            ;;
     esac
 
     echo "==> done"

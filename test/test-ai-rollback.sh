@@ -13,10 +13,17 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 run_test() {
-    local name="$1"; shift; local _rc=0
+    local name="$1"
+    shift
+    local _rc=0
     "$@" >/dev/null 2>&1 || _rc=$?
-    if ((_rc == 0)); then PASS=$((PASS+1)); printf '  \033[0;32m✓\033[0m %s\n' "$name"
-    else FAIL=$((FAIL+1)); printf '  \033[0;31m✗\033[0m %s\n' "$name"; fi
+    if ((_rc == 0)); then
+        PASS=$((PASS + 1))
+        printf '  \033[0;32m✓\033[0m %s\n' "$name"
+    else
+        FAIL=$((FAIL + 1))
+        printf '  \033[0;31m✗\033[0m %s\n' "$name"
+    fi
 }
 
 printf 'ai-rollback\n'
@@ -156,9 +163,18 @@ test_snapshot_apply_reverts_tracked_and_removes_new_untracked() {
 
         snapshot_apply_manifest "$manifest"
 
-        [[ "$(cat tracked.txt)" == "$(printf 'line1\nline2')" ]] || { echo "tracked.txt not reverted"; exit 1; }
-        [[ ! -f new-untracked.txt ]] || { echo "new untracked file survived apply"; exit 1; }
-        [[ -f .ai-logs/keep.txt ]] || { echo "protected AI_LOG_DIR file was removed"; exit 1; }
+        [[ "$(cat tracked.txt)" == "$(printf 'line1\nline2')" ]] || {
+            echo "tracked.txt not reverted"
+            exit 1
+        }
+        [[ ! -f new-untracked.txt ]] || {
+            echo "new untracked file survived apply"
+            exit 1
+        }
+        [[ -f .ai-logs/keep.txt ]] || {
+            echo "protected AI_LOG_DIR file was removed"
+            exit 1
+        }
     )
 }
 run_test "snapshot_apply_manifest reverts tracked file, removes new untracked file, keeps protected AI_LOG_DIR" test_snapshot_apply_reverts_tracked_and_removes_new_untracked
@@ -187,8 +203,14 @@ test_snapshot_apply_protects_new_untracked_in_protected_dirs() {
 
         snapshot_apply_manifest "$manifest"
 
-        [[ -f .repomix-context/pack.json ]] || { echo "protected .repomix-context file was removed"; exit 1; }
-        [[ ! -f scratch.txt ]] || { echo "unprotected new untracked file survived apply"; exit 1; }
+        [[ -f .repomix-context/pack.json ]] || {
+            echo "protected .repomix-context file was removed"
+            exit 1
+        }
+        [[ ! -f scratch.txt ]] || {
+            echo "unprotected new untracked file survived apply"
+            exit 1
+        }
     )
 }
 run_test "snapshot_apply_manifest protects new untracked files under .repomix-context but removes unprotected ones" test_snapshot_apply_protects_new_untracked_in_protected_dirs
@@ -212,7 +234,10 @@ test_snapshot_apply_keeps_untracked_when_removal_disabled() {
 
         ROLLBACK_REMOVE_CREATED_UNTRACKED=0 snapshot_apply_manifest "$manifest"
 
-        [[ -f scratch.txt ]] || { echo "untracked file removed despite ROLLBACK_REMOVE_CREATED_UNTRACKED=0"; exit 1; }
+        [[ -f scratch.txt ]] || {
+            echo "untracked file removed despite ROLLBACK_REMOVE_CREATED_UNTRACKED=0"
+            exit 1
+        }
     )
 }
 run_test "snapshot_apply_manifest with ROLLBACK_REMOVE_CREATED_UNTRACKED=0 keeps new untracked files" test_snapshot_apply_keeps_untracked_when_removal_disabled
@@ -239,8 +264,14 @@ test_snapshot_create_warns_when_tar_archive_fails() {
         local manifest
         manifest="$(snapshot_create pre-edit 2>tar-stderr.log)"
 
-        grep -q "failed to archive untracked files" tar-stderr.log || { echo "expected tar-failure warning"; exit 1; }
-        [[ "$(jq -r '.has_untracked_archive' "$manifest")" == "false" ]] || { echo "manifest incorrectly reports archive success"; exit 1; }
+        grep -q "failed to archive untracked files" tar-stderr.log || {
+            echo "expected tar-failure warning"
+            exit 1
+        }
+        [[ "$(jq -r '.has_untracked_archive' "$manifest")" == "false" ]] || {
+            echo "manifest incorrectly reports archive success"
+            exit 1
+        }
     )
 }
 run_test "snapshot_create warns and marks has_untracked_archive=false when tar archiving fails" test_snapshot_create_warns_when_tar_archive_fails
@@ -264,8 +295,14 @@ test_snapshot_create_warns_when_tar_binary_missing() {
         local manifest
         manifest="$(snapshot_create pre-edit 2>no-tar-stderr.log)"
 
-        grep -q "tar not installed" no-tar-stderr.log || { echo "expected tar-not-installed warning"; exit 1; }
-        [[ "$(jq -r '.has_untracked_archive' "$manifest")" == "false" ]] || { echo "manifest incorrectly reports archive success"; exit 1; }
+        grep -q "tar not installed" no-tar-stderr.log || {
+            echo "expected tar-not-installed warning"
+            exit 1
+        }
+        [[ "$(jq -r '.has_untracked_archive' "$manifest")" == "false" ]] || {
+            echo "manifest incorrectly reports archive success"
+            exit 1
+        }
     )
 }
 run_test "snapshot_create warns when tar binary is unavailable on PATH" test_snapshot_create_warns_when_tar_binary_missing
@@ -304,11 +341,26 @@ test_snapshot_apply_protects_hardcoded_and_custom_dirs() {
 
         snapshot_apply_manifest "$manifest"
 
-        [[ -f custom-logs/a.txt ]] || { echo "custom AI_LOG_DIR path removed"; exit 1; }
-        [[ -f custom-context/b.txt ]] || { echo "custom AI_CONTEXT_DIR path removed"; exit 1; }
-        [[ -f .ai-logs/c.txt ]] || { echo "hardcoded .ai-logs fallback removed"; exit 1; }
-        [[ -f .repomix-context/d.txt ]] || { echo "hardcoded .repomix-context fallback removed"; exit 1; }
-        [[ ! -f scratch.txt ]] || { echo "unprotected file survived"; exit 1; }
+        [[ -f custom-logs/a.txt ]] || {
+            echo "custom AI_LOG_DIR path removed"
+            exit 1
+        }
+        [[ -f custom-context/b.txt ]] || {
+            echo "custom AI_CONTEXT_DIR path removed"
+            exit 1
+        }
+        [[ -f .ai-logs/c.txt ]] || {
+            echo "hardcoded .ai-logs fallback removed"
+            exit 1
+        }
+        [[ -f .repomix-context/d.txt ]] || {
+            echo "hardcoded .repomix-context fallback removed"
+            exit 1
+        }
+        [[ ! -f scratch.txt ]] || {
+            echo "unprotected file survived"
+            exit 1
+        }
     )
 }
 run_test "snapshot_apply_manifest protects custom AI_LOG_DIR/AI_CONTEXT_DIR AND the hardcoded .ai-logs/.repomix-context fallback arms" test_snapshot_apply_protects_hardcoded_and_custom_dirs
@@ -564,4 +616,7 @@ run_test "cmd_prune --days with no value fails" test_prune_days_missing_value
 
 printf '\n=== Results ===\n'
 printf '  Passed: %d  Failed: %d  Skipped: %d\n' "$PASS" "$FAIL" "$SKIP"
-((FAIL == 0)) && printf '\033[0;32mPASSED\033[0m\n' || { printf '\033[0;31mFAILED\033[0m\n'; exit 1; }
+((FAIL == 0)) && printf '\033[0;32mPASSED\033[0m\n' || {
+    printf '\033[0;31mFAILED\033[0m\n'
+    exit 1
+}

@@ -9,35 +9,35 @@
 # Mode families. File-list modes take no query; content modes require one.
 is_file_list_mode() {
     case "$1" in
-    changed-files | staged-files) return 0 ;;
-    *) return 1 ;;
+        changed-files | staged-files) return 0 ;;
+        *) return 1 ;;
     esac
 }
 
 is_content_mode() {
     case "$1" in
-    text | tracked | files | struct | docs | changed-text | staged-text) return 0 ;;
-    # Phase 4 query-required repo-aware modes.
-    diff | history | tests | config | deps) return 0 ;;
-    # Phase 5 structural/shortcut modes take a pattern/name as the query.
-    symbols | class | function | method | interface | enum | route | config-key) return 0 ;;
-    *) return 1 ;;
+        text | tracked | files | struct | docs | changed-text | staged-text) return 0 ;;
+        # Phase 4 query-required repo-aware modes.
+        diff | history | tests | config | deps) return 0 ;;
+        # Phase 5 structural/shortcut modes take a pattern/name as the query.
+        symbols | class | function | method | interface | enum | route | config-key) return 0 ;;
+        *) return 1 ;;
     esac
 }
 
 # Phase 5 structural (ast-grep) modes.
 is_ast_mode() {
     case "$1" in
-    struct | symbols | class) return 0 ;;
-    *) return 1 ;;
+        struct | symbols | class) return 0 ;;
+        *) return 1 ;;
     esac
 }
 
 # Phase 4 modes that take no query and an optional root only.
 is_no_query_mode() {
     case "$1" in
-    todo | unsafe-patterns) return 0 ;;
-    *) return 1 ;;
+        todo | unsafe-patterns) return 0 ;;
+        *) return 1 ;;
     esac
 }
 
@@ -45,8 +45,8 @@ is_no_query_mode() {
 # fixed glob set. `docs` is split out from `text` so it is truly scoped.
 is_surface_mode() {
     case "$1" in
-    docs | tests | config | deps | route | config-key) return 0 ;;
-    *) return 1 ;;
+        docs | tests | config | deps | route | config-key) return 0 ;;
+        *) return 1 ;;
     esac
 }
 
@@ -54,34 +54,34 @@ is_surface_mode() {
 # one per line. Used to restrict docs/tests/config/deps to their file families.
 surface_globs() {
     case "$1" in
-    docs)
-        printf '%s\n' 'README*' 'CHANGELOG*' '*.md' '*.rst' '*.adoc' 'docs/**'
-        ;;
-    tests)
-        printf '%s\n' 'tests/**' '__tests__/**' '*.test.*' '*.spec.*' '*Test.php'
-        ;;
-    config)
-        printf '%s\n' '.env*' 'config/**' '*.yaml' '*.yml' '*.json' '*.toml' \
-            '*.ini' '*.nix' 'docker-compose*'
-        ;;
-    deps)
-        printf '%s\n' 'composer.json' 'composer.lock' 'package.json' \
-            'package-lock.json' 'pnpm-lock.yaml' 'yarn.lock' 'flake.nix' \
-            'go.mod' 'Cargo.toml' 'pyproject.toml'
-        ;;
-    route)
-        printf '%s\n' '**/routes/**' '*routes*' '*.routes.*' '**/app/**/routes/**'
-        ;;
-    config-key)
-        printf '%s\n' '.env*' 'config/**' '*.yaml' '*.yml' '*.json' '*.toml' \
-            '*.ini' '*.nix' 'docker-compose*'
-        ;;
+        docs)
+            printf '%s\n' 'README*' 'CHANGELOG*' '*.md' '*.rst' '*.adoc' 'docs/**'
+            ;;
+        tests)
+            printf '%s\n' 'tests/**' '__tests__/**' '*.test.*' '*.spec.*' '*Test.php'
+            ;;
+        config)
+            printf '%s\n' '.env*' 'config/**' '*.yaml' '*.yml' '*.json' '*.toml' \
+                '*.ini' '*.nix' 'docker-compose*'
+            ;;
+        deps)
+            printf '%s\n' 'composer.json' 'composer.lock' 'package.json' \
+                'package-lock.json' 'pnpm-lock.yaml' 'yarn.lock' 'flake.nix' \
+                'go.mod' 'Cargo.toml' 'pyproject.toml'
+            ;;
+        route)
+            printf '%s\n' '**/routes/**' '*routes*' '*.routes.*' '**/app/**/routes/**'
+            ;;
+        config-key)
+            printf '%s\n' '.env*' 'config/**' '*.yaml' '*.yml' '*.json' '*.toml' \
+                '*.ini' '*.nix' 'docker-compose*'
+            ;;
     esac
 }
 
 is_shortcut_text_mode() {
     case "$1" in
-    function | method | interface | enum) return 0 ;;
-    *) return 1 ;;
+        function | method | interface | enum) return 0 ;;
+        *) return 1 ;;
     esac
 }

@@ -94,20 +94,32 @@ skip_test() {
 
 assert_eq() {
     local expected="$1" actual="$2"
-    [[ "$actual" == "$expected" ]] || { printf '    expected: %s\n    actual:   %s\n' "$expected" "$actual" >&2; return 1; }
+    [[ "$actual" == "$expected" ]] || {
+        printf '    expected: %s\n    actual:   %s\n' "$expected" "$actual" >&2
+        return 1
+    }
 }
 
 assert_match() {
     local pattern="$1" actual="$2"
-    [[ "$actual" =~ $pattern ]] || { printf '    pattern: %s\n    actual:  %s\n' "$pattern" "$actual" >&2; return 1; }
+    [[ "$actual" =~ $pattern ]] || {
+        printf '    pattern: %s\n    actual:  %s\n' "$pattern" "$actual" >&2
+        return 1
+    }
 }
 
 assert_exit() {
     local expected="$1"
     shift
     local actual
-    set +e; "$@" >/dev/null 2>&1; actual=$?; set -e
-    [[ "$actual" -eq "$expected" ]] || { printf '    expected exit: %s\n    actual exit:   %s\n' "$expected" "$actual" >&2; return 1; }
+    set +e
+    "$@" >/dev/null 2>&1
+    actual=$?
+    set -e
+    [[ "$actual" -eq "$expected" ]] || {
+        printf '    expected exit: %s\n    actual exit:   %s\n' "$expected" "$actual" >&2
+        return 1
+    }
 }
 
 # Source common.sh in a subshell-safe way — suppress its set -euo pipefail
@@ -1174,8 +1186,8 @@ printf '\nrealpath_safe\n'
 test_realpath_safe() {
     local result
     result="$(realpath_safe "$REPO_ROOT")"
-    [[ "$result" == /* ]]  # absolute path
-    [[ -d "$result" ]]     # exists
+    [[ "$result" == /* ]] # absolute path
+    [[ -d "$result" ]]    # exists
 }
 run_test "realpath_safe returns absolute existing path" test_realpath_safe
 
@@ -1342,7 +1354,7 @@ printf '\nestimate_tokens_string\n'
 
 test_estimate_tokens_string() {
     local tokens
-    tokens="$(estimate_tokens_string "hello world")"  # 11 bytes → (11+3)/4 = 3
+    tokens="$(estimate_tokens_string "hello world")" # 11 bytes → (11+3)/4 = 3
     assert_eq "3" "$tokens"
 }
 run_test "estimate_tokens_string: 'hello world' → 3 tokens" test_estimate_tokens_string
@@ -1681,7 +1693,7 @@ run_test "wait_for_capture_flag: returns immediately when file exists" test_wait
 test_wait_for_capture_flag_timeout() {
     local tmpd
     tmpd="$(test_tmpdir)"
-    touch "$tmpd/flag"  # empty file — should trigger timeout-then-write
+    touch "$tmpd/flag" # empty file — should trigger timeout-then-write
     wait_for_capture_flag "$tmpd/flag"
     local content
     content="$(cat "$tmpd/flag")"

@@ -57,6 +57,11 @@ set -euo pipefail
 #   agent-kit search doctor                                 # check which search backends are available
 #   agent-kit search capabilities                           # full mode/flag/env capability map
 #   agent-kit search batch text foo bar .                   # run one MODE against several queries
+#
+# Modes: text tracked docs tests config config-key deps route changed-text
+#   staged-text diff history struct symbols class function method interface
+#   enum files changed-files staged-files todo unsafe-patterns doctor
+#   capabilities batch
 AI_SEARCH_ENTRYPOINT="${BASH_SOURCE[0]}"
 export AI_SEARCH_ENTRYPOINT
 

@@ -39,49 +39,49 @@ ai_context_file_main() {
 
     while (($# > 0)); do
         case "$1" in
-        --help | -h)
-            ai_context_file_usage
-            return 0
-            ;;
-        --style)
-            [[ $# -ge 2 ]] || {
-                printf 'error: --style requires a value\n' >&2
+            --help | -h)
+                ai_context_file_usage
+                return 0
+                ;;
+            --style)
+                [[ $# -ge 2 ]] || {
+                    printf 'error: --style requires a value\n' >&2
+                    return 2
+                }
+                style="$2"
+                shift 2
+                ;;
+            --output)
+                [[ $# -ge 2 ]] || {
+                    printf 'error: --output requires a value\n' >&2
+                    return 2
+                }
+                output="$2"
+                shift 2
+                ;;
+            --no-compress)
+                compress=0
+                shift
+                ;;
+            --compress)
+                compress=1
+                shift
+                ;;
+            --)
+                shift
+                while (($# > 0)); do
+                    positionals+=("$1")
+                    shift
+                done
+                ;;
+            -*)
+                printf 'error: unknown option: %s\n' "$1" >&2
                 return 2
-            }
-            style="$2"
-            shift 2
-            ;;
-        --output)
-            [[ $# -ge 2 ]] || {
-                printf 'error: --output requires a value\n' >&2
-                return 2
-            }
-            output="$2"
-            shift 2
-            ;;
-        --no-compress)
-            compress=0
-            shift
-            ;;
-        --compress)
-            compress=1
-            shift
-            ;;
-        --)
-            shift
-            while (($# > 0)); do
+                ;;
+            *)
                 positionals+=("$1")
                 shift
-            done
-            ;;
-        -*)
-            printf 'error: unknown option: %s\n' "$1" >&2
-            return 2
-            ;;
-        *)
-            positionals+=("$1")
-            shift
-            ;;
+                ;;
         esac
     done
 
@@ -108,16 +108,16 @@ ai_context_file_main() {
     # Resolve the repository-relative path for the target file.
     local rel
     case "$file" in
-    /*)
-        rel="${file#"$repo_abs"/}"
-        if [[ "$rel" == "$file" ]]; then
-            printf 'error: file is not inside repository root: %s\n' "$file" >&2
-            return 1
-        fi
-        ;;
-    *)
-        rel="${file#./}"
-        ;;
+        /*)
+            rel="${file#"$repo_abs"/}"
+            if [[ "$rel" == "$file" ]]; then
+                printf 'error: file is not inside repository root: %s\n' "$file" >&2
+                return 1
+            fi
+            ;;
+        *)
+            rel="${file#./}"
+            ;;
     esac
 
     [[ -f "$repo_abs/$rel" ]] || {
@@ -134,8 +134,8 @@ ai_context_file_main() {
     local out
     if [[ -n "$output" ]]; then
         case "$output" in
-        /*) out="$output" ;;
-        *) out="$repo_abs/$output" ;;
+            /*) out="$output" ;;
+            *) out="$repo_abs/$output" ;;
         esac
     else
         local sanitized="${rel//\//__}"

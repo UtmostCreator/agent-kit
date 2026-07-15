@@ -25,20 +25,20 @@ scoped_changed_files_by_pathspec() {
     shift
 
     case "$scope" in
-    branch)
-        local pattern
-        for pattern in "$@"; do
-            branch_scoped_files "$pattern"
-        done
-        ;;
-    changed)
-        git diff --name-only --diff-filter=ACMRT -- "$@"
-        git diff --cached --name-only --diff-filter=ACMRT -- "$@"
-        git ls-files --others --exclude-standard -- "$@"
-        ;;
-    *)
-        return 0
-        ;;
+        branch)
+            local pattern
+            for pattern in "$@"; do
+                branch_scoped_files "$pattern"
+            done
+            ;;
+        changed)
+            git diff --name-only --diff-filter=ACMRT -- "$@"
+            git diff --cached --name-only --diff-filter=ACMRT -- "$@"
+            git ls-files --others --exclude-standard -- "$@"
+            ;;
+        *)
+            return 0
+            ;;
     esac | sort -u
 }
 
@@ -190,30 +190,30 @@ ai_verify_run() {
         php_files=()
         php_scope_source="$AI_VERIFY_SCOPE"
         case "$AI_VERIFY_SCOPE" in
-        all)
-            # Explicit project-wide request. In the kit's own source repo we lint
-            # every file (php_scoped=0). In an installed target repo we still cover
-            # the whole project but pass an explicit file list that excludes the
-            # kit's shipped tools/ai/** files, so they are never linted.
-            if ! is_ai_kit_source_repo; then
+            all)
+                # Explicit project-wide request. In the kit's own source repo we lint
+                # every file (php_scoped=0). In an installed target repo we still cover
+                # the whole project but pass an explicit file list that excludes the
+                # kit's shipped tools/ai/** files, so they are never linted.
+                if ! is_ai_kit_source_repo; then
+                    php_scoped=1
+                    php_all_excluding_shipped=1
+                fi
+                ;;
+            changed)
                 php_scoped=1
-                php_all_excluding_shipped=1
-            fi
-            ;;
-        changed)
-            php_scoped=1
-            ;;
-        ai)
-            php_scoped=1
-            php_scope_source="changed"
-            ;;
-        branch)
-            php_scoped=1
-            php_scope_source="branch"
-            ;;
-        *)
-            die "unknown AI_VERIFY_SCOPE: $AI_VERIFY_SCOPE"
-            ;;
+                ;;
+            ai)
+                php_scoped=1
+                php_scope_source="changed"
+                ;;
+            branch)
+                php_scoped=1
+                php_scope_source="branch"
+                ;;
+            *)
+                die "unknown AI_VERIFY_SCOPE: $AI_VERIFY_SCOPE"
+                ;;
         esac
 
         # Human-readable description of what the scoped file list represents, used in

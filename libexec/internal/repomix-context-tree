@@ -57,7 +57,6 @@ Options:
 EOF
 }
 
-
 _ai_ctree_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../lib/repomix-context-tree"
 _ai_repomix_shared_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../lib/repomix"
 # shellcheck source=lib/repomix-context-tree/helpers.sh

@@ -14,12 +14,22 @@ trap 'rm -rf "$TMP"' EXIT
 
 PASS=0 FAIL=0 SKIP=0
 run_test() {
-    local name="$1"; shift; local _rc=0
+    local name="$1"
+    shift
+    local _rc=0
     "$@" >/dev/null 2>&1 || _rc=$?
-    if ((_rc == 0)); then PASS=$((PASS+1)); printf '  \033[0;32m✓\033[0m %s\n' "$name"
-    else FAIL=$((FAIL+1)); printf '  \033[0;31m✗\033[0m %s\n' "$name"; fi
+    if ((_rc == 0)); then
+        PASS=$((PASS + 1))
+        printf '  \033[0;32m✓\033[0m %s\n' "$name"
+    else
+        FAIL=$((FAIL + 1))
+        printf '  \033[0;31m✗\033[0m %s\n' "$name"
+    fi
 }
-skip_test() { SKIP=$((SKIP+1)); printf '  \033[0;33m⊘\033[0m %s (skipped: %s)\n' "$1" "$2"; }
+skip_test() {
+    SKIP=$((SKIP + 1))
+    printf '  \033[0;33m⊘\033[0m %s (skipped: %s)\n' "$1" "$2"
+}
 
 printf 'sh-introspect\n'
 
@@ -146,6 +156,70 @@ test_heredoc_usage_fallback() {
 }
 run_test "extract_usage_heredoc fallback picks up heredoc usage() body" test_heredoc_usage_fallback
 
+# Fixture with a `# Modes:` header — exercises the modes convention added for
+# shell-completion generation (agent-kit search/edit/context/... subcommands).
+FIXTURE_MODES="$TMP/modes-fixture.sh"
+cat >"$FIXTURE_MODES" <<'EOF'
+#!/usr/bin/env bash
+# A fixture declaring modes and an explicit flags override.
+#
+# Usage:
+#   modes-fixture.sh MODE [flags]
+#
+# Modes: alpha beta gamma
+#
+# Flags: --explicit --only
+case "${1:-}" in
+    --unrelated) shift ;;
+esac
+EOF
+test_modes_header_text() {
+    local out
+    out="$("$BASH_BIN" "$SCRIPT" "$FIXTURE_MODES" 2>&1 || true)"
+    [[ "$out" == *"Modes:"* && "$out" == *"alpha beta gamma"* ]]
+}
+run_test "# Modes: header renders in the text report" test_modes_header_text
+
+test_flags_declared_override() {
+    # A declared `# Flags:` block must WIN over the inferred `--foo)` case-label
+    # scan — the fixture's case label is `--unrelated`, which must NOT appear.
+    local out
+    out="$("$BASH_BIN" "$SCRIPT" --format=help "$FIXTURE_MODES" 2>&1 || true)"
+    [[ "$out" == *"--explicit"* && "$out" == *"--only"* && "$out" != *"--unrelated"* ]]
+}
+run_test "declared # Flags: overrides the inferred case-label scan" test_flags_declared_override
+
+if command -v jq >/dev/null 2>&1; then
+    test_modes_json() {
+        local out
+        out="$("$BASH_BIN" "$SCRIPT" --format=json "$FIXTURE_MODES" 2>/dev/null || true)"
+        printf '%s' "$out" | jq -e '.modes == ["alpha","beta","gamma"]' >/dev/null
+    }
+    run_test "JSON contract exposes declared modes" test_modes_json
+
+    test_flags_json_declared() {
+        local out
+        out="$("$BASH_BIN" "$SCRIPT" --format=json "$FIXTURE_MODES" 2>/dev/null || true)"
+        printf '%s' "$out" | jq -e '.flags == ["--explicit","--only"]' >/dev/null
+    }
+    run_test "JSON contract exposes declared flags override" test_flags_json_declared
+
+    test_flags_sibling_lib_dir() {
+        # libexec/ai-search has no case labels of its own — its real flags live
+        # in the sibling lib/ai-search/*.sh modules, which extract_flags scans
+        # by the repo's fixed thin-loader convention (never by executing or
+        # resolving `source` statements).
+        local out
+        out="$("$BASH_BIN" "$SCRIPT" --format=json "$REPO_ROOT/libexec/ai-search" 2>/dev/null || true)"
+        printf '%s' "$out" | jq -e '.flags | index("--max-results") != null' >/dev/null
+    }
+    run_test "flags scan follows the lib/<name>/ sibling module convention" test_flags_sibling_lib_dir
+else
+    skip_test "JSON contract exposes declared modes" "jq not available"
+    skip_test "JSON contract exposes declared flags override" "jq not available"
+    skip_test "flags scan follows the lib/<name>/ sibling module convention" "jq not available"
+fi
+
 if command -v jq >/dev/null 2>&1; then
     test_json_envelope() {
         local out
@@ -176,4 +250,7 @@ fi
 
 printf '\n=== Results ===\n'
 printf '  Passed: %d  Failed: %d  Skipped: %d\n' "$PASS" "$FAIL" "$SKIP"
-((FAIL == 0)) && printf '\033[0;32mPASSED\033[0m\n' || { printf '\033[0;31mFAILED\033[0m\n'; exit 1; }
+((FAIL == 0)) && printf '\033[0;32mPASSED\033[0m\n' || {
+    printf '\033[0;31mFAILED\033[0m\n'
+    exit 1
+}

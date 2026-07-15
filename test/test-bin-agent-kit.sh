@@ -10,10 +10,17 @@ cd "$REPO_ROOT"
 
 PASS=0 FAIL=0
 run_test() {
-    local name="$1"; shift; local _rc=0
+    local name="$1"
+    shift
+    local _rc=0
     "$@" >/dev/null 2>&1 || _rc=$?
-    if ((_rc == 0)); then PASS=$((PASS+1)); printf '  \033[0;32m✓\033[0m %s\n' "$name"
-    else FAIL=$((FAIL+1)); printf '  \033[0;31m✗\033[0m %s\n' "$name"; fi
+    if ((_rc == 0)); then
+        PASS=$((PASS + 1))
+        printf '  \033[0;32m✓\033[0m %s\n' "$name"
+    else
+        FAIL=$((FAIL + 1))
+        printf '  \033[0;31m✗\033[0m %s\n' "$name"
+    fi
 }
 
 printf 'bin/agent-kit\n'
@@ -144,9 +151,29 @@ run_test "routes test select to the fused ai-test select module" test_test_selec
 test_version() {
     local out
     out="$("$BASH_BIN" "$AI" --version 2>/dev/null)" || return 1
-    [[ "$out" == "agent-kit $(tr -d '[:space:]' < "$REPO_ROOT/VERSION")" ]]
+    [[ "$out" == "agent-kit $(tr -d '[:space:]' <"$REPO_ROOT/VERSION")" ]]
 }
 run_test "--version prints the version (exit 0)" test_version
+
+# --version --json emits a valid JSON envelope carrying the VERSION value.
+test_version_json() {
+    local out want
+    out="$("$BASH_BIN" "$AI" --version --json 2>/dev/null)" || return 1
+    want="$(tr -d '[:space:]' <"$REPO_ROOT/VERSION")"
+    printf '%s' "$out" | jq -e \
+        --arg v "$want" \
+        '.schema=="ai.version/v1" and .name=="agent-kit" and .version==$v and has("commit")' \
+        >/dev/null 2>&1
+}
+run_test "--version --json emits a valid JSON envelope" test_version_json
+
+# The bare `version` word is an alias and also honors --json.
+test_version_bare_json() {
+    local out
+    out="$(AI_OUTPUT=json "$BASH_BIN" "$AI" version 2>/dev/null)" || return 1
+    printf '%s' "$out" | jq -e '.schema=="ai.version/v1"' >/dev/null 2>&1
+}
+run_test "bare 'version' honors AI_OUTPUT=json" test_version_bare_json
 
 # Unknown command fails with exit 2.
 test_unknown() {
@@ -302,4 +329,7 @@ run_test "session unknown mode exits 2 with a clear message" test_session_unknow
 
 printf '\n=== Results ===\n'
 printf '  Passed: %d  Failed: %d\n' "$PASS" "$FAIL"
-((FAIL == 0)) && printf '\033[0;32mPASSED\033[0m\n' || { printf '\033[0;31mFAILED\033[0m\n'; exit 1; }
+((FAIL == 0)) && printf '\033[0;32mPASSED\033[0m\n' || {
+    printf '\033[0;31mFAILED\033[0m\n'
+    exit 1
+}

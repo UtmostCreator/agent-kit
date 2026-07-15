@@ -57,14 +57,14 @@ ai_context_status_main() {
     local ROOT="."
 
     case "${1:-}" in
-    --help | -h)
-        ai_context_status_usage
-        return 0
-        ;;
-    "") ;;
-    *)
-        ROOT="$1"
-        ;;
+        --help | -h)
+            ai_context_status_usage
+            return 0
+            ;;
+        "") ;;
+        *)
+            ROOT="$1"
+            ;;
     esac
 
     local root_abs

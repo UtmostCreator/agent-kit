@@ -18,6 +18,8 @@
 #   agent-kit edit apply sd OldName NewName . --dry-run    # same, with explicit "apply" prefix
 #   agent-kit edit rollback list                           # list rollback snapshots (routes to ai-rollback)
 #
+# Modes: ast-grep comby sd patch apply rollback
+#
 # Requires: git
 
 set -euo pipefail

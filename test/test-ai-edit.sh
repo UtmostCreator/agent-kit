@@ -14,7 +14,8 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 run_test() {
-    local name="$1"; shift
+    local name="$1"
+    shift
     local rc=0
     "$@" >/dev/null 2>&1 || rc=$?
     if ((rc == 0)); then
@@ -43,12 +44,13 @@ make_repo() {
 }
 
 run_edit() {
-    local work="$1"; shift
+    local work="$1"
+    shift
     (
         cd "$work"
         AI_LOG_DIR="$TMP/logs" \
-        AI_EVENT_LOG="$TMP/logs/events.jsonl" \
-        "$BASH_BIN" "$SCRIPT" "$@"
+            AI_EVENT_LOG="$TMP/logs/events.jsonl" \
+            "$BASH_BIN" "$SCRIPT" "$@"
     )
 }
 
@@ -80,8 +82,8 @@ test_introspect() {
     # delegated to the static introspector, emitting ai.sh-introspect/v1 with
     # tool=sh-introspect and meta.target_executed=false. It must NOT run the
     # edit logic. The three edit modes are still parsed out statically.
-    "$BASH_BIN" "$SCRIPT" --introspect \
-        | jq -e '.schema=="ai.sh-introspect/v1"
+    "$BASH_BIN" "$SCRIPT" --introspect |
+        jq -e '.schema=="ai.sh-introspect/v1"
             and .status=="ok"
             and .tool=="sh-introspect"
             and .name=="ai-edit"
@@ -202,9 +204,9 @@ if need_sd_plan; then
         out="$(
             cd "$work"
             AI_OUTPUT=json \
-            AI_LOG_DIR="$TMP/logs-env" \
-            AI_EVENT_LOG="$TMP/logs-env/events.jsonl" \
-            "$BASH_BIN" "$SCRIPT" sd OldName NewName .
+                AI_LOG_DIR="$TMP/logs-env" \
+                AI_EVENT_LOG="$TMP/logs-env/events.jsonl" \
+                "$BASH_BIN" "$SCRIPT" sd OldName NewName .
         )"
         jq -e '.schema=="ai.edit/v1" and .status=="dry_run"' <<<"$out" >/dev/null
     }
@@ -389,9 +391,9 @@ if need_patch; then
         out="$(
             cd "$work"
             AI_OUTPUT=json \
-            AI_LOG_DIR="$TMP/logs-patch-stdin" \
-            AI_EVENT_LOG="$TMP/logs-patch-stdin/events.jsonl" \
-            "$BASH_BIN" "$SCRIPT" patch - . --apply --no-verify <change.patch
+                AI_LOG_DIR="$TMP/logs-patch-stdin" \
+                AI_EVENT_LOG="$TMP/logs-patch-stdin/events.jsonl" \
+                "$BASH_BIN" "$SCRIPT" patch - . --apply --no-verify <change.patch
         )"
         jq -e '.status=="applied"' <<<"$out" >/dev/null
         grep -q 'NewName' "$work/a.txt"

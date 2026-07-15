@@ -13,6 +13,10 @@
 #   agent-kit search batch text foo bar .          # search two terms in one pass
 #   agent-kit search batch files niri vicinae .    # find files matching either name
 #   agent-kit search batch changed-files .         # list files changed but not staged
+#
+# Modes: text tracked docs tests config config-key deps route changed-text
+#   staged-text diff history struct symbols class function method interface
+#   enum files changed-files staged-files todo unsafe-patterns
 
 set -euo pipefail
 
@@ -78,33 +82,33 @@ shift
 mode_family=""
 
 case "$mode" in
-changed-text | staged-text | tracked | text | files | struct | docs)
-    mode_family="query"
-    ;;
-diff | history | tests | config | deps | symbols | class)
-    mode_family="query"
-    ;;
-function | method | interface | enum | route | config-key)
-    mode_family="query"
-    ;;
-changed-files | staged-files)
-    mode_family="file-list"
-    ;;
-changed | staged)
-    mode_family="legacy-file-list"
-    ;;
-todo | unsafe-patterns)
-    mode_family="no-query-root"
-    ;;
-unsafe-all)
-    echo "[ERROR] unsafe-all is not allowed via ai-search-multi.sh" >&2
-    exit 1
-    ;;
-*)
-    echo "[ERROR] unknown or unsupported mode: $mode" >&2
-    usage >&2
-    exit 1
-    ;;
+    changed-text | staged-text | tracked | text | files | struct | docs)
+        mode_family="query"
+        ;;
+    diff | history | tests | config | deps | symbols | class)
+        mode_family="query"
+        ;;
+    function | method | interface | enum | route | config-key)
+        mode_family="query"
+        ;;
+    changed-files | staged-files)
+        mode_family="file-list"
+        ;;
+    changed | staged)
+        mode_family="legacy-file-list"
+        ;;
+    todo | unsafe-patterns)
+        mode_family="no-query-root"
+        ;;
+    unsafe-all)
+        echo "[ERROR] unsafe-all is not allowed via ai-search-multi.sh" >&2
+        exit 1
+        ;;
+    *)
+        echo "[ERROR] unknown or unsupported mode: $mode" >&2
+        usage >&2
+        exit 1
+        ;;
 esac
 
 # Collect positional values until the first flag.
@@ -167,16 +171,16 @@ if [[ "$mode_family" == "file-list" ]]; then
     root="."
 
     case "${#positionals[@]}" in
-    0)
-        root="."
-        ;;
-    1)
-        root="${positionals[0]}"
-        ;;
-    *)
-        echo "[ERROR] mode '$mode' does not accept queries; pass only optional root" >&2
-        exit 1
-        ;;
+        0)
+            root="."
+            ;;
+        1)
+            root="${positionals[0]}"
+            ;;
+        *)
+            echo "[ERROR] mode '$mode' does not accept queries; pass only optional root" >&2
+            exit 1
+            ;;
     esac
 
     emit_single_result_array "$mode" "$root"
@@ -195,25 +199,25 @@ if [[ "$mode_family" == "legacy-file-list" ]]; then
     root="."
 
     case "${#positionals[@]}" in
-    0)
-        root="."
-        ;;
-    1)
-        if [[ -d "${positionals[0]}" ]]; then
-            root="${positionals[0]}"
-        else
-            legacy_query="${positionals[0]}"
+        0)
             root="."
-        fi
-        ;;
-    2)
-        legacy_query="${positionals[0]}"
-        root="${positionals[1]}"
-        ;;
-    *)
-        echo "[ERROR] too many positional arguments for legacy mode '$mode'" >&2
-        exit 1
-        ;;
+            ;;
+        1)
+            if [[ -d "${positionals[0]}" ]]; then
+                root="${positionals[0]}"
+            else
+                legacy_query="${positionals[0]}"
+                root="."
+            fi
+            ;;
+        2)
+            legacy_query="${positionals[0]}"
+            root="${positionals[1]}"
+            ;;
+        *)
+            echo "[ERROR] too many positional arguments for legacy mode '$mode'" >&2
+            exit 1
+            ;;
     esac
 
     emit_legacy_result_array "$mode" "$legacy_query" "$root"
@@ -227,16 +231,16 @@ if [[ "$mode_family" == "no-query-root" ]]; then
     root="."
 
     case "${#positionals[@]}" in
-    0)
-        root="."
-        ;;
-    1)
-        root="${positionals[0]}"
-        ;;
-    *)
-        echo "[ERROR] mode '$mode' does not accept queries; pass only optional root" >&2
-        exit 1
-        ;;
+        0)
+            root="."
+            ;;
+        1)
+            root="${positionals[0]}"
+            ;;
+        *)
+            echo "[ERROR] mode '$mode' does not accept queries; pass only optional root" >&2
+            exit 1
+            ;;
     esac
 
     emit_single_result_array "$mode" "$root"

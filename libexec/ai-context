@@ -22,6 +22,8 @@
 #   agent-kit context ensure [root] [--regen|--no-regen]                (fused)
 #   agent-kit context estimate [path] [options]                         (fused)
 #
+# Modes: diff pack file generate tree status ensure estimate
+#
 # Example:
 #   agent-kit context diff unstaged --dry-run             # preview a bundle for uncommitted changes
 #   agent-kit context pack auto --include "docs/**/*.md"  # bundle docs into one context file
@@ -60,44 +62,44 @@ ai_context_usage() {
 }
 
 case "${1:-}" in
-diff)
-    shift
-    ai_context_diff_main "$@"
-    ;;
-pack)
-    shift
-    ai_context_pack_main "$@"
-    ;;
-file)
-    shift
-    ai_context_file_main "$@"
-    ;;
-generate)
-    shift
-    ai_context_generate_main "$@"
-    ;;
-tree)
-    shift
-    ai_context_tree_main "$@"
-    ;;
-status)
-    shift
-    ai_context_status_main "$@"
-    ;;
-ensure)
-    shift
-    ai_context_ensure_main "$@"
-    ;;
-estimate)
-    shift
-    ai_context_estimate_main "$@"
-    ;;
---help | -h | "")
-    ai_context_usage
-    exit 0
-    ;;
-*)
-    echo "agent-kit context: unknown mode '$1' (expected diff|pack|file|generate|tree|status|ensure|estimate)" >&2
-    exit 2
-    ;;
+    diff)
+        shift
+        ai_context_diff_main "$@"
+        ;;
+    pack)
+        shift
+        ai_context_pack_main "$@"
+        ;;
+    file)
+        shift
+        ai_context_file_main "$@"
+        ;;
+    generate)
+        shift
+        ai_context_generate_main "$@"
+        ;;
+    tree)
+        shift
+        ai_context_tree_main "$@"
+        ;;
+    status)
+        shift
+        ai_context_status_main "$@"
+        ;;
+    ensure)
+        shift
+        ai_context_ensure_main "$@"
+        ;;
+    estimate)
+        shift
+        ai_context_estimate_main "$@"
+        ;;
+    --help | -h | "")
+        ai_context_usage
+        exit 0
+        ;;
+    *)
+        echo "agent-kit context: unknown mode '$1' (expected diff|pack|file|generate|tree|status|ensure|estimate)" >&2
+        exit 2
+        ;;
 esac

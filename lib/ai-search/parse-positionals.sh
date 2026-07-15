@@ -32,22 +32,22 @@ interpret_positionals() {
         # Legacy `changed`/`staged`: tolerate an ignored leading query so existing
         # callers like `changed dummy .` keep working during migration.
         case "${#positionals[@]}" in
-        0)
-            root="."
-            ;;
-        1)
-            if [[ -d "${positionals[0]}" ]]; then
-                root="${positionals[0]}"
-            else
+            0)
                 root="."
-            fi
-            ;;
-        2)
-            root="${positionals[1]}"
-            ;;
-        *)
-            fail "error" "too many positional arguments for legacy mode '$original_mode'"
-            ;;
+                ;;
+            1)
+                if [[ -d "${positionals[0]}" ]]; then
+                    root="${positionals[0]}"
+                else
+                    root="."
+                fi
+                ;;
+            2)
+                root="${positionals[1]}"
+                ;;
+            *)
+                fail "error" "too many positional arguments for legacy mode '$original_mode'"
+                ;;
         esac
 
     elif is_content_mode "$mode"; then

@@ -3,228 +3,266 @@
 One runnable example per command, generated from each command's own `# Example:`
 block.
 
-These snippets use the short **`akit`** alias. Enable it once (add to your shell
-rc), then every example below works verbatim:
+These snippets use the short **`ak`** alias, which every installer creates
+alongside the canonical `agent-kit`. They work verbatim after any install — no
+setup needed. For the everyday search case, `ak s QUERY` is even shorter: it
+defaults to text mode and auto-detects the repo root, so `ak s TODO` replaces
+`ak search text TODO .`.
 
-```bash
-alias akit='agent-kit'
-```
-
-The canonical command is `agent-kit` — if you have not set the alias, replace
-`akit` with `agent-kit`. The authoritative contract for any command is always
-`agent-kit <command> --help` (and `--introspect` for JSON).
+The canonical command is `agent-kit` — the two are interchangeable, so replace
+`ak` with `agent-kit` anywhere you prefer the long form (e.g. in scripts). The
+authoritative contract for any command is always `agent-kit <command> --help`
+(and `--introspect` for JSON).
 
 > Regenerate this file with: `bash scripts/gen-examples.sh > docs/EXAMPLES.md`
 
-### `akit context`
+### `ak completion`
+Print a generated shell-completion definition for agent-kit (and its short
+alias `ak`) to stdout. Non-mutating: it only prints a file, it never touches
+shell configuration or installs anything.
+
+```bash
+source <(ak completion bash)                                    # this session only
+ak completion fish > ~/.config/fish/completions/agent-kit.fish  # persistent, fish
+echo 'source <(ak completion zsh)' >> ~/.zshrc                  # persistent, zsh
+```
+
+### `ak context`
 ai-context — canonical context-building command group (thin loader).
 
 ```bash
-akit context diff unstaged --dry-run             # preview a bundle for uncommitted changes
-akit context pack auto --include "docs/**/*.md"  # bundle docs into one context file
-akit context status .                            # check whether the generated bundle is stale
-akit context estimate README.md                  # estimate the token cost of a file
+ak context diff unstaged --dry-run             # preview a bundle for uncommitted changes
+ak context pack auto --include "docs/**/*.md"  # bundle docs into one context file
+ak context status .                            # check whether the generated bundle is stale
+ak context estimate README.md                  # estimate the token cost of a file
 ```
 
-### `akit edit`
+### `ak doctor`
+Report agent-kit installation and environment health for bug triage.
+
+```bash
+ak doctor            # a quick "is my install healthy?" check
+ak doctor --json | jq .status   # paste into a bug report as evidence
+```
+
+### `ak edit`
 Guarded edit wrapper for broad repository modifications (thin loader).
 
 ```bash
-akit edit --help                                 # see every mode and flag, safely
-akit edit sd OldName NewName . --dry-run          # preview a rename, changing nothing
-akit edit apply sd OldName NewName . --dry-run    # same, with explicit "apply" prefix
-akit edit rollback list                           # list rollback snapshots (routes to ai-rollback)
+ak edit --help                                 # see every mode and flag, safely
+ak edit sd OldName NewName . --dry-run          # preview a rename, changing nothing
+ak edit apply sd OldName NewName . --dry-run    # same, with explicit "apply" prefix
+ak edit rollback list                           # list rollback snapshots (routes to ai-rollback)
 ```
 
-### `akit file-freshness`
+### `ak file-freshness`
 Show which docs/config files have uncommitted changes (git status of key paths).
 
 ```bash
-akit file-freshness   # list uncommitted changes under docs/, .github/, AGENTS.md
+ak file-freshness   # list uncommitted changes under docs/, .github/, AGENTS.md
 ```
 
-### `akit git`
+### `ak git`
 ai-git — canonical git-inspection command group (thin loader).
 
 ```bash
-akit git origin                          # print the branch your branch was created from
-akit git history S "TODO" README.md      # find commits that added/removed "TODO"
-akit git blame 1,20 README.md            # annotate who last changed lines 1-20
-akit git pr-context 123 --checks         # show PR #123 metadata plus CI check status
+ak git origin                          # print the branch your branch was created from
+ak git history S "TODO" README.md      # find commits that added/removed "TODO"
+ak git blame 1,20 README.md            # annotate who last changed lines 1-20
+ak git pr-context 123 --checks         # show PR #123 metadata plus CI check status
 ```
 
-### `akit inspect`
+### `ak inspect`
 Canonical read-only inspection command group (thin router).
 
 ```bash
-akit inspect file README.md --range 1:40         # show only lines 1-40 of a file
-akit inspect data json package.json '.scripts'   # print the "scripts" section with jq
-akit inspect shell libexec/ai-search             # see what a script accepts, safely
+ak inspect file README.md --range 1:40         # show only lines 1-40 of a file
+ak inspect data json package.json '.scripts'   # print the "scripts" section with jq
+ak inspect shell libexec/ai-search             # see what a script accepts, safely
 ```
 
-### `akit repo`
+### `ak refactor-scan`
+Flag refactor candidates: rank files by scc complexity and functions by lizard NLOC.
+
+```bash
+ak refactor-scan all .            # flag files (scc complexity > 15) and functions (lizard NLOC > 40)
+ak refactor-scan complexity src --ext go --scc-format json --ai
+```
+
+### `ak repo`
 Canonical repository-metadata command group (thin router).
 
 ```bash
-akit repo tasks list    # list every task this project already defines
-akit repo stats         # count files Git currently tracks
-akit repo tools         # see every command and what it does
-akit repo status        # list uncommitted changes under docs/, .github/, AGENTS.md
+ak repo tasks list    # list every task this project already defines
+ak repo stats         # count files Git currently tracks
+ak repo tools         # see every command and what it does
+ak repo status        # list uncommitted changes under docs/, .github/, AGENTS.md
 ```
 
-### `akit rollback`
+### `ak rollback`
 Review and apply repository-local rollback snapshots created by AI tooling sessions.
 
 ```bash
-akit rollback list                       # list restore points (read-only, safe)
-akit rollback show SNAPSHOT_ID           # preview one snapshot's files (id from `list`)
+ak rollback list                       # list restore points (read-only, safe)
+ak rollback show SNAPSHOT_ID           # preview one snapshot's files (id from `list`)
 ```
 
-### `akit search`
+### `ak s`
+Short repository search: default to text mode and auto-detect the search root.
+
+```bash
+ak s TODO                         # every TODO in the repo, no '.' needed
+ak s emit_json libexec            # scope the search to a subdirectory
+ak s export --changed             # only the files you changed
+ak s AgentKit --history --messages
+AI_OUTPUT=json ak s emit_json     # stable JSON envelope for agents
+```
+
+### `ak search`
 ai-search.sh — unified repository search entrypoint (thin facade).
 
 ```bash
-akit search text "TODO" .                          # find every TODO across the tree (human output)
-AI_OUTPUT=json akit search text "emit_json" libexec # same search as the stable JSON envelope agents consume
-akit search tracked "ai_search_main" .             # search only git-tracked files (git grep, not rg)
-akit search changed-text "export" .                # grep ONLY the files you changed in the worktree
-akit search diff "emit_json" . --base main         # search this branch's diff against main
-akit search history "AgentKit" . --messages        # pickaxe commit history for a string
-akit search text "function" libexec --count        # per-file match counts + summary{}
-akit search text "emit_json" libexec -C 2          # add 2 lines of context around each match
-akit search files config .                         # find files whose NAME contains "config" (fd)
-akit search todo .                                 # list curated TODO/FIXME/HACK/XXX markers
-akit search doctor                                 # check which search backends are available
-akit search capabilities                           # full mode/flag/env capability map
-akit search batch text foo bar .                   # run one MODE against several queries
+ak search text "TODO" .                          # find every TODO across the tree (human output)
+AI_OUTPUT=json ak search text "emit_json" libexec # same search as the stable JSON envelope agents consume
+ak search tracked "ai_search_main" .             # search only git-tracked files (git grep, not rg)
+ak search changed-text "export" .                # grep ONLY the files you changed in the worktree
+ak search diff "emit_json" . --base main         # search this branch's diff against main
+ak search history "AgentKit" . --messages        # pickaxe commit history for a string
+ak search text "function" libexec --count        # per-file match counts + summary{}
+ak search text "emit_json" libexec -C 2          # add 2 lines of context around each match
+ak search files config .                         # find files whose NAME contains "config" (fd)
+ak search todo .                                 # list curated TODO/FIXME/HACK/XXX markers
+ak search doctor                                 # check which search backends are available
+ak search capabilities                           # full mode/flag/env capability map
+ak search batch text foo bar .                   # run one MODE against several queries
 ```
 
-### `akit search-introspect`
+### `ak search-introspect`
 ai-search-introspect.sh — print 100% of the modes, flags, env vars, and
 per-mode argument contracts that ai-search.sh and ai-search-multi.sh accept.
 
 ```bash
-akit search-introspect            # print the full ai-search capability map
-akit search-introspect --probe    # confirm every search mode is reachable
+ak search-introspect            # print the full ai-search capability map
+ak search-introspect --probe    # confirm every search mode is reachable
 ```
 
-### `akit search-multi`
+### `ak search-multi`
 Batch wrapper around ai-search.sh: run one safe search MODE against several
 queries in a single approved invocation.
 
 ```bash
-akit search batch text foo bar .          # search two terms in one pass
-akit search batch files niri vicinae .    # find files matching either name
-akit search batch changed-files .         # list files changed but not staged
+ak search batch text foo bar .          # search two terms in one pass
+ak search batch files niri vicinae .    # find files matching either name
+ak search batch changed-files .         # list files changed but not staged
 ```
 
-### `akit session`
+### `ak session`
 Canonical agent-session command group (thin router).
 
 ```bash
-akit session checkpoint before-refactor        # save a labelled snapshot you can find later
-akit session watch "akit verify"          # re-run verify whenever files change (Ctrl-C to stop)
+ak session checkpoint before-refactor        # save a labelled snapshot you can find later
+ak session watch "ak verify"          # re-run verify whenever files change (Ctrl-C to stop)
 ```
 
-### `akit structured`
+### `ak structured`
 Structured data query wrapper for AI agents.
 
 ```bash
-akit structured json package.json '.scripts'    # print the "scripts" section of package.json with jq
-akit structured validate-json composer.json     # check that composer.json is valid JSON
-akit structured csv data.csv --head 20          # preview the first 20 rows of a CSV file
+ak structured json package.json '.scripts'    # print the "scripts" section of package.json with jq
+ak structured validate-json composer.json     # check that composer.json is valid JSON
+ak structured csv data.csv --head 20          # preview the first 20 rows of a CSV file
 ```
 
-### `akit task`
+### `ak task`
 Project task discovery wrapper for AI agents.
 
 ```bash
-akit task list             # list every task this project already defines
-akit task test             # print the command to run this repo's tests
-akit task verify           # print the recommended "verify" command to run
+ak task list             # list every task this project already defines
+ak task test             # print the command to run this repo's tests
+ak task verify           # print the recommended "verify" command to run
 ```
 
-### `akit test`
+### `ak test`
 ai-test — canonical test-selection/execution command group (thin loader).
 
 ```bash
-akit test select changed          # list tests for your current changes (read-only)
-akit test run --filter FooTest    # run only tests matching FooTest
-akit test all --help              # see options and defaults before running (safe)
+ak test select changed          # list tests for your current changes (read-only)
+ak test run --filter FooTest    # run only tests matching FooTest
+ak test all --help              # see options and defaults before running (safe)
 ```
 
-### `akit verify`
+### `ak verify`
 Project-aware verification gate for AI-driven changes (thin loader).
 
 ```bash
-akit verify --help                      # see accepted args before running (safe)
-akit verify .                           # verify the change in the current project
-akit verify docs links README.md        # check links in one doc file (read-only)
-akit verify refs docs --ext md           # find orphaned markdown docs under docs/
+ak verify --help                      # see accepted args before running (safe)
+ak verify .                           # verify the change in the current project
+ak verify docs links README.md        # check links in one doc file (read-only)
+ak verify refs docs --ext md           # find orphaned markdown docs under docs/
 ```
 
-### `akit all-f-into-one`
+### `ak all-f-into-one`
 all-f-into-one.sh (formerly all_in_one.sh / combine_files.sh)
 Recursively collects filenames and contents, writes them to a single output file at project root.
 Prunes ignored directories (entire subtrees) and excludes selected files.
 Each file block (header + content + footer) is wrapped inside triple backticks.
 
 ```bash
-akit all-f-into-one --help        # see what this does without combining anything
-akit all-f-into-one --introspect  # print the machine-readable JSON contract
+ak all-f-into-one --help        # see what this does without combining anything
+ak all-f-into-one --introspect  # print the machine-readable JSON contract
 ```
 
-### `akit fd-files`
+### `ak fd-files`
 Repo-aware file discovery wrapper.
 
 ```bash
-akit fd-files README .              # find files whose name contains "README"
-akit fd-files config docs --type md # find markdown files under docs/ matching "config"
+ak fd-files README .              # find files whose name contains "README"
+ak fd-files config docs --type md # find markdown files under docs/ matching "config"
 ```
 
-### `akit preview-file`
+### `ak preview-file`
 preview-file.sh — safely preview a slice of a text file with guardrails
 (size/byte gate, binary + .git blocking, column truncation).
 
 ```bash
-akit preview-file README.md                # show the first 200 lines, safely
-akit preview-file README.md --range 1:40   # show only lines 1-40 of the file
-akit preview-file README.md --dry-run      # check a file is previewable (no content)
+ak preview-file README.md                # show the first 200 lines, safely
+ak preview-file README.md --range 1:40   # show only lines 1-40 of the file
+ak preview-file README.md --dry-run      # check a file is previewable (no content)
 ```
 
-### `akit repo-stats`
+### `ak repo-stats`
 Count the files Git currently tracks in this repository.
 
 ```bash
-akit repo-stats   # print how many files Git currently tracks in this repository
+ak repo-stats   # print how many files Git currently tracks in this repository
 ```
 
-### `akit repo-tool-inventory`
+### `ak repo-tool-inventory`
 List every toolkit command with its one-line summary (a discoverable map).
 
 ```bash
-akit repo-tool-inventory                 # see every command and what it does
-akit repo-tool-inventory --json | jq .   # feed the catalog to an agent
+ak repo-tool-inventory                 # see every command and what it does
+ak repo-tool-inventory --json | jq .   # feed the catalog to an agent
 ```
 
-### `akit rg-code`
+### `ak rg-code`
 Production-grade code search wrapper with repo-aware defaults.
 
 ```bash
-akit rg-code "TODO" .                 # find every TODO under the current directory
-akit rg-code "function" src --files   # list files under src/ that contain "function"
-akit rg-code "config" . --mode php    # search only PHP files for "config"
+ak rg-code "TODO" .                 # find every TODO under the current directory
+ak rg-code "function" src --files   # list files under src/ that contain "function"
+ak rg-code "config" . --mode php    # search only PHP files for "config"
 ```
 
-### `akit session-checkpoint`
+### `ak session-checkpoint`
 Create a repository-local checkpoint using the shared snapshot system.
 
 ```bash
-akit session-checkpoint                 # save a snapshot into .ai-logs/snapshots/
-akit session-checkpoint before-refactor # save a labelled snapshot you can find later
+ak session-checkpoint                 # save a snapshot into .ai-logs/snapshots/
+ak session-checkpoint before-refactor # save a labelled snapshot you can find later
 ```
 
-### `akit sh-introspect`
+### `ak sh-introspect`
 Universal shell-script introspector (static, pure-Bash parser).
 
 ```bash
@@ -233,10 +271,10 @@ sh-introspect --format=json libexec/ai-edit | jq .   # machine-readable contract
 sh-introspect --list libexec               # a discoverable map of every command
 ```
 
-### `akit watch-loop`
+### `ak watch-loop`
 Re-run a command automatically whenever watched files change (blocks until Ctrl-C).
 
 ```bash
-akit watch-loop "akit verify"          # re-run verify whenever files change (Ctrl-C to stop)
-akit watch-loop "akit task test" sh,md # re-run tests only when .sh or .md files change
+ak watch-loop "ak verify"          # re-run verify whenever files change (Ctrl-C to stop)
+ak watch-loop "ak task test" sh,md # re-run tests only when .sh or .md files change
 ```

@@ -24,16 +24,26 @@ FIX="$TMP/fixture"
 mkdir -p "$FIX/src"
 printf '# Sample\n' >"$FIX/README.md"
 printf 'package main\nfunc main() {}\n' >"$FIX/src/main.go"
-( cd "$FIX" && git init -q && git add -A \
-    && git -c user.email=t@t -c user.name=t commit -qm init ) >/dev/null 2>&1 || true
+(cd "$FIX" && git init -q && git add -A &&
+    git -c user.email=t@t -c user.name=t commit -qm init) >/dev/null 2>&1 || true
 
 run_test() {
-    local name="$1"; shift; local _rc=0
+    local name="$1"
+    shift
+    local _rc=0
     "$@" >/dev/null 2>&1 || _rc=$?
-    if ((_rc == 0)); then PASS=$((PASS+1)); printf '  \033[0;32m✓\033[0m %s\n' "$name"
-    else FAIL=$((FAIL+1)); printf '  \033[0;31m✗\033[0m %s\n' "$name"; fi
+    if ((_rc == 0)); then
+        PASS=$((PASS + 1))
+        printf '  \033[0;32m✓\033[0m %s\n' "$name"
+    else
+        FAIL=$((FAIL + 1))
+        printf '  \033[0;31m✗\033[0m %s\n' "$name"
+    fi
 }
-skip_test() { SKIP=$((SKIP+1)); printf '  \033[0;33m⊘\033[0m %s (skipped: %s)\n' "$1" "$2"; }
+skip_test() {
+    SKIP=$((SKIP + 1))
+    printf '  \033[0;33m⊘\033[0m %s (skipped: %s)\n' "$1" "$2"
+}
 
 printf 'repomix-scc-router\n'
 
@@ -253,12 +263,12 @@ for i in 1 2 3 4 5; do gen_code_file "$BIGFIX/src/moduleA/file$i.sh" 40; done
 gen_code_file "$BIGFIX/src/moduleC/only.sh" 40
 for i in 1 2; do gen_code_file "$BIGFIX/src/moduleB/file$i.sh" 5; done
 for i in 1 2; do gen_code_file "$BIGFIX/root_file$i.sh" 20; done
-( cd "$BIGFIX" && git init -q && git add -A \
-    && git -c user.email=t@t -c user.name=t commit -qm init ) >/dev/null 2>&1 || true
+(cd "$BIGFIX" && git init -q && git add -A &&
+    git -c user.email=t@t -c user.name=t commit -qm init) >/dev/null 2>&1 || true
 BIGFIX_FIRST_COMMIT="$(cd "$BIGFIX" && git rev-list --max-parents=0 HEAD 2>/dev/null)"
 printf 'echo "extra"\n' >>"$BIGFIX/src/moduleA/file1.sh"
-( cd "$BIGFIX" && git add -A \
-    && git -c user.email=t@t -c user.name=t commit -qm update ) >/dev/null 2>&1 || true
+(cd "$BIGFIX" && git add -A &&
+    git -c user.email=t@t -c user.name=t commit -qm update) >/dev/null 2>&1 || true
 
 # Chunking fixture: run_scc_analysis batches scc invocations in chunks of 200
 # files; every fixture above stays well under that, so the chunking while-loop
@@ -267,8 +277,8 @@ printf 'echo "extra"\n' >>"$BIGFIX/src/moduleA/file1.sh"
 CHUNKFIX="$TMP/chunkfix"
 mkdir -p "$CHUNKFIX/src"
 for i in $(seq -w 1 205); do gen_code_file "$CHUNKFIX/src/file$i.sh" 1; done
-( cd "$CHUNKFIX" && git init -q && git add -A \
-    && git -c user.email=t@t -c user.name=t commit -qm init ) >/dev/null 2>&1 || true
+(cd "$CHUNKFIX" && git init -q && git add -A &&
+    git -c user.email=t@t -c user.name=t commit -qm init) >/dev/null 2>&1 || true
 
 # Deep-nesting fixture: group_for_path's depth loop only ever collapses 3-4
 # path segments down to 1-2 in the fixtures above. Nest four levels deep with
@@ -280,14 +290,14 @@ DEEPFIX="$TMP/deepfix"
 gen_code_file "$DEEPFIX/src/a/b/c/deep1.sh" 30
 gen_code_file "$DEEPFIX/src/a/b/d/deep2.sh" 30
 gen_code_file "$DEEPFIX/src/x/y/z/w/deep3.sh" 30
-( cd "$DEEPFIX" && git init -q && git add -A \
-    && git -c user.email=t@t -c user.name=t commit -qm init ) >/dev/null 2>&1 || true
+(cd "$DEEPFIX" && git init -q && git add -A &&
+    git -c user.email=t@t -c user.name=t commit -qm init) >/dev/null 2>&1 || true
 
 if command -v scc >/dev/null 2>&1; then
     test_write_bundle_plan_ranks_routes() {
         "$BASH_BIN" "$SCRIPT" plan "$BIGFIX" --output-dir "$TMP/wb-default" 2>/dev/null
-        awk -F'\t' '$2 == "src/moduleA"' "$TMP/wb-default/bundle-plan.tsv" | grep -q . \
-            && awk -F'\t' '$2 == "_root"' "$TMP/wb-default/bundle-plan.tsv" | grep -q .
+        awk -F'\t' '$2 == "src/moduleA"' "$TMP/wb-default/bundle-plan.tsv" | grep -q . &&
+            awk -F'\t' '$2 == "_root"' "$TMP/wb-default/bundle-plan.tsv" | grep -q .
     }
     run_test "write_bundle_plan ranks qualifying routes, including a real _root group" test_write_bundle_plan_ranks_routes
 
@@ -315,8 +325,8 @@ if command -v scc >/dev/null 2>&1; then
 
     test_write_bundle_plan_min_score_form() {
         "$BASH_BIN" "$SCRIPT" plan "$BIGFIX" --output-dir "$TMP/wb-minscore" --min-score=20 2>/dev/null
-        awk -F'\t' '$2 == "src/moduleA"' "$TMP/wb-minscore/bundle-plan.tsv" | grep -q . \
-            && ! awk -F'\t' '$2 == "_root"' "$TMP/wb-minscore/bundle-plan.tsv" | grep -q .
+        awk -F'\t' '$2 == "src/moduleA"' "$TMP/wb-minscore/bundle-plan.tsv" | grep -q . &&
+            ! awk -F'\t' '$2 == "_root"' "$TMP/wb-minscore/bundle-plan.tsv" | grep -q .
     }
     run_test "write_bundle_plan --min-score= filters out lower-ranked groups" test_write_bundle_plan_min_score_form
 
@@ -355,8 +365,8 @@ if command -v scc >/dev/null 2>&1; then
     test_changed_since_no_diff_writes_empty_metrics() {
         local out
         out="$("$BASH_BIN" "$SCRIPT" stats "$BIGFIX" --output-dir "$TMP/wb-nodiff" --changed-since HEAD 2>&1)"
-        [[ "$out" == *"no files selected for analysis"* ]] \
-            && [[ "$(wc -l <"$TMP/wb-nodiff/file-metrics.tsv")" -eq 1 ]]
+        [[ "$out" == *"no files selected for analysis"* ]] &&
+            [[ "$(wc -l <"$TMP/wb-nodiff/file-metrics.tsv")" -eq 1 ]]
     }
     run_test "--changed-since with no diff hits the empty-metrics early-return branch" test_changed_since_no_diff_writes_empty_metrics
 
@@ -372,15 +382,15 @@ if command -v scc >/dev/null 2>&1; then
     # collapse into one group; at depth=4 they split into distinct groups.
     test_deep_nesting_depth2_collapses_groups() {
         "$BASH_BIN" "$SCRIPT" plan "$DEEPFIX" --output-dir "$TMP/wb-deep2" --depth 2 2>/dev/null
-        awk -F'\t' '$2 == "src/a"' "$TMP/wb-deep2/bundle-plan.tsv" | grep -q . \
-            && ! awk -F'\t' '$2 == "src/a/b/c"' "$TMP/wb-deep2/bundle-plan.tsv" | grep -q .
+        awk -F'\t' '$2 == "src/a"' "$TMP/wb-deep2/bundle-plan.tsv" | grep -q . &&
+            ! awk -F'\t' '$2 == "src/a/b/c"' "$TMP/wb-deep2/bundle-plan.tsv" | grep -q .
     }
     run_test "deep nesting at depth=2 collapses multiple subfolders into one group" test_deep_nesting_depth2_collapses_groups
 
     test_deep_nesting_depth4_separates_groups() {
         "$BASH_BIN" "$SCRIPT" plan "$DEEPFIX" --output-dir "$TMP/wb-deep4" --depth 4 2>/dev/null
-        awk -F'\t' '$2 == "src/a/b/c"' "$TMP/wb-deep4/bundle-plan.tsv" | grep -q . \
-            && awk -F'\t' '$2 == "src/a/b/d"' "$TMP/wb-deep4/bundle-plan.tsv" | grep -q .
+        awk -F'\t' '$2 == "src/a/b/c"' "$TMP/wb-deep4/bundle-plan.tsv" | grep -q . &&
+            awk -F'\t' '$2 == "src/a/b/d"' "$TMP/wb-deep4/bundle-plan.tsv" | grep -q .
     }
     run_test "deep nesting at depth=4 separates the same files into distinct groups" test_deep_nesting_depth4_separates_groups
 
@@ -477,8 +487,8 @@ if command -v scc >/dev/null 2>&1 && command -v repomix >/dev/null 2>&1; then
     # produces. Every other pack test above uses the xml default.
     test_style_markdown_changes_bundle_extension() {
         "$BASH_BIN" "$SCRIPT" all "$BIGFIX" --output-dir "$TMP/wb-md" --style=markdown >/dev/null 2>&1
-        [[ -f "$TMP/wb-md/bundles/_root.md" ]] \
-            && awk -F'\t' '$NF ~ /\.md$/' "$TMP/wb-md/bundle-plan.tsv" | grep -q .
+        [[ -f "$TMP/wb-md/bundles/_root.md" ]] &&
+            awk -F'\t' '$NF ~ /\.md$/' "$TMP/wb-md/bundle-plan.tsv" | grep -q .
     }
     run_test "--style=markdown changes the generated bundle file extension to .md" test_style_markdown_changes_bundle_extension
 
@@ -521,4 +531,7 @@ fi
 
 printf '\n=== Results ===\n'
 printf '  Passed: %d  Failed: %d  Skipped: %d\n' "$PASS" "$FAIL" "$SKIP"
-((FAIL == 0)) && printf '\033[0;32mPASSED\033[0m\n' || { printf '\033[0;31mFAILED\033[0m\n'; exit 1; }
+((FAIL == 0)) && printf '\033[0;32mPASSED\033[0m\n' || {
+    printf '\033[0;31mFAILED\033[0m\n'
+    exit 1
+}

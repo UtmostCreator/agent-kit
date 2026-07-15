@@ -37,24 +37,24 @@ language_pathspecs() {
     local lang="${1:?language required}"
 
     case "$lang" in
-    php)
-        printf '%s\n' '*.php'
-        ;;
-    js)
-        printf '%s\n' '*.js' '*.jsx' '*.mjs' '*.cjs'
-        ;;
-    ts)
-        printf '%s\n' '*.ts' '*.tsx' '*.mts' '*.cts'
-        ;;
-    vue)
-        printf '%s\n' '*.vue'
-        ;;
-    html)
-        printf '%s\n' '*.html' '*.blade.php' '*.twig'
-        ;;
-    *)
-        die "unknown language: $lang"
-        ;;
+        php)
+            printf '%s\n' '*.php'
+            ;;
+        js)
+            printf '%s\n' '*.js' '*.jsx' '*.mjs' '*.cjs'
+            ;;
+        ts)
+            printf '%s\n' '*.ts' '*.tsx' '*.mts' '*.cts'
+            ;;
+        vue)
+            printf '%s\n' '*.vue'
+            ;;
+        html)
+            printf '%s\n' '*.html' '*.blade.php' '*.twig'
+            ;;
+        *)
+            die "unknown language: $lang"
+            ;;
     esac
 }
 

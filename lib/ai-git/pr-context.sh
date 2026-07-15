@@ -26,16 +26,16 @@ ai_git_pr_context_main() {
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-        --diff) want_diff=1 ;;
-        --checks) want_checks=1 ;;
-        --reviews) want_reviews=1 ;;
-        --pack) want_pack=1 ;;
-        --json) output_format="json" ;;
-        --help | -h)
-            ai_git_pr_context_usage
-            exit 0
-            ;;
-        *) die "unknown option: $1" ;;
+            --diff) want_diff=1 ;;
+            --checks) want_checks=1 ;;
+            --reviews) want_reviews=1 ;;
+            --pack) want_pack=1 ;;
+            --json) output_format="json" ;;
+            --help | -h)
+                ai_git_pr_context_usage
+                exit 0
+                ;;
+            *) die "unknown option: $1" ;;
         esac
         shift
     done

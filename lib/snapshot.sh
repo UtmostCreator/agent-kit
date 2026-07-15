@@ -132,21 +132,21 @@ _ai_snapshot_protected_untracked_path() {
     local path="${1:?path required}"
 
     case "$path" in
-    .git | .git/*)
-        return 0
-        ;;
-    "$AI_LOG_DIR" | "$AI_LOG_DIR"/*)
-        return 0
-        ;;
-    "$AI_CONTEXT_DIR" | "$AI_CONTEXT_DIR"/*)
-        return 0
-        ;;
-    .ai-logs | .ai-logs/*)
-        return 0
-        ;;
-    .repomix-context | .repomix-context/*)
-        return 0
-        ;;
+        .git | .git/*)
+            return 0
+            ;;
+        "$AI_LOG_DIR" | "$AI_LOG_DIR"/*)
+            return 0
+            ;;
+        "$AI_CONTEXT_DIR" | "$AI_CONTEXT_DIR"/*)
+            return 0
+            ;;
+        .ai-logs | .ai-logs/*)
+            return 0
+            ;;
+        .repomix-context | .repomix-context/*)
+            return 0
+            ;;
     esac
 
     return 1
@@ -229,21 +229,21 @@ snapshot_apply() {
     [[ -f "$snap_file" ]] || die "snapshot not found: $snap_file"
 
     case "$snap_file" in
-    *.manifest.json)
-        snapshot_apply_manifest "$snap_file"
-        ;;
-    *.ref)
-        local ref
-        ref="$(<"$snap_file")"
-        git reset --hard "$ref"
-        log_json "snapshot.apply.legacy_ref" "$(jq -cn --arg file "$snap_file" --arg ref "$ref" '{file:$file, ref:$ref}')" || true
-        ;;
-    *.patch)
-        git apply --whitespace=fix "$snap_file"
-        log_json "snapshot.apply.legacy_patch" "$(jq -cn --arg file "$snap_file" '{file:$file}')" || true
-        ;;
-    *)
-        die "unsupported snapshot type: $snap_file"
-        ;;
+        *.manifest.json)
+            snapshot_apply_manifest "$snap_file"
+            ;;
+        *.ref)
+            local ref
+            ref="$(<"$snap_file")"
+            git reset --hard "$ref"
+            log_json "snapshot.apply.legacy_ref" "$(jq -cn --arg file "$snap_file" --arg ref "$ref" '{file:$file, ref:$ref}')" || true
+            ;;
+        *.patch)
+            git apply --whitespace=fix "$snap_file"
+            log_json "snapshot.apply.legacy_patch" "$(jq -cn --arg file "$snap_file" '{file:$file}')" || true
+            ;;
+        *)
+            die "unsupported snapshot type: $snap_file"
+            ;;
     esac
 }

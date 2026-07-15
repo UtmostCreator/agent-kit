@@ -608,8 +608,8 @@ gate_ok=1
 gate_modes="changed-files staged-files tracked"
 for needle in changed staged tracked; do
     case "$gate_modes" in
-    *"$needle"*) : ;;
-    *) gate_ok=0 ;;
+        *"$needle"*) : ;;
+        *) gate_ok=0 ;;
     esac
 done
 if [[ "$gate_ok" -eq 1 ]]; then
@@ -1009,9 +1009,9 @@ if command -v jq >/dev/null 2>&1; then
     HELP_OUT="$("$BASH_BIN" "$SCRIPT" --help 2>/dev/null)"
     HELP_RC=$?
     set -e
-    if [[ "$HELP_RC" -eq 0 ]] \
-        && printf '%s' "$HELP_OUT" | grep -q 'unified repository search' \
-        && printf '%s' "$HELP_OUT" | grep -qi 'modes'; then
+    if [[ "$HELP_RC" -eq 0 ]] &&
+        printf '%s' "$HELP_OUT" | grep -q 'unified repository search' &&
+        printf '%s' "$HELP_OUT" | grep -qi 'modes'; then
         printf '  PASS --help renders usage and mode discovery (exit 0)\n'
     else
         printf '  FAIL --help usage/mode discovery (rc=%s)\n' "$HELP_RC" >&2

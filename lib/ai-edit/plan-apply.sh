@@ -148,10 +148,10 @@ patch_guard_paths() {
     while IFS= read -r p; do
         [[ -n "$p" ]] || continue
         case "$p" in
-        /* | ../* | */../* | .git | .git/*)
-            bad+="$p"$'\n'
-            continue
-            ;;
+            /* | ../* | */../* | .git | .git/*)
+                bad+="$p"$'\n'
+                continue
+                ;;
         esac
         matched=0
         for g in "${patch_denied_globs[@]}"; do

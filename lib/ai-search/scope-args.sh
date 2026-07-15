@@ -22,17 +22,17 @@ build_case_pattern_args() {
     # query contains uppercase), matching rg's native --smart-case.
     case_args=()
     case "$case_mode" in
-    ignore) case_args=(--ignore-case) ;;
-    sensitive) case_args=(--case-sensitive) ;;
-    smart | *) case_args=(--smart-case) ;;
+        ignore) case_args=(--ignore-case) ;;
+        sensitive) case_args=(--case-sensitive) ;;
+        smart | *) case_args=(--smart-case) ;;
     esac
 
     # Phase 3C pattern control: literal (--fixed), regex (default/--regex), or PCRE2.
     rg_fixed_args=()
     case "$pattern_mode" in
-    fixed) rg_fixed_args=(--fixed-strings) ;;
-    pcre2) rg_fixed_args=(--pcre2) ;;
-    *) : ;;
+        fixed) rg_fixed_args=(--fixed-strings) ;;
+        pcre2) rg_fixed_args=(--pcre2) ;;
+        *) : ;;
     esac
     return 0
 }
@@ -54,7 +54,7 @@ resolve_global_gitignore() {
     # prefix is exactly the intent here.
     # shellcheck disable=SC2088
     case "$f" in
-    "~/"*) f="$HOME/${f#"~/"}" ;;
+        "~/"*) f="$HOME/${f#"~/"}" ;;
     esac
     if [[ -f "$f" ]]; then
         printf '%s' "$f"

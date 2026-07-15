@@ -168,11 +168,11 @@ finish() {
         emit_result_json "$status"
     else
         case "$status" in
-        dry_run) printf '\nDry-run only. Re-run with --apply or APPLY=1 to modify files.\n' ;;
-        no_matches) printf 'No matches.\n' ;;
-        applied) printf 'Applied changes. Manifest: %s/edit-session.json\n' "$SESSION_DIR" ;;
-        verified) printf 'Applied and verified. Manifest: %s/edit-session.json\n' "$SESSION_DIR" ;;
-        limit_exceeded | blocked | error | verify_failed) printf '%s\n' "$status" >&2 ;;
+            dry_run) printf '\nDry-run only. Re-run with --apply or APPLY=1 to modify files.\n' ;;
+            no_matches) printf 'No matches.\n' ;;
+            applied) printf 'Applied changes. Manifest: %s/edit-session.json\n' "$SESSION_DIR" ;;
+            verified) printf 'Applied and verified. Manifest: %s/edit-session.json\n' "$SESSION_DIR" ;;
+            limit_exceeded | blocked | error | verify_failed) printf '%s\n' "$status" >&2 ;;
         esac
     fi
 

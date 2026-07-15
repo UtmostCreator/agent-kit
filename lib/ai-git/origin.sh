@@ -76,29 +76,29 @@ ai_git_origin_main() {
     local output_json=0
     while [[ $# -gt 0 ]]; do
         case "$1" in
-        --help | -h)
-            ai_git_origin_usage
-            exit 0
-            ;;
-        --json)
-            output_json=1
-            shift
-            ;;
-        --field)
-            field="${2:?--field requires a value}"
-            shift 2
-            ;;
-        --field=*)
-            field="${1#*=}"
-            shift
-            ;;
-        *) die "unknown option: $1" ;;
+            --help | -h)
+                ai_git_origin_usage
+                exit 0
+                ;;
+            --json)
+                output_json=1
+                shift
+                ;;
+            --field)
+                field="${2:?--field requires a value}"
+                shift 2
+                ;;
+            --field=*)
+                field="${1#*=}"
+                shift
+                ;;
+            *) die "unknown option: $1" ;;
         esac
     done
 
     case "$field" in
-    name | base | count | all) ;;
-    *) die "invalid --field: $field (expected name|base|count|all)" ;;
+        name | base | count | all) ;;
+        *) die "invalid --field: $field (expected name|base|count|all)" ;;
     esac
 
     git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "not inside a git repository"
@@ -117,7 +117,7 @@ ai_git_origin_main() {
     while IFS= read -r ref; do
         [[ -n "$ref" ]] || continue
         case "$ref" in
-        "$current_branch" | origin | */HEAD | HEAD) continue ;;
+            "$current_branch" | origin | */HEAD | HEAD) continue ;;
         esac
         git rev-parse --verify --quiet "$ref^{commit}" >/dev/null 2>&1 || continue
 
@@ -189,10 +189,10 @@ ai_git_origin_main() {
               distance: $count, candidates: $candidates, warnings: [], errors: []}'
     else
         case "$field" in
-        name) printf '%s\n' "$best_name" ;;
-        base) printf '%s\n' "$best_base" ;;
-        count) printf '%s\n' "$best_count" ;;
-        all) printf '%s\t%s\t%s\n' "$best_name" "$best_base" "$best_count" ;;
+            name) printf '%s\n' "$best_name" ;;
+            base) printf '%s\n' "$best_base" ;;
+            count) printf '%s\n' "$best_count" ;;
+            all) printf '%s\t%s\t%s\n' "$best_name" "$best_base" "$best_count" ;;
         esac
     fi
 }

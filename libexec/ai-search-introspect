@@ -18,9 +18,11 @@ set -euo pipefail
 #   agent-kit search-introspect            # print the full ai-search capability map
 #   agent-kit search-introspect --probe    # confirm every search mode is reachable
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-    _self="${BASH_SOURCE[0]}"; _here="$(cd "$(dirname "$_self")" && pwd)"
+    _self="${BASH_SOURCE[0]}"
+    _here="$(cd "$(dirname "$_self")" && pwd)"
     [[ -x "$_here/sh-introspect" ]] && exec bash "$_here/sh-introspect" --format=help "$_self"
-    sed -n '2,24p' "$_self" | sed 's/^# \{0,1\}//'; exit 0
+    sed -n '2,24p' "$_self" | sed 's/^# \{0,1\}//'
+    exit 0
 fi
 if [[ "${1:-}" == "--introspect" ]]; then
     _ai_introspect_here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -187,11 +189,11 @@ hr
 grep -hoE '\b(AI_OUTPUT|AI_LANG|AI_SEARCH_STRICT|AI_SEARCH_MULTI_MAX|XDG_CONFIG_HOME)\b' \
     "$search" "$multi" "$search_lib"/*.sh | sort -u | while IFS= read -r v; do
     case "$v" in
-    AI_OUTPUT) printf '  %-22s set to "json" to emit the JSON envelope\n' "$v" ;;
-    AI_LANG) printf '  %-22s fallback language for struct when --lang is absent (default php)\n' "$v" ;;
-    AI_SEARCH_STRICT) printf '  %-22s =1 makes deprecated changed/staged aliases an error\n' "$v" ;;
-    AI_SEARCH_MULTI_MAX) printf '  %-22s max queries per ai-search-multi.sh run (default 20)\n' "$v" ;;
-    XDG_CONFIG_HOME) printf '  %-22s used to resolve the global gitignore (git/ignore)\n' "$v" ;;
+        AI_OUTPUT) printf '  %-22s set to "json" to emit the JSON envelope\n' "$v" ;;
+        AI_LANG) printf '  %-22s fallback language for struct when --lang is absent (default php)\n' "$v" ;;
+        AI_SEARCH_STRICT) printf '  %-22s =1 makes deprecated changed/staged aliases an error\n' "$v" ;;
+        AI_SEARCH_MULTI_MAX) printf '  %-22s max queries per ai-search-multi.sh run (default 20)\n' "$v" ;;
+        XDG_CONFIG_HOME) printf '  %-22s used to resolve the global gitignore (git/ignore)\n' "$v" ;;
     esac
 done
 

@@ -59,15 +59,15 @@ EOF
 ai_verify_refs_is_implicit_entrypoint() {
     local base="$1"
     case "$base" in
-    README.md | AGENTS.md | CLAUDE.md | LICENSE | LICENSE.md | CHANGELOG.md | \
-        SECURITY.md | SUPPORT.md | CONTRIBUTING.md | .gitignore | .gitattributes | \
-        .editorconfig | composer.json | composer.lock | phpunit.xml.dist | \
-        justfile | llms.txt | opencode.jsonc | opencode.json)
-        return 0
-        ;;
-    *.lock)
-        return 0
-        ;;
+        README.md | AGENTS.md | CLAUDE.md | LICENSE | LICENSE.md | CHANGELOG.md | \
+            SECURITY.md | SUPPORT.md | CONTRIBUTING.md | .gitignore | .gitattributes | \
+            .editorconfig | composer.json | composer.lock | phpunit.xml.dist | \
+            justfile | llms.txt | opencode.jsonc | opencode.json)
+            return 0
+            ;;
+        *.lock)
+            return 0
+            ;;
     esac
     return 1
 }
@@ -84,51 +84,51 @@ ai_verify_refs_main() {
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-        --help | -h)
-            ai_verify_refs_usage
-            return 0
-            ;;
-        --format)
-            output_format="${2:-plain}"
-            shift 2
-            ;;
-        --format=*)
-            output_format="${1#*=}"
-            shift
-            ;;
-        --ext)
-            IFS=',' read -ra exts <<<"${2:-}"
-            shift 2
-            ;;
-        --ext=*)
-            IFS=',' read -ra exts <<<"${1#*=}"
-            shift
-            ;;
-        --all)
-            include_all=1
-            shift
-            ;;
-        --exclude)
-            excludes+=("${2:-}")
-            shift 2
-            ;;
-        --exclude=*)
-            excludes+=("${1#*=}")
-            shift
-            ;;
-        --*)
-            die "unknown option: $1"
-            ;;
-        *)
-            scan_path="$1"
-            shift
-            ;;
+            --help | -h)
+                ai_verify_refs_usage
+                return 0
+                ;;
+            --format)
+                output_format="${2:-plain}"
+                shift 2
+                ;;
+            --format=*)
+                output_format="${1#*=}"
+                shift
+                ;;
+            --ext)
+                IFS=',' read -ra exts <<<"${2:-}"
+                shift 2
+                ;;
+            --ext=*)
+                IFS=',' read -ra exts <<<"${1#*=}"
+                shift
+                ;;
+            --all)
+                include_all=1
+                shift
+                ;;
+            --exclude)
+                excludes+=("${2:-}")
+                shift 2
+                ;;
+            --exclude=*)
+                excludes+=("${1#*=}")
+                shift
+                ;;
+            --*)
+                die "unknown option: $1"
+                ;;
+            *)
+                scan_path="$1"
+                shift
+                ;;
         esac
     done
 
     case "$output_format" in
-    plain | json) ;;
-    *) die "invalid --format: $output_format (expected json or plain)" ;;
+        plain | json) ;;
+        *) die "invalid --format: $output_format (expected json or plain)" ;;
     esac
 
     # Collect candidate files (tracked, under scan_path, optionally ext-filtered).
@@ -176,7 +176,7 @@ ai_verify_refs_main() {
         # Capture into a variable first: piping rg into `grep -q` lets grep close
         # the pipe early, which makes rg exit non-zero and (under pipefail) would
         # wrongly mark referenced files as orphans.
-        rg_excludes=(-g '!vendor/**' -g '!node_modules/**' -g '!.git/**' \
+        rg_excludes=(-g '!vendor/**' -g '!node_modules/**' -g '!.git/**'
             -g '!.repomix-context/**' -g '!graphify-out/**')
         for pat in "${excludes[@]+${excludes[@]}}"; do
             [[ -n "$pat" ]] && rg_excludes+=(-g "!$pat")

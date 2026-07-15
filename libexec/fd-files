@@ -44,27 +44,27 @@ EXTRA_TYPES=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-    --json)
-        OUTPUT_FORMAT="json"
-        shift
-        ;;
-    --hidden)
-        INCLUDE_HIDDEN=1
-        shift
-        ;;
-    --type)
-        IFS=',' read -ra EXTRA_TYPES <<<"$2"
-        shift 2
-        ;;
-    --type=*)
-        IFS=',' read -ra EXTRA_TYPES <<<"${1#*=}"
-        shift
-        ;;
-    --help | -h)
-        usage
-        exit 0
-        ;;
-    *) die "unknown option: $1" ;;
+        --json)
+            OUTPUT_FORMAT="json"
+            shift
+            ;;
+        --hidden)
+            INCLUDE_HIDDEN=1
+            shift
+            ;;
+        --type)
+            IFS=',' read -ra EXTRA_TYPES <<<"$2"
+            shift 2
+            ;;
+        --type=*)
+            IFS=',' read -ra EXTRA_TYPES <<<"${1#*=}"
+            shift
+            ;;
+        --help | -h)
+            usage
+            exit 0
+            ;;
+        *) die "unknown option: $1" ;;
     esac
 done
 

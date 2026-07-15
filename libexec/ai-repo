@@ -13,6 +13,8 @@
 #   agent-kit repo tools [--json]                                (repo-tool-inventory)
 #   agent-kit repo status                                        (ai-file-freshness)
 #
+# Modes: tasks stats tools status
+#
 # Example:
 #   agent-kit repo tasks list    # list every task this project already defines
 #   agent-kit repo stats         # count files Git currently tracks
@@ -30,28 +32,28 @@ _repo_route() {
 }
 
 case "${1:-}" in
-tasks)
-    shift
-    _repo_route ai-task "$@"
-    ;;
-stats)
-    shift
-    _repo_route repo-stats "$@"
-    ;;
-tools)
-    shift
-    _repo_route repo-tool-inventory "$@"
-    ;;
-status)
-    shift
-    _repo_route ai-file-freshness "$@"
-    ;;
---help | -h | "")
-    sed -n '2,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
-    exit 0
-    ;;
-*)
-    echo "agent-kit repo: unknown mode '$1' (expected tasks|stats|tools|status)" >&2
-    exit 2
-    ;;
+    tasks)
+        shift
+        _repo_route ai-task "$@"
+        ;;
+    stats)
+        shift
+        _repo_route repo-stats "$@"
+        ;;
+    tools)
+        shift
+        _repo_route repo-tool-inventory "$@"
+        ;;
+    status)
+        shift
+        _repo_route ai-file-freshness "$@"
+        ;;
+    --help | -h | "")
+        sed -n '2,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+        exit 0
+        ;;
+    *)
+        echo "agent-kit repo: unknown mode '$1' (expected tasks|stats|tools|status)" >&2
+        exit 2
+        ;;
 esac

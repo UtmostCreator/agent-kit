@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# Short repository search: default to text mode and auto-detect the search root.
+#
+# `agent-kit s QUERY` (or `ak s QUERY`) searches file contents for QUERY across
+# the repository, resolving the root automatically (explicit ROOT > Git top-level
+# > current dir) so the common case needs no mode word and no trailing `.`. A
+# mode-selecting flag switches families; every other flag is forwarded verbatim
+# to `agent-kit search`. This is sugar over `agent-kit search text QUERY <root>`.
+#
+# Usage:
+#   agent-kit s QUERY [ROOT] [flags]         text search (default mode)
+#   agent-kit s QUERY --tracked              search only git-tracked files
+#   agent-kit s QUERY --changed              search only changed (worktree) files
+#   agent-kit s QUERY --staged               search only staged files
+#   agent-kit s QUERY --diff [--base REF]    search this branch's diff
+#   agent-kit s QUERY --history [--messages] pickaxe git history for QUERY
+#   agent-kit s QUERY --docs|--tests|--config|--deps   surface-scoped text search
+#
+# Example:
+#   agent-kit s TODO                         # every TODO in the repo, no '.' needed
+#   agent-kit s emit_json libexec            # scope the search to a subdirectory
+#   agent-kit s export --changed             # only the files you changed
+#   agent-kit s AgentKit --history --messages
+#   AI_OUTPUT=json agent-kit s emit_json     # stable JSON envelope for agents
+#
+# Canonical equivalent: `agent-kit s TODO` == `agent-kit search text TODO <root>`.
+#
+# Requires: git (root auto-detection; falls back to '.' outside a repo)
+#
+# Exit codes: mirror `agent-kit search`; 2 on a shorthand usage error.
+
+set -euo pipefail
+
+# --- Early --help/-h guard.
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    _self="${BASH_SOURCE[0]}"
+    _here="$(cd "$(dirname "$_self")" && pwd)"
+    [[ -x "$_here/sh-introspect" ]] && exec bash "$_here/sh-introspect" --format=help "$_self"
+    sed -n '2,27p' "$_self" | sed 's/^# \{0,1\}//'
+    exit 0
+fi
+
+# --- Early --introspect guard.
+if [[ "${1:-}" == "--introspect" ]]; then
+    _self="${BASH_SOURCE[0]}"
+    _here="$(cd "$(dirname "$_self")" && pwd)"
+    exec env AI_OUTPUT=json bash "$_here/sh-introspect" "$_self"
+fi
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SEARCH="$SELF_DIR/ai-search"
+
+fail() {
+    printf 'agent-kit s: %s\n' "$1" >&2
+    exit 2
+}
+
+# Flags that consume the following token as their value in `agent-kit search`.
+# Kept in lockstep with lib/ai-search/parse-flags.sh so we forward "--flag value"
+# as a pair and never mistake a flag value for a positional query/root.
+value_flag() {
+    case "$1" in
+        --glob | --type | --exclude | --max-depth | --context | -C | \
+            --before-context | -B | --after-context | -A | \
+            --max-bytes | --max-results | --base | --lang) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+mode="text"
+positionals=()
+passthrough=()
+
+while (($# > 0)); do
+    case "$1" in
+        # Mode selectors (shorthand-only; last one wins).
+        --tracked) mode="tracked" ;;
+        --changed) mode="changed-text" ;;
+        --staged) mode="staged-text" ;;
+        --diff) mode="diff" ;;
+        --history) mode="history" ;;
+        --docs) mode="docs" ;;
+        --tests) mode="tests" ;;
+        --config) mode="config" ;;
+        --deps) mode="deps" ;;
+        *)
+            if value_flag "$1"; then
+                (($# >= 2)) || fail "flag '$1' requires a value"
+                passthrough+=("$1" "$2")
+                shift
+            elif [[ "$1" == -* ]]; then
+                passthrough+=("$1")
+            else
+                positionals+=("$1")
+            fi
+            ;;
+    esac
+    shift
+done
+
+# Root resolution: explicit second positional wins; else Git top-level; else '.'.
+resolve_root() {
+    git rev-parse --show-toplevel 2>/dev/null || printf '.'
+}
+
+case "${#positionals[@]}" in
+    0)
+        fail "a QUERY is required (e.g. 'agent-kit s TODO')"
+        ;;
+    1)
+        exec "${BASH:-bash}" "$SEARCH" "$mode" "${positionals[0]}" "$(resolve_root)" \
+            ${passthrough[@]+"${passthrough[@]}"}
+        ;;
+    *)
+        # Query + an explicit root (and any extras) — forward as-is so
+        # `agent-kit search` applies its own positional validation.
+        exec "${BASH:-bash}" "$SEARCH" "$mode" "${positionals[@]}" \
+            ${passthrough[@]+"${passthrough[@]}"}
+        ;;
+esac

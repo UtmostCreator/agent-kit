@@ -28,21 +28,34 @@
 #   # Example:
 #   #   <command>        # what it does, for new users
 #   #
+#   # Modes: mode-a mode-b mode-c     (optional; subcommand/mode names, e.g.
+#   #                                  `search`'s `text`/`files`/... — feeds
+#   #                                  shell-completion generation)
+#   #
+#   # Flags: --foo --bar -x           (optional; declared wins over the
+#   #                                  inferred `--foo)` case-label scan —
+#   #                                  use for thin loaders whose real flags
+#   #                                  live in sourced modules)
+#   #
 #   # Requires: rg jq           (optional; else inferred from `command -v`)
 #
-# Scope: parses ONLY the given file — it does not follow `source`d modules. For
-#   thin-loader entrypoints (e.g. ai-search, ai-edit) whose flags live in sourced
-#   modules, the human --help stays complete (usage/examples come from the header)
-#   but the JSON `flags` list reflects the entrypoint file alone. `flags` is read
-#   from `--foo)` case labels, so flags matched via `[[ $1 == --foo ]]` are not
-#   listed. These are conservative under-reports, never wrong claims.
+# Scope: parses the given file; it never follows a script's `source`
+#   statements or executes anything. For a `libexec/<name>` entrypoint whose
+#   sibling `lib/<name>/*.sh` directory exists, `flags` ALSO scans that fixed,
+#   repo-documented path (never `source` statements) — this repo's own
+#   thin-loader convention. Outside that convention, only the target file is
+#   scanned. `flags` is read from `--foo)` case labels, so flags matched via
+#   `[[ $1 == --foo ]]` are still missed — a conservative under-report. A
+#   `lib/<name>/` directory that exists for an unrelated reason (rare outside
+#   this repo's own layout) can attribute a foreign flag to the wrong script;
+#   use `# Flags:` to override when that matters.
 #
 # Exit codes: 0 parsed ok; 2 path/argument error. The target is NEVER executed.
 
 set -euo pipefail
 
 usage() {
-    sed -n '2,33p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '2,51p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 # --- self description (so `sh-introspect --help` works without recursion) ------
@@ -62,11 +75,27 @@ list_dir=""
 args=()
 while (($# > 0)); do
     case "$1" in
-        --format=*) format="${1#--format=}"; shift ;;
-        --format) format="${2:-text}"; shift 2 ;;
-        --list) list_dir="${2:-.}"; shift; [[ "${1:-}" == "$list_dir" ]] && shift || true ;;
-        --json) format="json"; shift ;;
-        *) args+=("$1"); shift ;;
+        --format=*)
+            format="${1#--format=}"
+            shift
+            ;;
+        --format)
+            format="${2:-text}"
+            shift 2
+            ;;
+        --list)
+            list_dir="${2:-.}"
+            shift
+            [[ "${1:-}" == "$list_dir" ]] && shift || true
+            ;;
+        --json)
+            format="json"
+            shift
+            ;;
+        *)
+            args+=("$1")
+            shift
+            ;;
     esac
 done
 
@@ -109,7 +138,7 @@ extract_description() {
 extract_comment_section() {
     local heading="$1"
     awk -v h="$heading" '
-        function is_heading(s) { return (s ~ /^(Usage|Examples?|Requires|Environment|Flags)[: ]?$/ || s ~ /^(Usage|Examples?|Requires|Environment|Flags):/) }
+        function is_heading(s) { return (s ~ /^(Usage|Examples?|Requires|Environment|Flags|Modes|Exit codes)[: ]?$/ || s ~ /^(Usage|Examples?|Requires|Environment|Flags|Modes|Exit codes):/) }
         /^#/ {
             line=$0; sub(/^#[[:space:]]?/, "", line)
             if (ingrab) {
@@ -141,18 +170,44 @@ extract_usage_heredoc() {
     ' "$target"
 }
 
-# Flags: long-option case labels like `--foo)` or `--foo | -f)`.
+# Flags: explicit `# Flags:` wins (for thin loaders that don't fit the
+# lib/<name>/ convention below); else long-option case labels like `--foo)` or
+# `--foo | -f)`, scanned in the target file AND, if it exists, its sibling
+# `lib/<basename>/*.sh` module directory — the repo's own thin-loader
+# convention (e.g. libexec/ai-search sources lib/ai-search/*.sh). This reads
+# sibling files by a fixed, repo-documented path convention only — never a
+# script's `source` statements — so it stays a static, un-executed scan.
 extract_flags() {
-    grep -oE '^[[:space:]]*(-[A-Za-z] \| )?--[a-z][a-z-]*(\|-[A-Za-z]| \| -[A-Za-z])?\)' "$target" 2>/dev/null \
-        | sed -E 's/^[[:space:]]*//; s/\)$//' | sort -u
+    local declared
+    declared="$(extract_comment_section Flags | tr ' ' '\n' | grep -vE '^$' || true)"
+    if [[ -n "$declared" ]]; then
+        printf '%s\n' "$declared" | sort -u
+        return
+    fi
+    local -a scan_files=("$target")
+    local sibling_dir
+    sibling_dir="$(dirname "$target")/../lib/$(basename "$target")"
+    if [[ -d "$sibling_dir" ]]; then
+        while IFS= read -r f; do
+            scan_files+=("$f")
+        done < <(find "$sibling_dir" -maxdepth 1 -type f -name '*.sh' | sort)
+    fi
+    grep -ohE '^[[:space:]]*(-[A-Za-z] \| )?--[a-z][a-z-]*(\|-[A-Za-z]| \| -[A-Za-z])?\)' "${scan_files[@]}" 2>/dev/null |
+        sed -E 's/^[[:space:]]*//; s/\)$//' | sort -u
+}
+
+# Modes: explicit `# Modes:` subcommand/mode names (e.g. search's text/files/...).
+# No inference — a script only has modes if it declares them.
+extract_modes() {
+    extract_comment_section Modes | tr ' ' '\n' | grep -vE '^$' | sort -u
 }
 
 # Environment inputs: AI_* and other referenced UPPER_SNAKE variables.
 extract_env() {
-    grep -oE '\$\{?[A-Z][A-Z0-9_]{2,}' "$target" 2>/dev/null \
-        | sed -E 's/^\$\{?//' \
-        | grep -vE '^(BASH|BASH_SOURCE|FUNCNAME|PWD|OLDPWD|HOME|PATH|SHELL|IFS|RANDOM|SECONDS|LINENO|PPID|UID|EUID|HOSTNAME|OSTYPE|MACHTYPE|EOF|USAGE|HELP)$' \
-        | sort -u
+    grep -oE '\$\{?[A-Z][A-Z0-9_]{2,}' "$target" 2>/dev/null |
+        sed -E 's/^\$\{?//' |
+        grep -vE '^(BASH|BASH_SOURCE|FUNCNAME|PWD|OLDPWD|HOME|PATH|SHELL|IFS|RANDOM|SECONDS|LINENO|PPID|UID|EUID|HOSTNAME|OSTYPE|MACHTYPE|EOF|USAGE|HELP)$' |
+        sort -u
 }
 
 # Required commands: explicit `# Requires:` wins; else infer from `command -v X`.
@@ -163,15 +218,18 @@ extract_requires() {
         printf '%s\n' "$declared" | sort -u
         return
     fi
-    grep -oE 'command -v [A-Za-z][A-Za-z0-9_-]*' "$target" 2>/dev/null \
-        | awk '{print $3}' | sort -u
+    grep -oE 'command -v [A-Za-z][A-Za-z0-9_-]*' "$target" 2>/dev/null |
+        awk '{print $3}' | sort -u
 }
 
 # --list DIR — enumerate commands + one-line summary, then exit. Uses the SAME
 # extract_description as the per-file path so the human listing and the JSON
 # contract never disagree.
 if [[ -n "$list_dir" ]]; then
-    [[ -d "$list_dir" ]] || { printf 'sh-introspect: not a directory: %s\n' "$list_dir" >&2; exit 2; }
+    [[ -d "$list_dir" ]] || {
+        printf 'sh-introspect: not a directory: %s\n' "$list_dir" >&2
+        exit 2
+    }
     find "$list_dir" -maxdepth 1 -type f | sort | while IFS= read -r f; do
         printf '  %-24s %s\n' "$(basename "$f")" "$(extract_description "$f" | head -n1)"
     done
@@ -191,24 +249,54 @@ example_lines="$(extract_comment_section Example || true)"
 flags="$(extract_flags || true)"
 env_vars="$(extract_env || true)"
 requires="$(extract_requires || true)"
+modes="$(extract_modes || true)"
 
 # --- renderers ----------------------------------------------------------------
 render_text() {
     printf '%s\n' "$name"
-    [[ -n "$description" ]] && { printf '\n'; printf '%s\n' "$description"; }
-    if [[ -n "$usage_lines" ]]; then printf '\nUsage:\n'; printf '%s\n' "$usage_lines" | sed 's/^/  /'; fi
-    if [[ -n "$example_lines" ]]; then printf '\nExample:\n'; printf '%s\n' "$example_lines" | sed 's/^/  /'; fi
-    if [[ -n "$flags" ]]; then printf '\nFlags:\n'; printf '%s\n' "$flags" | sed 's/^/  /'; fi
-    if [[ -n "$env_vars" ]]; then printf '\nEnvironment:\n'; printf '%s\n' "$env_vars" | sed 's/^/  /'; fi
-    if [[ -n "$requires" ]]; then printf '\nRequires:\n'; printf '  %s\n' "$(printf '%s ' $requires)"; fi
+    [[ -n "$description" ]] && {
+        printf '\n'
+        printf '%s\n' "$description"
+    }
+    if [[ -n "$usage_lines" ]]; then
+        printf '\nUsage:\n'
+        printf '%s\n' "$usage_lines" | sed 's/^/  /'
+    fi
+    if [[ -n "$example_lines" ]]; then
+        printf '\nExample:\n'
+        printf '%s\n' "$example_lines" | sed 's/^/  /'
+    fi
+    if [[ -n "$modes" ]]; then
+        printf '\nModes:\n'
+        printf '  %s\n' "$(printf '%s ' $modes)"
+    fi
+    if [[ -n "$flags" ]]; then
+        printf '\nFlags:\n'
+        printf '%s\n' "$flags" | sed 's/^/  /'
+    fi
+    if [[ -n "$env_vars" ]]; then
+        printf '\nEnvironment:\n'
+        printf '%s\n' "$env_vars" | sed 's/^/  /'
+    fi
+    if [[ -n "$requires" ]]; then
+        printf '\nRequires:\n'
+        printf '  %s\n' "$(printf '%s ' $requires)"
+    fi
     printf '\n(static introspection — target not executed)\n'
 }
 
 render_help() {
     # Compact contract embedded in a script's own --help.
     [[ -n "$description" ]] && printf '%s\n' "$description"
-    if [[ -n "$usage_lines" ]]; then printf '\nUsage:\n'; printf '%s\n' "$usage_lines" | sed 's/^/  /'; fi
-    if [[ -n "$example_lines" ]]; then printf '\nExample:\n'; printf '%s\n' "$example_lines" | sed 's/^/  /'; fi
+    if [[ -n "$usage_lines" ]]; then
+        printf '\nUsage:\n'
+        printf '%s\n' "$usage_lines" | sed 's/^/  /'
+    fi
+    if [[ -n "$example_lines" ]]; then
+        printf '\nExample:\n'
+        printf '%s\n' "$example_lines" | sed 's/^/  /'
+    fi
+    if [[ -n "$modes" ]]; then printf 'Modes: %s\n' "$(printf '%s ' $modes)"; fi
     if [[ -n "$flags" ]]; then printf '\nFlags: %s\n' "$(printf '%s ' $flags)"; fi
     if [[ -n "$requires" ]]; then printf 'Requires: %s\n' "$(printf '%s ' $requires)"; fi
 }
@@ -226,10 +314,11 @@ render_json() {
         --argjson flags "$(to_arr "$flags")" \
         --argjson env "$(to_arr "$env_vars")" \
         --argjson requires "$(to_arr "$requires")" \
+        --argjson modes "$(to_arr "$modes")" \
         '{schema:"ai.sh-introspect/v1", status:"ok", tool:$tool, target:$target,
           name:$name, meta:{target_executed:false},
           description:$description, usage:$usage, examples:$examples,
-          flags:$flags, env:$env, requires:$requires}'
+          flags:$flags, env:$env, requires:$requires, modes:$modes}'
 }
 
 # Render into a single buffer, then emit with ONE write. Callers frequently pipe
@@ -239,6 +328,6 @@ render_json() {
 case "$format" in
     json) _rendered="$(render_json)" ;;
     help) _rendered="$(render_help)" ;;
-    text|*) _rendered="$(render_text)" ;;
+    text | *) _rendered="$(render_text)" ;;
 esac
 printf '%s\n' "$_rendered"

@@ -38,39 +38,39 @@ ai_context_estimate_main() {
 
     while (($# > 0)); do
         case "$1" in
-        --multiplier)
-            MULTIPLIER="$2"
-            shift 2
-            ;;
-        --multiplier=*)
-            MULTIPLIER="${1#*=}"
-            shift
-            ;;
-        --multiplier-label)
-            LABEL="$2"
-            shift 2
-            ;;
-        --multiplier-label=*)
-            LABEL="${1#*=}"
-            shift
-            ;;
-        --reserved-output)
-            RESERVED_OUTPUT="$2"
-            shift 2
-            ;;
-        --reserved-output=*)
-            RESERVED_OUTPUT="${1#*=}"
-            shift
-            ;;
-        --help | -h)
-            ai_context_estimate_usage
-            return 0
-            ;;
-        *)
-            echo "Unknown option: $1" >&2
-            ai_context_estimate_usage
-            return 2
-            ;;
+            --multiplier)
+                MULTIPLIER="$2"
+                shift 2
+                ;;
+            --multiplier=*)
+                MULTIPLIER="${1#*=}"
+                shift
+                ;;
+            --multiplier-label)
+                LABEL="$2"
+                shift 2
+                ;;
+            --multiplier-label=*)
+                LABEL="${1#*=}"
+                shift
+                ;;
+            --reserved-output)
+                RESERVED_OUTPUT="$2"
+                shift 2
+                ;;
+            --reserved-output=*)
+                RESERVED_OUTPUT="${1#*=}"
+                shift
+                ;;
+            --help | -h)
+                ai_context_estimate_usage
+                return 0
+                ;;
+            *)
+                echo "Unknown option: $1" >&2
+                ai_context_estimate_usage
+                return 2
+                ;;
         esac
     done
 

@@ -96,9 +96,9 @@ branch_scoped_files() {
 scoped_php_files() {
     local source_fn
     case "$AI_VERIFY_SCOPE" in
-    branch) source_fn=branch ;;
-    changed) source_fn=changed ;;
-    *) return 0 ;;
+        branch) source_fn=branch ;;
+        changed) source_fn=changed ;;
+        *) return 0 ;;
     esac
 
     {
@@ -146,77 +146,77 @@ is_changed_or_branch_scope() {
 # AI_VERIFY_SCOPE=all. Binary blobs and the .git dir are never included.
 linecount_scoped_files() {
     case "$AI_VERIFY_SCOPE" in
-    all)
-        git ls-files -co --exclude-standard
-        ;;
-    branch)
-        branch_scoped_files '*'
-        ;;
-    *)
-        # ai (default) and changed both mean "only what this slice touched".
-        {
-            git diff --name-only --diff-filter=ACMRT
-            git diff --cached --name-only --diff-filter=ACMRT
-            git ls-files --others --exclude-standard
-        } | sort -u
-        ;;
+        all)
+            git ls-files -co --exclude-standard
+            ;;
+        branch)
+            branch_scoped_files '*'
+            ;;
+        *)
+            # ai (default) and changed both mean "only what this slice touched".
+            {
+                git diff --name-only --diff-filter=ACMRT
+                git diff --cached --name-only --diff-filter=ACMRT
+                git ls-files --others --exclude-standard
+            } | sort -u
+            ;;
     esac
 }
 
 tracked_existing_shell_files() {
     case "$AI_VERIFY_SCOPE" in
-    ai)
-        # In an installed target repo the shipped scripts/ai/*.sh wrappers are
-        # not the user's code to verify; only self-verify them inside the kit's
-        # own authoring repository.
-        is_ai_kit_source_repo || return 0
-        git ls-files -co --exclude-standard 'scripts/ai/*.sh' |
-            while IFS= read -r script; do
-                [[ -f "$script" ]] || continue
-                [[ "$script" == scripts/ai/check-batch*.sh ]] && continue
-                printf '%s\n' "$script"
-            done
-        ;;
-    changed)
-        {
-            git diff --name-only --diff-filter=ACMRT -- '*.sh'
-            git diff --cached --name-only --diff-filter=ACMRT -- '*.sh'
-            git ls-files --others --exclude-standard -- '*.sh'
-        } |
-            sort -u |
-            while IFS= read -r script; do
-                [[ -f "$script" ]] || continue
-                # In installed target repositories, AI-kit shell files are
-                # shipped support files. Changed-scope verification is for the
-                # user's slice, not re-linting shipped wrappers after install.
-                # Inside the kit's own source repo they remain in scope.
-                should_skip_shipped_ai_kit_shell_file "$script" && continue
-                [[ "$script" == scripts/ai/check-batch*.sh ]] && continue
-                printf '%s\n' "$script"
-            done
-        ;;
-    branch)
-        branch_scoped_files '*.sh' |
-            while IFS= read -r script; do
-                [[ -f "$script" ]] || continue
-                # Branch scope can include freshly installed kit shell files in
-                # a target repository; do not make shipped wrappers part of the
-                # target project's verification burden. Inside the kit's own
-                # source repo they remain in scope.
-                should_skip_shipped_ai_kit_shell_file "$script" && continue
-                [[ "$script" == scripts/ai/check-batch*.sh ]] && continue
-                printf '%s\n' "$script"
-            done
-        ;;
-    all)
-        git ls-files -co --exclude-standard '*.sh' |
-            while IFS= read -r script; do
-                [[ -f "$script" ]] || continue
-                printf '%s\n' "$script"
-            done
-        ;;
-    *)
-        die "unknown AI_VERIFY_SCOPE: $AI_VERIFY_SCOPE"
-        ;;
+        ai)
+            # In an installed target repo the shipped scripts/ai/*.sh wrappers are
+            # not the user's code to verify; only self-verify them inside the kit's
+            # own authoring repository.
+            is_ai_kit_source_repo || return 0
+            git ls-files -co --exclude-standard 'scripts/ai/*.sh' |
+                while IFS= read -r script; do
+                    [[ -f "$script" ]] || continue
+                    [[ "$script" == scripts/ai/check-batch*.sh ]] && continue
+                    printf '%s\n' "$script"
+                done
+            ;;
+        changed)
+            {
+                git diff --name-only --diff-filter=ACMRT -- '*.sh'
+                git diff --cached --name-only --diff-filter=ACMRT -- '*.sh'
+                git ls-files --others --exclude-standard -- '*.sh'
+            } |
+                sort -u |
+                while IFS= read -r script; do
+                    [[ -f "$script" ]] || continue
+                    # In installed target repositories, AI-kit shell files are
+                    # shipped support files. Changed-scope verification is for the
+                    # user's slice, not re-linting shipped wrappers after install.
+                    # Inside the kit's own source repo they remain in scope.
+                    should_skip_shipped_ai_kit_shell_file "$script" && continue
+                    [[ "$script" == scripts/ai/check-batch*.sh ]] && continue
+                    printf '%s\n' "$script"
+                done
+            ;;
+        branch)
+            branch_scoped_files '*.sh' |
+                while IFS= read -r script; do
+                    [[ -f "$script" ]] || continue
+                    # Branch scope can include freshly installed kit shell files in
+                    # a target repository; do not make shipped wrappers part of the
+                    # target project's verification burden. Inside the kit's own
+                    # source repo they remain in scope.
+                    should_skip_shipped_ai_kit_shell_file "$script" && continue
+                    [[ "$script" == scripts/ai/check-batch*.sh ]] && continue
+                    printf '%s\n' "$script"
+                done
+            ;;
+        all)
+            git ls-files -co --exclude-standard '*.sh' |
+                while IFS= read -r script; do
+                    [[ -f "$script" ]] || continue
+                    printf '%s\n' "$script"
+                done
+            ;;
+        *)
+            die "unknown AI_VERIFY_SCOPE: $AI_VERIFY_SCOPE"
+            ;;
     esac
 }

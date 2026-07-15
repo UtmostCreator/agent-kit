@@ -17,6 +17,8 @@
 #   agent-kit inspect data xml FILE [XPATH]          (ai-structured xml)
 #   agent-kit inspect shell SCRIPT                   (sh-introspect)
 #
+# Modes: file data shell
+#
 # Example:
 #   agent-kit inspect file README.md --range 1:40         # show only lines 1-40 of a file
 #   agent-kit inspect data json package.json '.scripts'   # print the "scripts" section with jq
@@ -33,24 +35,24 @@ _insp_route() {
 }
 
 case "${1:-}" in
-file)
-    shift
-    _insp_route preview-file "$@"
-    ;;
-data)
-    shift
-    _insp_route ai-structured "$@"
-    ;;
-shell)
-    shift
-    _insp_route sh-introspect "$@"
-    ;;
---help | -h | "")
-    sed -n '2,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
-    exit 0
-    ;;
-*)
-    echo "agent-kit inspect: unknown mode '$1' (expected file|data|shell)" >&2
-    exit 2
-    ;;
+    file)
+        shift
+        _insp_route preview-file "$@"
+        ;;
+    data)
+        shift
+        _insp_route ai-structured "$@"
+        ;;
+    shell)
+        shift
+        _insp_route sh-introspect "$@"
+        ;;
+    --help | -h | "")
+        sed -n '2,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+        exit 0
+        ;;
+    *)
+        echo "agent-kit inspect: unknown mode '$1' (expected file|data|shell)" >&2
+        exit 2
+        ;;
 esac

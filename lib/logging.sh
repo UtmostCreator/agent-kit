@@ -46,10 +46,10 @@ init_log_repo_context() {
 event_execution_status() {
     local event="${1:-}"
     case "$event" in
-    *.timeout) echo timeout ;;
-    *.passed | *.done | *.ok | *.success | *.created | *.apply | *.applied) echo success ;;
-    *.failed | *.killed | *.error | error | *.aborted) echo error ;;
-    *) echo unknown ;;
+        *.timeout) echo timeout ;;
+        *.passed | *.done | *.ok | *.success | *.created | *.apply | *.applied) echo success ;;
+        *.failed | *.killed | *.error | error | *.aborted) echo error ;;
+        *) echo unknown ;;
     esac
 }
 
@@ -60,9 +60,9 @@ event_category() {
     local event="${1:-}"
     local domain="${event%%.*}"
     case "$domain" in
-    verify | doc-check | guard | session | context | task | structured | test-select | \
-        edit | rollback | snapshot | checkpoint | error | gh-pr-context) echo "$domain" ;;
-    *) echo unknown ;;
+        verify | doc-check | guard | session | context | task | structured | test-select | \
+            edit | rollback | snapshot | checkpoint | error | gh-pr-context) echo "$domain" ;;
+        *) echo unknown ;;
     esac
 }
 
@@ -118,12 +118,12 @@ log_json() {
     event_cat="$(event_category "$event")"
     status_override="$(jq -r 'if type=="object" then (._status // empty) else empty end' <<<"$payload_json" 2>/dev/null)"
     case "$status_override" in
-    success | error | timeout | blocked | unknown) exec_status="$status_override" ;;
+        success | error | timeout | blocked | unknown) exec_status="$status_override" ;;
     esac
     severity="$(jq -r 'if type=="object" then (._severity // empty) else empty end' <<<"$payload_json" 2>/dev/null)"
     case "$severity" in
-    debug | info | warn | error) : ;;
-    *) severity="$(if [[ "$exec_status" == "error" || "$exec_status" == "timeout" ]]; then printf 'error'; else printf 'info'; fi)" ;;
+        debug | info | warn | error) : ;;
+        *) severity="$(if [[ "$exec_status" == "error" || "$exec_status" == "timeout" ]]; then printf 'error'; else printf 'info'; fi)" ;;
     esac
 
     # Increment the process-scoped sequence and seed cached repo metadata.

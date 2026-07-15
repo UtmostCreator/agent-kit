@@ -10,21 +10,28 @@ cd "$REPO_ROOT"
 
 PASS=0 FAIL=0 SKIP=0
 run_test() {
-    local name="$1"; shift; local _rc=0
+    local name="$1"
+    shift
+    local _rc=0
     "$@" >/dev/null 2>&1 || _rc=$?
-    if ((_rc == 0)); then PASS=$((PASS+1)); printf '  \033[0;32m✓\033[0m %s\n' "$name"
-    else FAIL=$((FAIL+1)); printf '  \033[0;31m✗\033[0m %s\n' "$name"; fi
+    if ((_rc == 0)); then
+        PASS=$((PASS + 1))
+        printf '  \033[0;32m✓\033[0m %s\n' "$name"
+    else
+        FAIL=$((FAIL + 1))
+        printf '  \033[0;31m✗\033[0m %s\n' "$name"
+    fi
 }
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 mkdir -p "$TMP/src" "$TMP/vendor/pkg" "$TMP/node_modules/pkg" "$TMP/.git/objects"
-echo "hello" > "$TMP/src/app.php"
-echo "world" > "$TMP/src/util.js"
-echo "hidden" > "$TMP/src/.hidden.txt"
-echo "vendor" > "$TMP/vendor/pkg/lib.php"
-echo "node" > "$TMP/node_modules/pkg/index.js"
+echo "hello" >"$TMP/src/app.php"
+echo "world" >"$TMP/src/util.js"
+echo "hidden" >"$TMP/src/.hidden.txt"
+echo "vendor" >"$TMP/vendor/pkg/lib.php"
+echo "node" >"$TMP/node_modules/pkg/index.js"
 
 printf 'fd-files\n'
 
@@ -183,4 +190,7 @@ run_test "rg --files fallback (no fd) still excludes vendor/" test_fallback_excl
 
 printf '\n=== Results ===\n'
 printf '  Passed: %d  Failed: %d  Skipped: %d\n' "$PASS" "$FAIL" "$SKIP"
-((FAIL == 0)) && printf '\033[0;32mPASSED\033[0m\n' || { printf '\033[0;31mFAILED\033[0m\n'; exit 1; }
+((FAIL == 0)) && printf '\033[0;32mPASSED\033[0m\n' || {
+    printf '\033[0;31mFAILED\033[0m\n'
+    exit 1
+}

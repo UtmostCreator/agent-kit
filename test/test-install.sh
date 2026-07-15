@@ -9,10 +9,17 @@ cd "$REPO_ROOT"
 
 PASS=0 FAIL=0
 run_test() {
-    local name="$1"; shift; local _rc=0
+    local name="$1"
+    shift
+    local _rc=0
     "$@" >/dev/null 2>&1 || _rc=$?
-    if ((_rc == 0)); then PASS=$((PASS+1)); printf '  \033[0;32m✓\033[0m %s\n' "$name"
-    else FAIL=$((FAIL+1)); printf '  \033[0;31m✗\033[0m %s\n' "$name"; fi
+    if ((_rc == 0)); then
+        PASS=$((PASS + 1))
+        printf '  \033[0;32m✓\033[0m %s\n' "$name"
+    else
+        FAIL=$((FAIL + 1))
+        printf '  \033[0;31m✗\033[0m %s\n' "$name"
+    fi
 }
 
 printf 'install/uninstall\n'
@@ -30,15 +37,15 @@ test_install_succeeds() {
 run_test "install.sh installs to a custom prefix" test_install_succeeds
 
 test_marker_written() {
-    [[ -f "$PREFIX/.agent-kit-install" ]] && \
+    [[ -f "$PREFIX/.agent-kit-install" ]] &&
         [[ "$(<"$PREFIX/.agent-kit-install")" == "agent-kit" ]]
 }
 run_test "install writes the identity marker" test_marker_written
 
 test_foreign_wrapper_refusal_preserves_existing_install() {
     local existing_marker="$PREFIX/existing-marker"
-    printf 'keep\n' > "$existing_marker"
-    printf '#!/bin/sh\nexit 0\n' > "$BINDIR/agent-kit"
+    printf 'keep\n' >"$existing_marker"
+    printf '#!/bin/sh\nexit 0\n' >"$BINDIR/agent-kit"
     chmod 0755 "$BINDIR/agent-kit"
 
     local _rc=0
@@ -58,7 +65,7 @@ test_web_install_refuses_remote_mismatch_without_deleting_cache() {
     mkdir -p "$cache_src"
     git -C "$cache_src" init >/dev/null 2>&1
     git -C "$cache_src" remote add origin https://example.invalid/other.git
-    printf 'keep\n' > "$cache_src/sentinel"
+    printf 'keep\n' >"$cache_src/sentinel"
 
     local _rc=0
     AGENTKIT_REF=main \
@@ -76,6 +83,17 @@ test_wrapper_runs() {
     printf '%s' "$out" | grep -q 'ai-search'
 }
 run_test "installed 'ai' wrapper resolves commands" test_wrapper_runs
+
+# The short `ak` alias is installed alongside agent-kit and routes to the same
+# dispatcher (exercised here through the new `s` shorthand).
+test_ak_alias_runs() {
+    [[ -x "$BINDIR/ak" ]] || return 1
+    grep -Fq -- '# agent-kit-wrapper' "$BINDIR/ak" || return 1
+    local out
+    out="$(AI_OUTPUT=json "$BINDIR/ak" s emit_json libexec 2>/dev/null || true)"
+    printf '%s' "$out" | grep -q '"status":"ok"'
+}
+run_test "installed 'ak' alias routes to the dispatcher" test_ak_alias_runs
 
 # The installed payload must not carry dev/CI/private material.
 test_payload_minimal() {
@@ -98,9 +116,9 @@ run_test "uninstall refuses an unmarked path" test_uninstall_refuses_unmarked
 # Uninstall removes the marked prefix and the wrapper.
 test_uninstall_removes() {
     "$BASH_BIN" "$REPO_ROOT/uninstall.sh" --prefix "$PREFIX" --bindir "$BINDIR" >/dev/null 2>&1
-    [[ ! -e "$PREFIX" && ! -e "$BINDIR/agent-kit" ]]
+    [[ ! -e "$PREFIX" && ! -e "$BINDIR/agent-kit" && ! -e "$BINDIR/ak" ]]
 }
-run_test "uninstall removes prefix and wrapper" test_uninstall_removes
+run_test "uninstall removes prefix and both wrappers" test_uninstall_removes
 
 # ── Project-local install (install.sh --project) ────────────────────────────
 # A fresh throwaway git repo per test, so branch_scoped_files-style git
@@ -172,9 +190,9 @@ run_test "explicit --prefix overrides --project" test_project_explicit_prefix_ov
 
 test_tarball_is_reproducible() {
     local out1 out2
-    ( cd "$REPO_ROOT" && ./scripts/package-release.sh "v$(cat VERSION)" >/dev/null 2>&1 )
+    (cd "$REPO_ROOT" && ./scripts/package-release.sh "v$(cat VERSION)" >/dev/null 2>&1)
     out1=$(sha256sum "$REPO_ROOT/dist/agent-kit-$(cat "$REPO_ROOT/VERSION").tar.gz" | cut -d' ' -f1)
-    ( cd "$REPO_ROOT" && ./scripts/package-release.sh "v$(cat VERSION)" >/dev/null 2>&1 )
+    (cd "$REPO_ROOT" && ./scripts/package-release.sh "v$(cat VERSION)" >/dev/null 2>&1)
     out2=$(sha256sum "$REPO_ROOT/dist/agent-kit-$(cat "$REPO_ROOT/VERSION").tar.gz" | cut -d' ' -f1)
     [[ "$out1" == "$out2" ]]
 }
@@ -182,4 +200,7 @@ run_test "tarball build is reproducible (byte-identical across two builds)" test
 
 printf '\n=== Results ===\n'
 printf '  Passed: %d  Failed: %d\n' "$PASS" "$FAIL"
-((FAIL == 0)) && printf '\033[0;32mPASSED\033[0m\n' || { printf '\033[0;31mFAILED\033[0m\n'; exit 1; }
+((FAIL == 0)) && printf '\033[0;32mPASSED\033[0m\n' || {
+    printf '\033[0;31mFAILED\033[0m\n'
+    exit 1
+}

@@ -14,7 +14,7 @@ if command -v shellcheck >/dev/null 2>&1; then
                     # ShellCheck cannot lint zsh; skip zsh scripts explicitly
                     # (this must precede the *sh* case, since "zsh" contains "sh").
                     *zsh*) ;;
-                    *bash*|*sh*) printf '%s\0' "$file" ;;
+                    *bash* | *sh*) printf '%s\0' "$file" ;;
                 esac
             done
     )

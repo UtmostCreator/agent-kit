@@ -18,16 +18,26 @@ FIX="$TMP/fixture"
 mkdir -p "$FIX/src"
 printf '# Sample\n' >"$FIX/README.md"
 printf 'package main\nfunc main() {}\n' >"$FIX/src/main.go"
-( cd "$FIX" && git init -q && git add -A \
-    && git -c user.email=t@t -c user.name=t commit -qm init ) >/dev/null 2>&1 || true
+(cd "$FIX" && git init -q && git add -A &&
+    git -c user.email=t@t -c user.name=t commit -qm init) >/dev/null 2>&1 || true
 
 run_test() {
-    local name="$1"; shift; local _rc=0
+    local name="$1"
+    shift
+    local _rc=0
     "$@" >/dev/null 2>&1 || _rc=$?
-    if ((_rc == 0)); then PASS=$((PASS+1)); printf '  \033[0;32m✓\033[0m %s\n' "$name"
-    else FAIL=$((FAIL+1)); printf '  \033[0;31m✗\033[0m %s\n' "$name"; fi
+    if ((_rc == 0)); then
+        PASS=$((PASS + 1))
+        printf '  \033[0;32m✓\033[0m %s\n' "$name"
+    else
+        FAIL=$((FAIL + 1))
+        printf '  \033[0;31m✗\033[0m %s\n' "$name"
+    fi
 }
-skip_test() { SKIP=$((SKIP+1)); printf '  \033[0;33m⊘\033[0m %s (skipped: %s)\n' "$1" "$2"; }
+skip_test() {
+    SKIP=$((SKIP + 1))
+    printf '  \033[0;33m⊘\033[0m %s (skipped: %s)\n' "$1" "$2"
+}
 
 printf 'repomix-context-tree\n'
 
@@ -78,12 +88,12 @@ for i in 1 2 3 4 5; do gen_code_file "$BIGFIX/src/moduleA/file$i.sh" 40; done
 gen_code_file "$BIGFIX/src/moduleC/only.sh" 40
 for i in 1 2; do gen_code_file "$BIGFIX/src/moduleB/file$i.sh" 5; done
 printf '# root\n' >"$BIGFIX/README.md"
-( cd "$BIGFIX" && git init -q && git add -A \
-    && git -c user.email=t@t -c user.name=t commit -qm init ) >/dev/null 2>&1 || true
+(cd "$BIGFIX" && git init -q && git add -A &&
+    git -c user.email=t@t -c user.name=t commit -qm init) >/dev/null 2>&1 || true
 BIGFIX_FIRST_COMMIT="$(cd "$BIGFIX" && git rev-list --max-parents=0 HEAD 2>/dev/null)"
 printf 'echo "extra"\n' >>"$BIGFIX/src/moduleA/file1.sh"
-( cd "$BIGFIX" && git add -A \
-    && git -c user.email=t@t -c user.name=t commit -qm update ) >/dev/null 2>&1 || true
+(cd "$BIGFIX" && git add -A &&
+    git -c user.email=t@t -c user.name=t commit -qm update) >/dev/null 2>&1 || true
 
 if command -v scc >/dev/null 2>&1; then
     test_build_plan_real_pack_route() {
@@ -118,8 +128,8 @@ if command -v scc >/dev/null 2>&1; then
 
     test_generate_child_index() {
         "$BASH_BIN" "$SCRIPT" analyze "$BIGFIX" --output-dir "$TMP/bp-split" --safety-factor 0 2>/dev/null
-        [[ -f "$TMP/bp-split/tree-context/indexes/src__moduleA.md" ]] \
-            && grep -q 'Child Context Index' "$TMP/bp-split/tree-context/indexes/src__moduleA.md"
+        [[ -f "$TMP/bp-split/tree-context/indexes/src__moduleA.md" ]] &&
+            grep -q 'Child Context Index' "$TMP/bp-split/tree-context/indexes/src__moduleA.md"
     }
     run_test "generate_child_index writes a child index when a route splits (--safety-factor 0)" test_generate_child_index
 
@@ -136,8 +146,8 @@ if command -v scc >/dev/null 2>&1; then
     run_test "= form common options (--output-dir=, --depth=, --min-code=, --style=) parse" test_equals_form_flags
 
     test_include_ignored_flags_parse() {
-        "$BASH_BIN" "$SCRIPT" analyze "$BIGFIX" --output-dir "$TMP/bp-inc1" --include-ignored 2>/dev/null \
-            && "$BASH_BIN" "$SCRIPT" analyze "$BIGFIX" --output-dir "$TMP/bp-inc2" --no-ignore 2>/dev/null
+        "$BASH_BIN" "$SCRIPT" analyze "$BIGFIX" --output-dir "$TMP/bp-inc1" --include-ignored 2>/dev/null &&
+            "$BASH_BIN" "$SCRIPT" analyze "$BIGFIX" --output-dir "$TMP/bp-inc2" --no-ignore 2>/dev/null
     }
     run_test "--include-ignored and --no-ignore top-level flags parse" test_include_ignored_flags_parse
 else
@@ -167,8 +177,8 @@ if command -v scc >/dev/null 2>&1 && command -v repomix >/dev/null 2>&1; then
 
     test_all_command_runs_analyze_then_pack() {
         "$BASH_BIN" "$SCRIPT" all "$BIGFIX" --output-dir "$TMP/bp-all" >/dev/null 2>&1
-        [[ -f "$TMP/bp-all/tree-context/tree-plan.tsv" ]] \
-            && find "$TMP/bp-all/tree-context/bundles" -type f 2>/dev/null | grep -q .
+        [[ -f "$TMP/bp-all/tree-context/tree-plan.tsv" ]] &&
+            find "$TMP/bp-all/tree-context/bundles" -type f 2>/dev/null | grep -q .
     }
     run_test "all command runs analyze then pack" test_all_command_runs_analyze_then_pack
 
@@ -217,4 +227,7 @@ fi
 
 printf '\n=== Results ===\n'
 printf '  Passed: %d  Failed: %d  Skipped: %d\n' "$PASS" "$FAIL" "$SKIP"
-((FAIL == 0)) && printf '\033[0;32mPASSED\033[0m\n' || { printf '\033[0;31mFAILED\033[0m\n'; exit 1; }
+((FAIL == 0)) && printf '\033[0;32mPASSED\033[0m\n' || {
+    printf '\033[0;31mFAILED\033[0m\n'
+    exit 1
+}

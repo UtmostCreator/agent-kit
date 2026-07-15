@@ -74,155 +74,155 @@ _repomix_try_common_opt() {
     # them could make such a tool misreport these flags as boolean.
     _repomix_shift_count=0
     case "$1" in
-    --output-dir)
-        OUTPUT_DIR="$2"
-        shift 2
-        _repomix_shift_count=2
-        ;;
-    --output-dir=*)
-        OUTPUT_DIR="${1#*=}"
-        shift
-        _repomix_shift_count=1
-        ;;
-    --depth)
-        DEPTH="$2"
-        shift 2
-        _repomix_shift_count=2
-        ;;
-    --depth=*)
-        DEPTH="${1#*=}"
-        shift
-        _repomix_shift_count=1
-        ;;
-    --top)
-        TOP="$2"
-        shift 2
-        _repomix_shift_count=2
-        ;;
-    --top=*)
-        TOP="${1#*=}"
-        shift
-        _repomix_shift_count=1
-        ;;
-    --min-code)
-        MIN_CODE="$2"
-        shift 2
-        _repomix_shift_count=2
-        ;;
-    --min-code=*)
-        MIN_CODE="${1#*=}"
-        shift
-        _repomix_shift_count=1
-        ;;
-    --min-files)
-        MIN_FILES="$2"
-        shift 2
-        _repomix_shift_count=2
-        ;;
-    --min-files=*)
-        MIN_FILES="${1#*=}"
-        shift
-        _repomix_shift_count=1
-        ;;
-    --min-score)
-        MIN_SCORE="$2"
-        shift 2
-        _repomix_shift_count=2
-        ;;
-    --min-score=*)
-        MIN_SCORE="${1#*=}"
-        shift
-        _repomix_shift_count=1
-        ;;
-    --min-complexity)
-        MIN_COMPLEXITY="$2"
-        shift 2
-        _repomix_shift_count=2
-        ;;
-    --min-complexity=*)
-        MIN_COMPLEXITY="${1#*=}"
-        shift
-        _repomix_shift_count=1
-        ;;
-    --changed-since)
-        CHANGED_SINCE="$2"
-        shift 2
-        _repomix_shift_count=2
-        ;;
-    --changed-since=*)
-        CHANGED_SINCE="${1#*=}"
-        shift
-        _repomix_shift_count=1
-        ;;
-    --churn-count)
-        CHURN_COUNT="$2"
-        shift 2
-        _repomix_shift_count=2
-        ;;
-    --churn-count=*)
-        CHURN_COUNT="${1#*=}"
-        shift
-        _repomix_shift_count=1
-        ;;
-    --style)
-        STYLE="$2"
-        shift 2
-        _repomix_shift_count=2
-        ;;
-    --style=*)
-        STYLE="${1#*=}"
-        shift
-        _repomix_shift_count=1
-        ;;
-    --split-size)
-        SPLIT_SIZE="$2"
-        shift 2
-        _repomix_shift_count=2
-        ;;
-    --split-size=*)
-        SPLIT_SIZE="${1#*=}"
-        shift
-        _repomix_shift_count=1
-        ;;
-    --compress)
-        COMPRESS=1
-        shift
-        _repomix_shift_count=1
-        ;;
-    --include-logs)
-        INCLUDE_LOGS=1
-        shift
-        _repomix_shift_count=1
-        ;;
-    --include-logs-count)
-        INCLUDE_LOGS_COUNT="$2"
-        shift 2
-        _repomix_shift_count=2
-        ;;
-    --include-logs-count=*)
-        INCLUDE_LOGS_COUNT="${1#*=}"
-        shift
-        _repomix_shift_count=1
-        ;;
-    --include-diffs)
-        INCLUDE_DIFFS=1
-        shift
-        _repomix_shift_count=1
-        ;;
-    --include-ignored)
-        INCLUDE_IGNORED=1
-        shift
-        _repomix_shift_count=1
-        ;;
-    --include-repomixignored | --no-ignore)
-        INCLUDE_REPOMIXIGNORED=1
-        INCLUDE_IGNORED=1
-        shift
-        _repomix_shift_count=1
-        ;;
-    *)
-        return 1
-        ;;
+        --output-dir)
+            OUTPUT_DIR="$2"
+            shift 2
+            _repomix_shift_count=2
+            ;;
+        --output-dir=*)
+            OUTPUT_DIR="${1#*=}"
+            shift
+            _repomix_shift_count=1
+            ;;
+        --depth)
+            DEPTH="$2"
+            shift 2
+            _repomix_shift_count=2
+            ;;
+        --depth=*)
+            DEPTH="${1#*=}"
+            shift
+            _repomix_shift_count=1
+            ;;
+        --top)
+            TOP="$2"
+            shift 2
+            _repomix_shift_count=2
+            ;;
+        --top=*)
+            TOP="${1#*=}"
+            shift
+            _repomix_shift_count=1
+            ;;
+        --min-code)
+            MIN_CODE="$2"
+            shift 2
+            _repomix_shift_count=2
+            ;;
+        --min-code=*)
+            MIN_CODE="${1#*=}"
+            shift
+            _repomix_shift_count=1
+            ;;
+        --min-files)
+            MIN_FILES="$2"
+            shift 2
+            _repomix_shift_count=2
+            ;;
+        --min-files=*)
+            MIN_FILES="${1#*=}"
+            shift
+            _repomix_shift_count=1
+            ;;
+        --min-score)
+            MIN_SCORE="$2"
+            shift 2
+            _repomix_shift_count=2
+            ;;
+        --min-score=*)
+            MIN_SCORE="${1#*=}"
+            shift
+            _repomix_shift_count=1
+            ;;
+        --min-complexity)
+            MIN_COMPLEXITY="$2"
+            shift 2
+            _repomix_shift_count=2
+            ;;
+        --min-complexity=*)
+            MIN_COMPLEXITY="${1#*=}"
+            shift
+            _repomix_shift_count=1
+            ;;
+        --changed-since)
+            CHANGED_SINCE="$2"
+            shift 2
+            _repomix_shift_count=2
+            ;;
+        --changed-since=*)
+            CHANGED_SINCE="${1#*=}"
+            shift
+            _repomix_shift_count=1
+            ;;
+        --churn-count)
+            CHURN_COUNT="$2"
+            shift 2
+            _repomix_shift_count=2
+            ;;
+        --churn-count=*)
+            CHURN_COUNT="${1#*=}"
+            shift
+            _repomix_shift_count=1
+            ;;
+        --style)
+            STYLE="$2"
+            shift 2
+            _repomix_shift_count=2
+            ;;
+        --style=*)
+            STYLE="${1#*=}"
+            shift
+            _repomix_shift_count=1
+            ;;
+        --split-size)
+            SPLIT_SIZE="$2"
+            shift 2
+            _repomix_shift_count=2
+            ;;
+        --split-size=*)
+            SPLIT_SIZE="${1#*=}"
+            shift
+            _repomix_shift_count=1
+            ;;
+        --compress)
+            COMPRESS=1
+            shift
+            _repomix_shift_count=1
+            ;;
+        --include-logs)
+            INCLUDE_LOGS=1
+            shift
+            _repomix_shift_count=1
+            ;;
+        --include-logs-count)
+            INCLUDE_LOGS_COUNT="$2"
+            shift 2
+            _repomix_shift_count=2
+            ;;
+        --include-logs-count=*)
+            INCLUDE_LOGS_COUNT="${1#*=}"
+            shift
+            _repomix_shift_count=1
+            ;;
+        --include-diffs)
+            INCLUDE_DIFFS=1
+            shift
+            _repomix_shift_count=1
+            ;;
+        --include-ignored)
+            INCLUDE_IGNORED=1
+            shift
+            _repomix_shift_count=1
+            ;;
+        --include-repomixignored | --no-ignore)
+            INCLUDE_REPOMIXIGNORED=1
+            INCLUDE_IGNORED=1
+            shift
+            _repomix_shift_count=1
+            ;;
+        *)
+            return 1
+            ;;
     esac
     return 0
 }

@@ -52,14 +52,14 @@ chmod 0755 "$stage/$name/install.sh" "$stage/$name/uninstall.sh"
 # without an embedded name/timestamp, so the archive (and its checksum) is
 # reproducible across rebuilds of the same tag. Requires GNU tar (CI is Linux).
 tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
-    -C "$stage" -cf - "$name" | gzip -n > "$dist/$name.tar.gz"
+    -C "$stage" -cf - "$name" | gzip -n >"$dist/$name.tar.gz"
 (
     cd -- "$stage"
     zip -qr "$dist/$name.zip" "$name"
 )
 (
     cd -- "$dist"
-    sha256sum "$name.tar.gz" "$name.zip" > SHA256SUMS
+    sha256sum "$name.tar.gz" "$name.zip" >SHA256SUMS
 )
 
 printf 'Created release files in %s\n' "$dist"

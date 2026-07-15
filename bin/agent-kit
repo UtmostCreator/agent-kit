@@ -14,6 +14,7 @@
 #   agent-kit --list                  list every command with a one-line summary
 #   agent-kit --help                  show this help
 #   agent-kit --version               print the AgentKit version
+#   agent-kit --version --json        version as a machine-readable JSON envelope
 #
 # Example:
 #   agent-kit --list                       # discover the whole command surface
@@ -59,22 +60,34 @@ print_list() {
 }
 
 case "${1:-}" in
-    ""|--list|list)
+    "" | --list | list)
         print_list
         [[ "${1:-}" == "" ]] && exit 2
         exit 0
         ;;
-    -h|--help)
-        sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    -h | --help)
+        sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
         echo
         print_list
         exit 0
         ;;
-    -V|--version)
-        if [[ -r "$ROOT_DIR/VERSION" ]]; then
-            printf 'agent-kit %s\n' "$(tr -d '[:space:]' < "$ROOT_DIR/VERSION")"
+    -V | --version | version)
+        # Version, in a human line by default or a machine-readable envelope with
+        # `--json` (or AI_OUTPUT=json). JSON is hand-built so this dispatcher stays
+        # bootstrap-safe (no jq dependency). `commit` is the short HEAD sha when run
+        # from a git checkout, or null for an installed package with no .git.
+        _version="unknown"
+        [[ -r "$ROOT_DIR/VERSION" ]] && _version="$(tr -d '[:space:]' <"$ROOT_DIR/VERSION")"
+        _json=""
+        [[ "${AI_OUTPUT:-}" == "json" ]] && _json=1
+        for _a in "$@"; do [[ "$_a" == "--json" ]] && _json=1; done
+        if [[ -n "$_json" ]]; then
+            _commit="$(git -C "$ROOT_DIR" rev-parse --short=12 HEAD 2>/dev/null || true)"
+            if [[ -n "$_commit" ]]; then _commit_json="\"$_commit\""; else _commit_json="null"; fi
+            printf '{"schema":"ai.version/v1","name":"agent-kit","version":"%s","commit":%s,"schema_version":"1"}\n' \
+                "$_version" "$_commit_json"
         else
-            printf 'agent-kit (version unknown)\n'
+            printf 'agent-kit %s\n' "$_version"
         fi
         exit 0
         ;;

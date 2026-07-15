@@ -19,13 +19,24 @@ PASS=0 FAIL=0 SKIP=0
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-pass() { PASS=$((PASS + 1)); printf '  \033[0;32m✓\033[0m %s\n' "$1"; }
-fail() { FAIL=$((FAIL + 1)); printf '  \033[0;31m✗\033[0m %s\n' "$1"; }
-skip() { SKIP=$((SKIP + 1)); printf '  \033[0;33m⊘\033[0m %s (skipped: %s)\n' "$1" "$2"; }
+pass() {
+    PASS=$((PASS + 1))
+    printf '  \033[0;32m✓\033[0m %s\n' "$1"
+}
+fail() {
+    FAIL=$((FAIL + 1))
+    printf '  \033[0;31m✗\033[0m %s\n' "$1"
+}
+skip() {
+    SKIP=$((SKIP + 1))
+    printf '  \033[0;33m⊘\033[0m %s (skipped: %s)\n' "$1" "$2"
+}
 
 # run_test NAME CMD... : succeed when CMD exits 0.
 run_test() {
-    local name="$1"; shift; local rc=0
+    local name="$1"
+    shift
+    local rc=0
     "$@" >/dev/null 2>&1 || rc=$?
     ((rc == 0)) && pass "$name" || fail "$name"
 }
@@ -384,4 +395,7 @@ fi
 
 printf '\n=== Results ===\n'
 printf '  Passed: %d  Failed: %d  Skipped: %d\n' "$PASS" "$FAIL" "$SKIP"
-((FAIL == 0)) && printf '\033[0;32mPASSED\033[0m\n' || { printf '\033[0;31mFAILED\033[0m\n'; exit 1; }
+((FAIL == 0)) && printf '\033[0;32mPASSED\033[0m\n' || {
+    printf '\033[0;31mFAILED\033[0m\n'
+    exit 1
+}

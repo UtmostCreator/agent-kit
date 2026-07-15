@@ -37,9 +37,13 @@ is **self-documenting** via `--help` / `--introspect` and runs **100% on your ma
 ```bash
 curl -fsSL https://raw.githubusercontent.com/UtmostCreator/agent-kit/main/web-install.sh | bash
 
-agent-kit --list                # discover every command
-agent-kit search text "TODO" .  # your first search
+ak --list        # discover every command   (ak = the installed short alias)
+ak s TODO        # your first search — default text mode, repo root auto-detected
 ```
+
+> `ak` is the short alias installed alongside the canonical `agent-kit`; every
+> example below uses it. `ak s QUERY` is sugar for `agent-kit search text QUERY`
+> — no mode word and no trailing `.` needed.
 
 ## 🤔 Why AgentKit? (vs. running `rg` / `git` / `grep` yourself)
 
@@ -82,7 +86,8 @@ safety (`edit`, `rollback`, `session-checkpoint`) · testing & verification
 
 ## 🚀 Install
 
-Pick whichever fits your setup — all install the same `agent-kit` command:
+Pick whichever fits your setup — all install the same `agent-kit` command **and
+the short `ak` alias**:
 
 ```bash
 # One-line network install (stable: newest release tag)
@@ -103,25 +108,42 @@ cd agent-kit && ./install.sh
 Ensure `~/.local/bin` is in `PATH`. See **[INSTALL.md](INSTALL.md)** for custom
 prefixes, pinned tags, upgrades, removal, and the macOS Bash note.
 
-> 💡 **Prefer a shorter command?** Add `alias akit='agent-kit'` to your shell rc
-> and use `akit` everywhere — [docs/EXAMPLES.md](docs/EXAMPLES.md) already shows
-> every command in the short form.
+> 💡 **Two commands, one tool.** `agent-kit` is canonical; `ak` is the short
+> alias installed with it (`ak s TODO` = `agent-kit search text TODO`). Scripts
+> can keep the readable long form; interactive use gets the short one.
+
+### ⌨️ Shell completion
+
+Tab-completion for commands, subcommand modes, and flags — generated from the
+command surface itself, so it never drifts from what `--help` reports:
+
+```bash
+source <(agent-kit completion bash)   # current Bash session
+source <(agent-kit completion zsh)    # current Zsh session (after compinit)
+agent-kit completion fish > ~/.config/fish/completions/agent-kit.fish
+```
+
+`agent-kit completion auto` detects your running shell. Both `agent-kit` and
+`ak` complete identically. Homebrew installs wire this up automatically.
 
 ## 🎯 Use
 
 ```bash
-agent-kit search text "TODO" .        # find every TODO comment in the tree
-agent-kit diff-context unstaged       # build a context bundle around your changes
-agent-kit test-select changed         # pick the tests relevant to changed files
-agent-kit verify .                    # run repository-aware verification
+ak s TODO                       # find every TODO in the tree (repo root auto-detected)
+ak s export --changed           # search only the files you changed
+ak s emit_json libexec          # scope a search to a subdirectory
+ak diff-context unstaged        # build a context bundle around your changes
+ak test-select changed          # pick the tests relevant to changed files
+ak verify .                     # run repository-aware verification
+ak doctor                       # check your install + tool environment
 ```
 
 Every command explains itself, so you never have to guess:
 
 ```bash
-agent-kit --list                  # every command with a one-line summary
-agent-kit <command> --help        # description, usage, and a copy-pasteable example
-agent-kit <command> --introspect  # the same contract as machine-readable JSON
+ak --list                  # every command with a one-line summary
+ak <command> --help        # description, usage, and a copy-pasteable example
+ak <command> --introspect  # the same contract as machine-readable JSON
 ```
 
 ### 🧩 Use it à la carte (no install required)
@@ -132,10 +154,13 @@ own tooling:
 
 ```bash
 git clone https://github.com/UtmostCreator/agent-kit.git && cd agent-kit
-bash bin/agent-kit --list                 # discover everything, with summaries
-bash bin/agent-kit search text "TODO" .   # run any command via the dispatcher
-bash libexec/ai-search doctor             # …or invoke a script file directly
+bash bin/agent-kit --list          # discover everything, with summaries
+bash bin/agent-kit s TODO          # run any command via the dispatcher (s = short search)
+bash libexec/ai-search doctor      # …or invoke a script file directly
 ```
+
+(The `ak` alias is created by the installers; without an install, drive the
+dispatcher directly with `bash bin/agent-kit <command>`.)
 
 Scripts that source `lib/` need the repo layout intact — run them through
 `bin/agent-kit` or from a clone rather than copying a single file in isolation.

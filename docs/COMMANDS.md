@@ -4,9 +4,10 @@ The exact supported options and output schema are authoritative in each command'
 For the packages each command depends on, why, and a real captured example, see
 [PACKAGES.md](PACKAGES.md).
 
-Commands are shown as `agent-kit <command>`. If you set the optional alias
-`alias akit='agent-kit'`, the short form `akit <command>` works everywhere
-(see [EXAMPLES.md](EXAMPLES.md)).
+Commands are shown as `agent-kit <command>`. The installers also create the
+short **`ak`** alias, so `ak <command>` works everywhere — and `ak s QUERY` is
+sugar for `agent-kit search text QUERY <repo-root>` (see the search section
+below and [EXAMPLES.md](EXAMPLES.md)).
 
 Canonical command groups fuse several single-purpose engines behind one name
 (`search`, `context`, `git`, `repo`, `inspect`, `session`, `verify`, `test`,
@@ -15,7 +16,10 @@ top-level command is the right one.
 
 | Command | Purpose |
 |---|---|
+| `agent-kit s` / `ak s` | Short search: `ak s QUERY [ROOT]` defaults to text mode and auto-detects the root; mode flags (`--tracked`/`--changed`/`--staged`/`--diff`/`--history`/`--docs`/`--tests`/`--config`/`--deps`) switch families. Sugar over `agent-kit search`. |
 | `agent-kit search` | Scoped repository search across available backends; use `agent-kit search capabilities` for the capability map or `agent-kit search batch` to run one mode against several queries. |
+| `agent-kit doctor` | Installation + environment health: Bash version, required/optional tools, install root, PATH, git-tree. Text or `--json` (schema `ai.doctor/v1`). |
+| `agent-kit completion` | Print a generated Bash/Zsh/Fish completion definition (`bash`\|`zsh`\|`fish`\|`auto`); non-mutating, generated from the command surface via `scripts/gen-completions.sh` — see [INSTALL.md](../INSTALL.md#shell-completion). |
 | `agent-kit search-multi` | Compatibility command for batch searches; use `agent-kit search batch`. |
 | `agent-kit search-introspect` | Compatibility command for the search capability map. |
 | `agent-kit context` | Canonical context-building group (fused engine): `diff` (changed-file bundle), `pack` (repomix/files-to-prompt/code2prompt), `file` (single-file pack), `generate` (full ranked tree), `tree` (tree-pack engine), `status` (freshness check), `ensure` (freshness gate), `estimate` (token cost). `generate`/`tree` still shell out to process-isolated internal engines (`libexec/internal/`) rather than being fully fused, to avoid a confirmed function-name collision risk (`die`/`estimate_tokens` redefinitions) if merged into the shared process. |
@@ -53,6 +57,25 @@ examples for each are in [EXAMPLES.md](EXAMPLES.md); the live capability map is
 ```
 agent-kit search MODE [QUERY] [ROOT] [FLAGS]
 ```
+
+**Short form.** `ak s QUERY` (command `agent-kit s`) is the everyday entry point:
+it defaults to the `text` mode and auto-detects the root (explicit `ROOT` > Git
+top-level > current dir), so `ak s TODO` replaces `agent-kit search text TODO .`.
+Mode-selecting flags map onto the families below:
+
+| Short | Expands to |
+|---|---|
+| `ak s Q` | `search text Q <root>` |
+| `ak s Q --tracked` | `search tracked Q <root>` |
+| `ak s Q --changed` | `search changed-text Q <root>` |
+| `ak s Q --staged` | `search staged-text Q <root>` |
+| `ak s Q --diff [--base REF]` | `search diff Q <root>` |
+| `ak s Q --history [--messages]` | `search history Q <root>` |
+| `ak s Q --docs`/`--tests`/`--config`/`--deps` | surface-scoped `search <mode> Q <root>` |
+
+Every other flag (`--count`, `-C N`, `--base`, `--glob`, …) is forwarded
+verbatim to `agent-kit search`. The full mode list is still available on the
+canonical command.
 
 ### Modes
 

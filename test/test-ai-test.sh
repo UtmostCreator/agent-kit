@@ -20,12 +20,22 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 run_test() {
-    local name="$1"; shift; local _rc=0
+    local name="$1"
+    shift
+    local _rc=0
     "$@" >/dev/null 2>&1 || _rc=$?
-    if ((_rc == 0)); then PASS=$((PASS+1)); printf '  \033[0;32m✓\033[0m %s\n' "$name"
-    else FAIL=$((FAIL+1)); printf '  \033[0;31m✗\033[0m %s\n' "$name"; fi
+    if ((_rc == 0)); then
+        PASS=$((PASS + 1))
+        printf '  \033[0;32m✓\033[0m %s\n' "$name"
+    else
+        FAIL=$((FAIL + 1))
+        printf '  \033[0;31m✗\033[0m %s\n' "$name"
+    fi
 }
-skip_test() { SKIP=$((SKIP+1)); printf '  \033[0;33m⊘\033[0m %s (skipped: %s)\n' "$1" "$2"; }
+skip_test() {
+    SKIP=$((SKIP + 1))
+    printf '  \033[0;33m⊘\033[0m %s (skipped: %s)\n' "$1" "$2"
+}
 
 # Prints a drop-in replacement PATH (a single flat directory of symlinks)
 # that resolves every executable currently on $PATH except $1. Used by
@@ -403,7 +413,7 @@ STUB
     export AI_TEST_LIBEXEC_DIR
     source "$REPO_ROOT/lib/ai-test/run-all.sh"
 
-    ( PARATEST_PROCS=999 MAX_PARATEST_PROCS=3 PHP_BIN="$php_stub" SUITE_TIMEOUT=5 ai_test_all_main >/dev/null 2>&1 ) || true
+    (PARATEST_PROCS=999 MAX_PARATEST_PROCS=3 PHP_BIN="$php_stub" SUITE_TIMEOUT=5 ai_test_all_main >/dev/null 2>&1) || true
 
     grep -q -- '--processes=3' "$marker"
 )
@@ -434,7 +444,7 @@ STUB
     unset PHP_BIN
     source "$REPO_ROOT/lib/ai-test/run-all.sh"
 
-    ( SUITE_TIMEOUT=5 ai_test_all_main >/dev/null 2>&1 ) || true
+    (SUITE_TIMEOUT=5 ai_test_all_main >/dev/null 2>&1) || true
 
     grep -q '^php:' "$marker" && ! grep -q '^php\.exe:' "$marker"
 )
@@ -461,7 +471,7 @@ STUB
     unset PHP_BIN
     source "$REPO_ROOT/lib/ai-test/run-all.sh"
 
-    ( SUITE_TIMEOUT=5 ai_test_all_main >/dev/null 2>&1 ) || true
+    (SUITE_TIMEOUT=5 ai_test_all_main >/dev/null 2>&1) || true
 
     grep -q '^php\.exe:' "$marker"
 )
@@ -547,4 +557,7 @@ run_test "unknown top-level mode exits 2" test_group_unknown_mode
 
 printf '\n=== Results ===\n'
 printf '  Passed: %d  Failed: %d  Skipped: %d\n' "$PASS" "$FAIL" "$SKIP"
-((FAIL == 0)) && printf '\033[0;32mPASSED\033[0m\n' || { printf '\033[0;31mFAILED\033[0m\n'; exit 1; }
+((FAIL == 0)) && printf '\033[0;32mPASSED\033[0m\n' || {
+    printf '\033[0;31mFAILED\033[0m\n'
+    exit 1
+}

@@ -115,23 +115,23 @@ cmd_recent() {
 
     while (($# > 0)); do
         case "$1" in
-        --count | -n)
-            count="${2:?count required}"
-            shift 2
-            ;;
-        --count=*)
-            count="${1#*=}"
-            shift
-            ;;
-        *)
-            shift_by=0
-            if parse_common_option "$1" "${2:-}"; then
-                shift_by="$COMMON_OPTION_CONSUMED"
-                shift "$shift_by"
-            else
-                die "unknown option: $1"
-            fi
-            ;;
+            --count | -n)
+                count="${2:?count required}"
+                shift 2
+                ;;
+            --count=*)
+                count="${1#*=}"
+                shift
+                ;;
+            *)
+                shift_by=0
+                if parse_common_option "$1" "${2:-}"; then
+                    shift_by="$COMMON_OPTION_CONSUMED"
+                    shift "$shift_by"
+                else
+                    die "unknown option: $1"
+                fi
+                ;;
         esac
     done
 

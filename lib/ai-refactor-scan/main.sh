@@ -18,20 +18,20 @@
 AI_REFACTOR_SCAN_LOADED=1
 
 # --- defaults -----------------------------------------------------------------
-RS_MODE="all"                  # complexity | nloc | all
-RS_FOLDER=""                   # scan root; empty -> git toplevel, else PWD
-RS_OUTPUT_FMT="human"          # human | ai
-RS_SCC_FORMAT="csv"            # report-document format (scc-allowed)
-RS_COMPLEXITY_THRESHOLD=15     # flag files with scc complexity strictly above
-RS_NLOC_THRESHOLD=40           # flag functions with lizard NLOC strictly above
-RS_PARAM_THRESHOLD=5           # flag functions with parameter count strictly above
-RS_CCN_THRESHOLD=15            # flag functions with lizard CCN strictly above
-RS_EXTS=""                     # comma list, e.g. "go,py,sh" (file-format filter)
-RS_LANGS=""                    # comma list of lizard languages, e.g. "python,go"
-RS_OUTPUT_DIR=""               # where report documents are written
-RS_PARALLEL=1                  # run both passes concurrently in `all` mode
-RS_WRITE_REPORT=1              # write report documents to disk
-RS_FAIL_ON_FINDINGS=0          # exit 3 when any file/function is flagged
+RS_MODE="all"              # complexity | nloc | all
+RS_FOLDER=""               # scan root; empty -> git toplevel, else PWD
+RS_OUTPUT_FMT="human"      # human | ai
+RS_SCC_FORMAT="csv"        # report-document format (scc-allowed)
+RS_COMPLEXITY_THRESHOLD=15 # flag files with scc complexity strictly above
+RS_NLOC_THRESHOLD=40       # flag functions with lizard NLOC strictly above
+RS_PARAM_THRESHOLD=5       # flag functions with parameter count strictly above
+RS_CCN_THRESHOLD=15        # flag functions with lizard CCN strictly above
+RS_EXTS=""                 # comma list, e.g. "go,py,sh" (file-format filter)
+RS_LANGS=""                # comma list of lizard languages, e.g. "python,go"
+RS_OUTPUT_DIR=""           # where report documents are written
+RS_PARALLEL=1              # run both passes concurrently in `all` mode
+RS_WRITE_REPORT=1          # write report documents to disk
+RS_FAIL_ON_FINDINGS=0      # exit 3 when any file/function is flagged
 RS_QUIET=0
 RS_EXTRA_EXCLUDE_DIRS=()
 
@@ -39,8 +39,15 @@ RS_SCC_BIN=""
 RS_LIZARD_BIN=""
 RS_IGNORE_DIRS=()
 
-rs_die() { printf 'refactor-scan: %s\n' "$1" >&2; exit "${2:-1}"; }
-rs_log() { ((RS_QUIET)) && return 0; printf '[refactor-scan] %s\n' "$1" >&2; return 0; }
+rs_die() {
+    printf 'refactor-scan: %s\n' "$1" >&2
+    exit "${2:-1}"
+}
+rs_log() {
+    ((RS_QUIET)) && return 0
+    printf '[refactor-scan] %s\n' "$1" >&2
+    return 0
+}
 
 rs_need_bin() {
     command -v "$1" >/dev/null 2>&1 || rs_die "required binary '$1' not found (install it and retry)"
@@ -50,19 +57,19 @@ rs_need_bin() {
 # invalid format and mislabel the report extension.
 rs_valid_scc_format() {
     case "$1" in
-    tabular | wide | json | json2 | csv | csv-stream | cloc-yaml | html | html-table | sql | sql-insert | openmetrics) return 0 ;;
-    *) return 1 ;;
+        tabular | wide | json | json2 | csv | csv-stream | cloc-yaml | html | html-table | sql | sql-insert | openmetrics) return 0 ;;
+        *) return 1 ;;
     esac
 }
 
 rs_report_ext() {
     case "$1" in
-    json | json2) printf 'json\n' ;;
-    csv | csv-stream) printf 'csv\n' ;;
-    html | html-table) printf 'html\n' ;;
-    cloc-yaml) printf 'yaml\n' ;;
-    sql | sql-insert) printf 'sql\n' ;;
-    *) printf 'txt\n' ;;
+        json | json2) printf 'json\n' ;;
+        csv | csv-stream) printf 'csv\n' ;;
+        html | html-table) printf 'html\n' ;;
+        cloc-yaml) printf 'yaml\n' ;;
+        sql | sql-insert) printf 'sql\n' ;;
+        *) printf 'txt\n' ;;
     esac
 }
 
@@ -128,94 +135,94 @@ rs_parse_args() {
     local positional_folder_set=0
     while (($# > 0)); do
         case "$1" in
-        complexity | nloc | all)
-            RS_MODE="$1"
-            ;;
-        --folder)
-            [[ $# -ge 2 ]] || rs_die "--folder requires a value"
-            RS_FOLDER="$2"
-            shift
-            ;;
-        --folder=*) RS_FOLDER="${1#*=}" ;;
-        --complexity-threshold)
-            [[ $# -ge 2 ]] || rs_die "--complexity-threshold requires a value"
-            RS_COMPLEXITY_THRESHOLD="$2"
-            shift
-            ;;
-        --complexity-threshold=*) RS_COMPLEXITY_THRESHOLD="${1#*=}" ;;
-        --nloc-threshold)
-            [[ $# -ge 2 ]] || rs_die "--nloc-threshold requires a value"
-            RS_NLOC_THRESHOLD="$2"
-            shift
-            ;;
-        --nloc-threshold=*) RS_NLOC_THRESHOLD="${1#*=}" ;;
-        --param-threshold)
-            [[ $# -ge 2 ]] || rs_die "--param-threshold requires a value"
-            RS_PARAM_THRESHOLD="$2"
-            shift
-            ;;
-        --param-threshold=*) RS_PARAM_THRESHOLD="${1#*=}" ;;
-        --ccn-threshold)
-            [[ $# -ge 2 ]] || rs_die "--ccn-threshold requires a value"
-            RS_CCN_THRESHOLD="$2"
-            shift
-            ;;
-        --ccn-threshold=*) RS_CCN_THRESHOLD="${1#*=}" ;;
-        --ext)
-            [[ $# -ge 2 ]] || rs_die "--ext requires a value"
-            RS_EXTS="$2"
-            shift
-            ;;
-        --ext=*) RS_EXTS="${1#*=}" ;;
-        --lang)
-            [[ $# -ge 2 ]] || rs_die "--lang requires a value"
-            RS_LANGS="$2"
-            shift
-            ;;
-        --lang=*) RS_LANGS="${1#*=}" ;;
-        --exclude-dir)
-            [[ $# -ge 2 ]] || rs_die "--exclude-dir requires a value"
-            RS_EXTRA_EXCLUDE_DIRS+=("$2")
-            shift
-            ;;
-        --exclude-dir=*) RS_EXTRA_EXCLUDE_DIRS+=("${1#*=}") ;;
-        --scc-format)
-            [[ $# -ge 2 ]] || rs_die "--scc-format requires a value"
-            RS_SCC_FORMAT="$2"
-            shift
-            ;;
-        --scc-format=*) RS_SCC_FORMAT="${1#*=}" ;;
-        --output-dir)
-            [[ $# -ge 2 ]] || rs_die "--output-dir requires a value"
-            RS_OUTPUT_DIR="$2"
-            shift
-            ;;
-        --output-dir=*) RS_OUTPUT_DIR="${1#*=}" ;;
-        --no-report) RS_WRITE_REPORT=0 ;;
-        --no-parallel) RS_PARALLEL=0 ;;
-        --fail-on-findings) RS_FAIL_ON_FINDINGS=1 ;;
-        --ai | --json) RS_OUTPUT_FMT="ai" ;;
-        --human) RS_OUTPUT_FMT="human" ;;
-        --quiet) RS_QUIET=1 ;;
-        -h | --help)
-            rs_usage
-            exit 0
-            ;;
-        --)
-            shift
-            break
-            ;;
-        -*)
-            rs_die "unknown option '$1' (see --help)"
-            ;;
-        *)
-            if ((positional_folder_set == 0)); then
-                RS_FOLDER="$1"
-                positional_folder_set=1
-            else
-                rs_die "unexpected argument '$1' (see --help)"
-            fi
-            ;;
+            complexity | nloc | all)
+                RS_MODE="$1"
+                ;;
+            --folder)
+                [[ $# -ge 2 ]] || rs_die "--folder requires a value"
+                RS_FOLDER="$2"
+                shift
+                ;;
+            --folder=*) RS_FOLDER="${1#*=}" ;;
+            --complexity-threshold)
+                [[ $# -ge 2 ]] || rs_die "--complexity-threshold requires a value"
+                RS_COMPLEXITY_THRESHOLD="$2"
+                shift
+                ;;
+            --complexity-threshold=*) RS_COMPLEXITY_THRESHOLD="${1#*=}" ;;
+            --nloc-threshold)
+                [[ $# -ge 2 ]] || rs_die "--nloc-threshold requires a value"
+                RS_NLOC_THRESHOLD="$2"
+                shift
+                ;;
+            --nloc-threshold=*) RS_NLOC_THRESHOLD="${1#*=}" ;;
+            --param-threshold)
+                [[ $# -ge 2 ]] || rs_die "--param-threshold requires a value"
+                RS_PARAM_THRESHOLD="$2"
+                shift
+                ;;
+            --param-threshold=*) RS_PARAM_THRESHOLD="${1#*=}" ;;
+            --ccn-threshold)
+                [[ $# -ge 2 ]] || rs_die "--ccn-threshold requires a value"
+                RS_CCN_THRESHOLD="$2"
+                shift
+                ;;
+            --ccn-threshold=*) RS_CCN_THRESHOLD="${1#*=}" ;;
+            --ext)
+                [[ $# -ge 2 ]] || rs_die "--ext requires a value"
+                RS_EXTS="$2"
+                shift
+                ;;
+            --ext=*) RS_EXTS="${1#*=}" ;;
+            --lang)
+                [[ $# -ge 2 ]] || rs_die "--lang requires a value"
+                RS_LANGS="$2"
+                shift
+                ;;
+            --lang=*) RS_LANGS="${1#*=}" ;;
+            --exclude-dir)
+                [[ $# -ge 2 ]] || rs_die "--exclude-dir requires a value"
+                RS_EXTRA_EXCLUDE_DIRS+=("$2")
+                shift
+                ;;
+            --exclude-dir=*) RS_EXTRA_EXCLUDE_DIRS+=("${1#*=}") ;;
+            --scc-format)
+                [[ $# -ge 2 ]] || rs_die "--scc-format requires a value"
+                RS_SCC_FORMAT="$2"
+                shift
+                ;;
+            --scc-format=*) RS_SCC_FORMAT="${1#*=}" ;;
+            --output-dir)
+                [[ $# -ge 2 ]] || rs_die "--output-dir requires a value"
+                RS_OUTPUT_DIR="$2"
+                shift
+                ;;
+            --output-dir=*) RS_OUTPUT_DIR="${1#*=}" ;;
+            --no-report) RS_WRITE_REPORT=0 ;;
+            --no-parallel) RS_PARALLEL=0 ;;
+            --fail-on-findings) RS_FAIL_ON_FINDINGS=1 ;;
+            --ai | --json) RS_OUTPUT_FMT="ai" ;;
+            --human) RS_OUTPUT_FMT="human" ;;
+            --quiet) RS_QUIET=1 ;;
+            -h | --help)
+                rs_usage
+                exit 0
+                ;;
+            --)
+                shift
+                break
+                ;;
+            -*)
+                rs_die "unknown option '$1' (see --help)"
+                ;;
+            *)
+                if ((positional_folder_set == 0)); then
+                    RS_FOLDER="$1"
+                    positional_folder_set=1
+                else
+                    rs_die "unexpected argument '$1' (see --help)"
+                fi
+                ;;
         esac
         shift
     done

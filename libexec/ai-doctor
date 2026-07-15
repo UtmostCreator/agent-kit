@@ -1,0 +1,223 @@
+#!/usr/bin/env bash
+# Report agent-kit installation and environment health for bug triage.
+#
+# Checks the Bash version, required and optional tools, the resolved install
+# root, whether agent-kit is on PATH, and whether the current directory is a Git
+# work tree. Read-only: it inspects the environment and never modifies anything.
+#
+# Usage:
+#   agent-kit doctor            human-readable health summary (default)
+#   agent-kit doctor --json     machine-readable JSON envelope (schema ai.doctor/v1)
+#   AI_OUTPUT=json agent-kit doctor   JSON envelope (env form)
+#
+# Example:
+#   agent-kit doctor            # a quick "is my install healthy?" check
+#   agent-kit doctor --json | jq .status   # paste into a bug report as evidence
+#
+# Requires: (none — degrades gracefully; reports what is missing)
+#
+# Exit codes: 0 when status is "ok" or "degraded"; 1 when status is "error"
+#   (a required tool is missing or Bash is too old). The environment is only read.
+
+set -euo pipefail
+
+# --- Early --help/-h guard: emit the static contract and exit before any logic.
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    _self="${BASH_SOURCE[0]}"
+    _here="$(cd "$(dirname "$_self")" && pwd)"
+    [[ -x "$_here/sh-introspect" ]] && exec bash "$_here/sh-introspect" --format=help "$_self"
+    sed -n '2,20p' "$_self" | sed 's/^# \{0,1\}//'
+    exit 0
+fi
+
+# --- Early --introspect guard: emit the machine-readable JSON contract and exit.
+if [[ "${1:-}" == "--introspect" ]]; then
+    _self="${BASH_SOURCE[0]}"
+    _here="$(cd "$(dirname "$_self")" && pwd)"
+    exec env AI_OUTPUT=json bash "$_here/sh-introspect" "$_self"
+fi
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SELF_DIR/.." && pwd)"
+ENTRYPOINT="$ROOT_DIR/bin/agent-kit"
+
+json_mode=""
+[[ "${AI_OUTPUT:-}" == "json" ]] && json_mode=1
+for _a in "$@"; do [[ "$_a" == "--json" ]] && json_mode=1; done
+
+# Minimal, dependency-free JSON string escaping (paths may contain quotes).
+json_escape() {
+    local s=$1
+    s=${s//\\/\\\\}
+    s=${s//\"/\\\"}
+    s=${s//$'\n'/\\n}
+    s=${s//$'\t'/\\t}
+    printf '%s' "$s"
+}
+
+# --- Collect facts -----------------------------------------------------------
+version="unknown"
+[[ -r "$ROOT_DIR/VERSION" ]] && version="$(tr -d '[:space:]' <"$ROOT_DIR/VERSION")"
+commit="$(git -C "$ROOT_DIR" rev-parse --short=12 HEAD 2>/dev/null || true)"
+
+bash_version="${BASH_VERSION:-unknown}"
+bash_ok=false
+if ((BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4))); then
+    bash_ok=true
+fi
+
+# agent-kit on PATH?
+on_path=false
+command -v agent-kit >/dev/null 2>&1 && on_path=true
+
+# Git work tree at the current directory?
+inside_work_tree=false
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 && inside_work_tree=true
+
+# Tool tables. Each entry: "logical-name candidate1 candidate2 ...". The first
+# candidate found on PATH satisfies it; its resolved name is reported.
+required_tools=("git git" "jq jq" "rg rg")
+optional_tools=(
+    "fd fd fdfind"
+    "ast-grep ast-grep sg"
+    "repomix repomix"
+    "scc scc"
+    "shellcheck shellcheck"
+    "shfmt shfmt"
+)
+
+# resolve_tool NAME CANDIDATE... -> echoes the resolved candidate name, or empty.
+resolve_tool() {
+    shift # drop logical name
+    local cand
+    for cand in "$@"; do
+        if command -v "$cand" >/dev/null 2>&1; then
+            printf '%s' "$cand"
+            return 0
+        fi
+    done
+    return 1
+}
+
+missing_required=0
+missing_optional=0
+
+# --- JSON renderer -----------------------------------------------------------
+render_tool_json() {
+    # args: logical-name candidate...
+    local logical=$1 resolved
+    if resolved="$(resolve_tool "$@")"; then
+        printf '{"name":"%s","present":true,"resolved":"%s"}' \
+            "$(json_escape "$logical")" "$(json_escape "$resolved")"
+    else
+        printf '{"name":"%s","present":false,"resolved":null}' "$(json_escape "$logical")"
+    fi
+}
+
+render_tool_list_json() {
+    local -n _arr=$1
+    local first=1 entry
+    printf '['
+    for entry in "${_arr[@]}"; do
+        # shellcheck disable=SC2086 -- entry is a controlled space-joined spec.
+        set -- $entry
+        ((first)) || printf ','
+        first=0
+        render_tool_json "$@"
+    done
+    printf ']'
+}
+
+# Tally missing tools (separate pass so status is known before rendering).
+for entry in "${required_tools[@]}"; do
+    # shellcheck disable=SC2086
+    set -- $entry
+    resolve_tool "$@" >/dev/null || missing_required=$((missing_required + 1))
+done
+for entry in "${optional_tools[@]}"; do
+    # shellcheck disable=SC2086
+    set -- $entry
+    resolve_tool "$@" >/dev/null || missing_optional=$((missing_optional + 1))
+done
+
+# Overall status.
+status="ok"
+if [[ "$bash_ok" != true ]] || ((missing_required > 0)); then
+    status="error"
+elif ((missing_optional > 0)) || [[ "$on_path" != true ]]; then
+    status="degraded"
+fi
+
+if [[ -n "$json_mode" ]]; then
+    if [[ -n "$commit" ]]; then commit_json="\"$(json_escape "$commit")\""; else commit_json="null"; fi
+    printf '{'
+    printf '"schema":"ai.doctor/v1","status":"%s","tool":"agent-kit",' "$status"
+    printf '"version":"%s","commit":%s,' "$(json_escape "$version")" "$commit_json"
+    printf '"bash":{"version":"%s","min_required":"4.4","ok":%s},' \
+        "$(json_escape "$bash_version")" "$bash_ok"
+    printf '"install":{"root":"%s","entrypoint":"%s","on_path":%s},' \
+        "$(json_escape "$ROOT_DIR")" "$(json_escape "$ENTRYPOINT")" "$on_path"
+    printf '"repo":{"inside_work_tree":%s},' "$inside_work_tree"
+    printf '"tools":{"required":'
+    render_tool_list_json required_tools
+    printf ',"optional":'
+    render_tool_list_json optional_tools
+    printf '}}'
+    printf '\n'
+    [[ "$status" == "error" ]] && exit 1
+    exit 0
+fi
+
+# --- Text renderer -----------------------------------------------------------
+mark() { [[ "$1" == true ]] && printf '\033[0;32m✓\033[0m' || printf '\033[0;31m✗\033[0m'; }
+
+printf 'agent-kit doctor\n\n'
+printf '  version   %s' "$version"
+[[ -n "$commit" ]] && printf ' (%s)' "$commit"
+printf '\n'
+printf '  bash      %s ' "$bash_version"
+mark "$bash_ok"
+printf ' (need >= 4.4)\n'
+printf '  on PATH   '
+mark "$on_path"
+printf '\n'
+printf '  git tree  '
+mark "$inside_work_tree"
+printf '\n'
+printf '  install   %s\n' "$ROOT_DIR"
+
+printf '\n  required tools\n'
+for entry in "${required_tools[@]}"; do
+    # shellcheck disable=SC2086
+    set -- $entry
+    logical=$1
+    if resolved="$(resolve_tool "$@")"; then
+        printf '    '
+        mark true
+        printf ' %s\n' "$resolved"
+    else
+        printf '    '
+        mark false
+        printf ' %s (missing)\n' "$logical"
+    fi
+done
+
+printf '\n  optional tools\n'
+for entry in "${optional_tools[@]}"; do
+    # shellcheck disable=SC2086
+    set -- $entry
+    logical=$1
+    if resolved="$(resolve_tool "$@")"; then
+        printf '    '
+        mark true
+        printf ' %s\n' "$resolved"
+    else
+        printf '    '
+        mark false
+        printf ' %s (missing)\n' "$logical"
+    fi
+done
+
+printf '\n  status: %s\n' "$status"
+[[ "$status" == "error" ]] && exit 1
+exit 0

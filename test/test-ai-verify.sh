@@ -168,7 +168,10 @@ run_test "scoped_php_files emits only existing php files" test_scoped_php_files
 # waiting on a full per-file verification pass in repositories where every file
 # is treated as changed (e.g. a fresh, mostly-uncommitted working tree).
 _verify_timeout=""
-for _t in timeout gtimeout; do command -v "$_t" >/dev/null 2>&1 && { _verify_timeout="$_t"; break; }; done
+for _t in timeout gtimeout; do command -v "$_t" >/dev/null 2>&1 && {
+    _verify_timeout="$_t"
+    break
+}; done
 test_branch_scope_recognized() {
     local out
     # Scope validation happens up front and dies (if it were to) well under
@@ -277,15 +280,15 @@ EOF
         git commit -q -m init
 
         case "$mutate_mode" in
-        workflow)
-            printf '\n# changed\n' >>.github/workflows/ci.yml
-            ;;
-        composer)
-            printf '\n' >>composer.json
-            ;;
-        *)
-            printf '// changed\n' >>src/App.php
-            ;;
+            workflow)
+                printf '\n# changed\n' >>.github/workflows/ci.yml
+                ;;
+            composer)
+                printf '\n' >>composer.json
+                ;;
+            *)
+                printf '// changed\n' >>src/App.php
+                ;;
         esac
 
         PATH="$tmpbin:$PATH" AI_VERIFY_TEST_MODE=0 AI_VERIFY_SCOPE=changed \
@@ -573,19 +576,19 @@ run_test "all scope excludes shipped tools/ai php in target repo" test_all_scope
 test_default_scope_is_php_scoped() {
     local AI_VERIFY_SCOPE="ai" php_scoped=0 php_scope_source="ai"
     case "$AI_VERIFY_SCOPE" in
-    all) ;;
-    changed) php_scoped=1 ;;
-    ai)
-        php_scoped=1
-        php_scope_source="changed"
-        ;;
-    branch)
-        php_scoped=1
-        php_scope_source="branch"
-        ;;
-    *)
-        return 1
-        ;;
+        all) ;;
+        changed) php_scoped=1 ;;
+        ai)
+            php_scoped=1
+            php_scope_source="changed"
+            ;;
+        branch)
+            php_scoped=1
+            php_scope_source="branch"
+            ;;
+        *)
+            return 1
+            ;;
     esac
     ((php_scoped == 1)) && [[ "$php_scope_source" == "changed" ]]
 }
@@ -602,10 +605,10 @@ _linecount_fixture() {
         git init -q
         git config user.email t@t.t
         git config user.name t
-        printf 'x\n%.0s' $(seq 1 360) >big-info.txt    # 360 lines -> info
-        printf 'x\n%.0s' $(seq 1 560) >big-warn.txt    # 560 lines -> warn
-        printf 'x\n%.0s' $(seq 1 810) >big-error.txt   # 810 lines -> error
-        printf 'x\n%.0s' $(seq 1 10) >small.txt        # under all tiers
+        printf 'x\n%.0s' $(seq 1 360) >big-info.txt  # 360 lines -> info
+        printf 'x\n%.0s' $(seq 1 560) >big-warn.txt  # 560 lines -> warn
+        printf 'x\n%.0s' $(seq 1 810) >big-error.txt # 810 lines -> error
+        printf 'x\n%.0s' $(seq 1 10) >small.txt      # under all tiers
     )
     printf '%s\n' "$tmp"
 }
@@ -2456,17 +2459,17 @@ SHEOF
     )"
     rc=$?
     rm -rf "$tmp"
-    ((rc == 0)) \
-        && [[ "$out" == *"repo-tool-inventory"* ]] \
-        && [[ "$out" == *"agent-snippets"* ]] \
-        && [[ "$out" == *"validate-agent-spec"* ]] \
-        && [[ "$out" == *"validate-stub-surfaces"* ]] \
-        && [[ "$out" == *"validate-catalog-drift"* ]] \
-        && [[ "$out" == *"validate-schemas"* ]] \
-        && [[ "$out" == *"validate-agent-assessment"* ]] \
-        && [[ "$out" == *"validate-agent-assessment-values"* ]] \
-        && [[ "$out" == *"validate-mentor-parity"* ]] \
-        && [[ "$out" == *"validate-script-access"* ]]
+    ((rc == 0)) &&
+        [[ "$out" == *"repo-tool-inventory"* ]] &&
+        [[ "$out" == *"agent-snippets"* ]] &&
+        [[ "$out" == *"validate-agent-spec"* ]] &&
+        [[ "$out" == *"validate-stub-surfaces"* ]] &&
+        [[ "$out" == *"validate-catalog-drift"* ]] &&
+        [[ "$out" == *"validate-schemas"* ]] &&
+        [[ "$out" == *"validate-agent-assessment"* ]] &&
+        [[ "$out" == *"validate-agent-assessment-values"* ]] &&
+        [[ "$out" == *"validate-mentor-parity"* ]] &&
+        [[ "$out" == *"validate-script-access"* ]]
 }
 run_test "verify docs drift: every remaining gated step runs when its guard file exists" test_docs_drift_all_remaining_gated_steps_run
 

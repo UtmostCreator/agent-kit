@@ -11,6 +11,8 @@
 #   agent-kit rollback list                       # list restore points (read-only, safe)
 #   agent-kit rollback show SNAPSHOT_ID           # preview one snapshot's files (id from `list`)
 #
+# Modes: list show apply prune
+#
 # Requires: git
 
 set -euo pipefail
@@ -106,10 +108,10 @@ cmd_list() {
         base="$(basename "$snap")"
 
         case "$snap" in
-        *.manifest.json) type="manifest" ;;
-        *.patch) type="legacy-patch" ;;
-        *.ref) type="legacy-ref" ;;
-        *) type="unknown" ;;
+            *.manifest.json) type="manifest" ;;
+            *.patch) type="legacy-patch" ;;
+            *.ref) type="legacy-ref" ;;
+            *) type="unknown" ;;
         esac
 
         printf '%-60s  %-12s  %-10s  %s\n' \
@@ -186,22 +188,22 @@ cmd_show() {
     log_info "Snapshot: $snap"
 
     case "$snap" in
-    *.manifest.json)
-        cmd_show_manifest "$snap"
-        ;;
-    *.ref)
-        local ref
-        ref="$(<"$snap")"
-        log_info "Type: legacy ref"
-        git show --stat "$ref"
-        ;;
-    *.patch)
-        log_info "Type: legacy patch"
-        git apply --stat "$snap" 2>/dev/null || sed -n '1,120p' "$snap"
-        ;;
-    *)
-        die "unsupported snapshot type: $snap"
-        ;;
+        *.manifest.json)
+            cmd_show_manifest "$snap"
+            ;;
+        *.ref)
+            local ref
+            ref="$(<"$snap")"
+            log_info "Type: legacy ref"
+            git show --stat "$ref"
+            ;;
+        *.patch)
+            log_info "Type: legacy patch"
+            git apply --stat "$snap" 2>/dev/null || sed -n '1,120p' "$snap"
+            ;;
+        *)
+            die "unsupported snapshot type: $snap"
+            ;;
     esac
 }
 
@@ -227,15 +229,15 @@ cmd_prune() {
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-        --days)
-            days="${2:?days required}"
-            shift 2
-            ;;
-        --days=*)
-            days="${1#*=}"
-            shift
-            ;;
-        *) die "unknown option: $1" ;;
+            --days)
+                days="${2:?days required}"
+                shift 2
+                ;;
+            --days=*)
+                days="${1#*=}"
+                shift
+                ;;
+            *) die "unknown option: $1" ;;
         esac
     done
 
@@ -271,13 +273,13 @@ cmd="${1:-}"
 shift || true
 
 case "$cmd" in
-list) cmd_list ;;
-show) cmd_show "${1:-}" ;;
-apply) cmd_apply "${1:-}" ;;
-prune) cmd_prune "$@" ;;
---help | -h) usage ;;
-*)
-    usage
-    die "unknown command: $cmd"
-    ;;
+    list) cmd_list ;;
+    show) cmd_show "${1:-}" ;;
+    apply) cmd_apply "${1:-}" ;;
+    prune) cmd_prune "$@" ;;
+    --help | -h) usage ;;
+    *)
+        usage
+        die "unknown command: $cmd"
+        ;;
 esac

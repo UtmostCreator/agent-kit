@@ -14,14 +14,14 @@
 
 is_shipped_ai_kit_shell_file() {
     case "$1" in
-    install-ai-kit.sh | \
-        .github/hooks/scripts/*.sh | \
-        scripts/ai/*.sh | \
-        scripts/hooks/*.sh | \
-        tools/ai/install-*.sh | \
-        tools/ai/install/*.sh)
-        return 0
-        ;;
+        install-ai-kit.sh | \
+            .github/hooks/scripts/*.sh | \
+            scripts/ai/*.sh | \
+            scripts/hooks/*.sh | \
+            tools/ai/install-*.sh | \
+            tools/ai/install/*.sh)
+            return 0
+            ;;
     esac
 
     return 1
@@ -31,15 +31,15 @@ is_shipped_ai_kit_shell_file() {
 # support scaffolding and should not become part of changed-scope verification.
 is_shipped_ai_kit_workflow_file() {
     case "$1" in
-    .github/workflows/validate-ai-surface.yml | \
-        .github/workflows/test-external-install.yml | \
-        .github/workflows/export-ai-universal-rules-preview.yml | \
-        .github/workflows/architecture-plan-scope-guard.yml | \
-        .github/workflows/auto-pr-description.yml | \
-        .github/workflows/frontend-build.yml | \
-        .github/workflows/pr-validation.yml)
-        return 0
-        ;;
+        .github/workflows/validate-ai-surface.yml | \
+            .github/workflows/test-external-install.yml | \
+            .github/workflows/export-ai-universal-rules-preview.yml | \
+            .github/workflows/architecture-plan-scope-guard.yml | \
+            .github/workflows/auto-pr-description.yml | \
+            .github/workflows/frontend-build.yml | \
+            .github/workflows/pr-validation.yml)
+            return 0
+            ;;
     esac
 
     return 1
@@ -51,9 +51,9 @@ is_shipped_ai_kit_workflow_file() {
 # '/', so this single pattern covers every nesting depth under tools/ai/.
 is_shipped_ai_kit_php_file() {
     case "$1" in
-    tools/ai/*.php)
-        return 0
-        ;;
+        tools/ai/*.php)
+            return 0
+            ;;
     esac
 
     return 1
@@ -91,8 +91,8 @@ should_skip_shipped_ai_kit_workflow_file() {
 # AI_KIT_SELF_VERIFY=1 (force self-verify) or 0 (force target mode).
 is_ai_kit_source_repo() {
     case "${AI_KIT_SELF_VERIFY:-auto}" in
-    1) return 0 ;;
-    0) return 1 ;;
+        1) return 0 ;;
+        0) return 1 ;;
     esac
     [[ -d packages/ai-universal-rules/templates &&
         -f packages/ai-universal-rules/package-lock.ai.json &&

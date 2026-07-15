@@ -48,10 +48,10 @@ EOF
 }
 
 case "${1:-}" in
---help | -h)
-    usage
-    exit 0
-    ;;
+    --help | -h)
+        usage
+        exit 0
+        ;;
 esac
 
 ROOT="${1:-.}"

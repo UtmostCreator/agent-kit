@@ -18,14 +18,14 @@
 query_matches_line() {
     local line="$1" grep_args=()
     case "$pattern_mode" in
-    fixed) grep_args+=(-F) ;;
-    pcre2) grep_args+=(-P) ;;
-    *) grep_args+=(-E) ;;
+        fixed) grep_args+=(-F) ;;
+        pcre2) grep_args+=(-P) ;;
+        *) grep_args+=(-E) ;;
     esac
     case "$case_mode" in
-    ignore) grep_args+=(-i) ;;
-    sensitive) : ;;
-    smart | *) [[ "$query" =~ [[:upper:]] ]] || grep_args+=(-i) ;;
+        ignore) grep_args+=(-i) ;;
+        sensitive) : ;;
+        smart | *) [[ "$query" =~ [[:upper:]] ]] || grep_args+=(-i) ;;
     esac
     printf '%s' "$line" | grep -q "${grep_args[@]}" -- "$query"
 }

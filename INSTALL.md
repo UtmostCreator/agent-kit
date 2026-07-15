@@ -152,20 +152,47 @@ git pull --ff-only
 
 ```bash
 agent-kit --version
-agent-kit --help
-agent-kit search --help
+ak --version          # the short alias, installed alongside agent-kit
+ak --help
+ak s TODO             # short search: default text mode, repo root auto-detected
 ```
 
-## Optional: a shorter `akit` alias
+## The short `ak` alias
 
-`agent-kit` is the canonical command. For less typing, add an alias to your
-shell rc and use `akit` everywhere:
+Every installer creates a short **`ak`** command next to the canonical
+`agent-kit` — same dispatcher, less typing. Prefer `ak` interactively and keep
+`agent-kit` in scripts and documentation for readability.
 
 ```bash
-echo "alias akit='agent-kit'" >> ~/.bashrc   # or ~/.zshrc
-akit --list
-akit search text "TODO" .
+ak --list
+ak s TODO                     # == agent-kit search text TODO <repo-root>
+ak s export --changed         # search only changed files
+ak doctor                     # install + environment health check
 ```
+
+`ak s QUERY` defaults to text mode and auto-detects the search root (explicit
+`ROOT` > Git top-level > current dir), so the common case needs no mode word and
+no trailing `.`. Mode flags (`--tracked`, `--changed`, `--staged`, `--diff`,
+`--history`, `--docs`, `--tests`, `--config`, `--deps`) switch families.
+
+> Want an even shorter or differently-named alias too? Add one to your shell rc,
+> e.g. `echo "alias akit='agent-kit'" >> ~/.bashrc`.
+
+## Shell completion
+
+`agent-kit completion SHELL` prints a generated, non-mutating completion
+definition for `bash`, `zsh`, or `fish` (both `agent-kit` and `ak` complete
+identically); `auto` detects your running shell.
+
+```bash
+source <(agent-kit completion bash)                                    # this session only
+echo 'source <(agent-kit completion zsh)' >> ~/.zshrc                  # persistent, zsh
+agent-kit completion fish > ~/.config/fish/completions/agent-kit.fish  # persistent, fish
+```
+
+Homebrew installs wire this into `bash_completion`/`zsh_completion`/
+`fish_completion` automatically; other install methods need one of the lines
+above added to your shell's startup file.
 
 ## Uninstall
 

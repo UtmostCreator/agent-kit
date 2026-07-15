@@ -18,6 +18,10 @@
 #   agent-kit test select changed          # list tests for your current changes (read-only)
 #   agent-kit test run --filter FooTest    # run only tests matching FooTest
 #   agent-kit test all --help              # see options and defaults before running (safe)
+#
+# Modes: select run all
+#
+# Flags: --filter --help -h --introspect
 
 set -euo pipefail
 
@@ -41,24 +45,24 @@ ai_test_usage() {
 }
 
 case "${1:-}" in
-select)
-    shift
-    ai_test_select_main "$@"
-    ;;
-run)
-    shift
-    ai_test_run_main "$@"
-    ;;
-all)
-    shift
-    ai_test_all_main "$@"
-    ;;
---help | -h | "")
-    ai_test_usage
-    exit 0
-    ;;
-*)
-    echo "agent-kit test: unknown mode '$1' (expected select|run|all)" >&2
-    exit 2
-    ;;
+    select)
+        shift
+        ai_test_select_main "$@"
+        ;;
+    run)
+        shift
+        ai_test_run_main "$@"
+        ;;
+    all)
+        shift
+        ai_test_all_main "$@"
+        ;;
+    --help | -h | "")
+        ai_test_usage
+        exit 0
+        ;;
+    *)
+        echo "agent-kit test: unknown mode '$1' (expected select|run|all)" >&2
+        exit 2
+        ;;
 esac

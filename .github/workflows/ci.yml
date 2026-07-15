@@ -58,6 +58,46 @@ jobs:
       - name: Run lint and tests
         run: ./scripts/check.sh
 
+  format:
+    name: format
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Harden the runner (audit-only; observes egress, never blocks)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout exact event revision without external actions
+        env:
+          REPOSITORY: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          COMMIT_SHA: ${{ github.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${REPOSITORY}.git"
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            git fetch --no-tags --depth=1 origin "refs/pull/${PR_NUMBER}/merge"
+          else
+            git fetch --no-tags --depth=1 origin "${COMMIT_SHA}"
+          fi
+          git checkout --detach FETCH_HEAD
+
+      - name: Install shfmt (pinned; integrity-verified via the Go module sumdb)
+        run: |
+          set -euo pipefail
+          go install mvdan.cc/sh/v3/cmd/shfmt@v3.13.1
+          "$(go env GOPATH)/bin/shfmt" --version
+
+      - name: Check shell formatting (shfmt -d)
+        run: |
+          set -euo pipefail
+          # Fails the build on any formatting drift. Reformat locally with:
+          #   shfmt -w -i 4 -ci bin lib libexec scripts test
+          "$(go env GOPATH)/bin/shfmt" -d -i 4 -ci bin lib libexec scripts test
+
   workflow-security:
     name: workflow-security
     runs-on: ubuntu-24.04
@@ -113,13 +153,14 @@ jobs:
   required:
     name: required
     if: ${{ always() }}
-    needs: [checks, workflow-security]
+    needs: [checks, format, workflow-security]
     runs-on: ubuntu-24.04
     steps:
-      - name: Confirm matrix and workflow-security success
+      - name: Confirm matrix, format, and workflow-security success
         env:
           CHECKS_RESULT: ${{ needs.checks.result }}
+          FORMAT_RESULT: ${{ needs.format.result }}
           WORKFLOW_SECURITY_RESULT: ${{ needs.workflow-security.result }}
         run: |
           set -euo pipefail
-          [[ "$CHECKS_RESULT" == "success" && "$WORKFLOW_SECURITY_RESULT" == "success" ]]
+          [[ "$CHECKS_RESULT" == "success" && "$FORMAT_RESULT" == "success" && "$WORKFLOW_SECURITY_RESULT" == "success" ]]

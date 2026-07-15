@@ -34,13 +34,19 @@ prefix_explicit=0
 while (($# > 0)); do
     case "$1" in
         --prefix)
-            (($# >= 2)) || { printf 'error: --prefix requires a path\n' >&2; exit 2; }
+            (($# >= 2)) || {
+                printf 'error: --prefix requires a path\n' >&2
+                exit 2
+            }
             prefix=$2
             prefix_explicit=1
             shift 2
             ;;
         --bindir)
-            (($# >= 2)) || { printf 'error: --bindir requires a path\n' >&2; exit 2; }
+            (($# >= 2)) || {
+                printf 'error: --bindir requires a path\n' >&2
+                exit 2
+            }
             bindir=$2
             shift 2
             ;;
@@ -54,7 +60,7 @@ while (($# > 0)); do
                 shift
             fi
             ;;
-        -h|--help)
+        -h | --help)
             usage
             exit 0
             ;;
@@ -72,7 +78,10 @@ if [[ -n "$project_dir" && "$prefix_explicit" == 0 ]]; then
     if [[ "$project_dir" == "." ]]; then
         project_dir=$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)
     fi
-    [[ -d "$project_dir" ]] || { printf 'error: --project dir not found: %s\n' "$project_dir" >&2; exit 2; }
+    [[ -d "$project_dir" ]] || {
+        printf 'error: --project dir not found: %s\n' "$project_dir" >&2
+        exit 2
+    }
     project_dir=$(cd -- "$project_dir" && pwd -P)
     prefix="$project_dir/$dir_name/toolkit"
     bindir="$project_dir/$dir_name/bin"
@@ -122,19 +131,24 @@ for path in "${copy_paths[@]}"; do
     [[ -e "$source_root/$path" ]] || continue
     cp -R -- "$source_root/$path" "$stage/"
 done
-printf '%s\n' 'agent-kit' > "$stage/.agent-kit-install"
+printf '%s\n' 'agent-kit' >"$stage/.agent-kit-install"
 
 # Refuse to clobber a foreign command already installed as `$bindir/agent-kit` (the
 # name is generic). Only overwrite our own wrapper unless AGENTKIT_FORCE=1. Do this
 # before replacing the prefix so a rejected wrapper leaves the existing install intact.
 wrapper_marker='# agent-kit-wrapper'
-if [[ -e "$bindir/agent-kit" && "${AGENTKIT_FORCE:-0}" != "1" ]]; then
-    if ! grep -Fq -- "$wrapper_marker" "$bindir/agent-kit" 2>/dev/null; then
-        printf 'error: %s already exists and is not an agent-kit wrapper.\n' "$bindir/agent-kit" >&2
-        printf '       Remove it, choose another --bindir, or re-run with AGENTKIT_FORCE=1 to overwrite.\n' >&2
-        exit 1
+# Both the canonical `agent-kit` and the short `ak` alias are installed as
+# wrappers; guard each generic name against clobbering a foreign command.
+wrapper_names=(agent-kit ak)
+for wrapper_name in "${wrapper_names[@]}"; do
+    if [[ -e "$bindir/$wrapper_name" && "${AGENTKIT_FORCE:-0}" != "1" ]]; then
+        if ! grep -Fq -- "$wrapper_marker" "$bindir/$wrapper_name" 2>/dev/null; then
+            printf 'error: %s already exists and is not an agent-kit wrapper.\n' "$bindir/$wrapper_name" >&2
+            printf '       Remove it, choose another --bindir, or re-run with AGENTKIT_FORCE=1 to overwrite.\n' >&2
+            exit 1
+        fi
     fi
-fi
+done
 
 if [[ -e "$prefix" ]]; then
     backup="${prefix}.backup.$(date +%Y%m%d%H%M%S).$$"
@@ -148,18 +162,21 @@ if ! mv -- "$stage" "$prefix"; then
 fi
 installed=1
 
-wrapper_tmp=$(mktemp "$bindir/.agent-kit.XXXXXX")
-# Pin the wrapper to the Bash that ran this installer. We already verified it is
-# >= 4.4 above, so the installed `agent-kit` always launches the dispatcher under a
+# Pin the wrappers to the Bash that ran this installer. We already verified it is
+# >= 4.4 above, so the installed commands always launch the dispatcher under a
 # capable interpreter (bin/agent-kit then propagates it to subcommands via "$BASH").
-# This avoids macOS silently running everything under its 3.2 /bin/bash.
-cat > "$wrapper_tmp" <<EOF
+# This avoids macOS silently running everything under its 3.2 /bin/bash. Both the
+# canonical `agent-kit` and the short `ak` alias point at the same dispatcher.
+for wrapper_name in "${wrapper_names[@]}"; do
+    wrapper_tmp=$(mktemp "$bindir/.agent-kit.XXXXXX")
+    cat >"$wrapper_tmp" <<EOF
 #!/bin/sh
 $wrapper_marker
 exec $(printf '%q' "$BASH") $(printf '%q' "$prefix/bin/agent-kit") "\$@"
 EOF
-chmod 0755 "$wrapper_tmp"
-mv -f -- "$wrapper_tmp" "$bindir/agent-kit"
+    chmod 0755 "$wrapper_tmp"
+    mv -f -- "$wrapper_tmp" "$bindir/$wrapper_name"
+done
 
 if [[ -n "$backup" && -e "$backup" ]]; then
     rm -rf -- "$backup"
@@ -169,7 +186,7 @@ trap - EXIT
 cleanup
 
 printf 'Installed AgentKit to %s\n' "$prefix"
-printf 'Command: %s/agent-kit\n' "$bindir"
+printf 'Commands: %s/agent-kit (and the short alias %s/ak)\n' "$bindir" "$bindir"
 if [[ "${project_mode:-0}" == 1 ]]; then
     printf 'Project-local install (%s). Invoke via %s/agent-kit, or wire your repo to %s.\n' \
         "$dir_name" "$bindir" "$prefix"

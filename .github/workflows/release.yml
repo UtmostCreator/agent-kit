@@ -87,3 +87,50 @@ jobs:
       - uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
           subject-path: 'dist/agent-kit-*.tar.gz'
+
+  npm-publish:
+    name: npm-publish
+    needs: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      # id-token: write enables OIDC trusted publishing + npm provenance; no
+      # long-lived NPM_TOKEN is used. Configure the trusted publisher for this
+      # workflow at npmjs.com before the first tagged release, or this job fails.
+      id-token: write
+      contents: read
+    steps:
+      - name: Harden the runner (audit-only; observes egress, never blocks)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout exact tag without external actions
+        env:
+          REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${REPOSITORY}.git"
+          git fetch --no-tags --depth=1 origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+          git checkout --detach "refs/tags/${RELEASE_TAG}"
+
+      - name: Set up Node with the npm registry
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Upgrade npm to a trusted-publishing-capable version
+        run: npm install --global npm@latest
+
+      - name: Guard the package contents before publishing
+        run: |
+          set -euo pipefail
+          # Fail loudly if the tarball would carry logs, fixtures, or other stray
+          # files. --dry-run neither publishes nor mutates the registry.
+          npm pack --dry-run
+
+      - name: Publish to npm with provenance (OIDC trusted publishing)
+        run: npm publish --provenance --access public

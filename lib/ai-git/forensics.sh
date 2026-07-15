@@ -38,10 +38,10 @@ ai_git_forensics_main() {
     require_bins git
 
     case "${1:-}" in
-    --help | -h)
-        ai_git_forensics_usage
-        exit 0
-        ;;
+        --help | -h)
+            ai_git_forensics_usage
+            exit 0
+            ;;
     esac
 
     if [[ $# -lt 2 ]]; then
@@ -65,43 +65,43 @@ ai_git_forensics_main() {
     local output_json=0
     while [[ $# -gt 0 ]]; do
         case "$1" in
-        --json)
-            output_json=1
-            shift
-            ;;
-        *) die "unknown option: $1" ;;
+            --json)
+                output_json=1
+                shift
+                ;;
+            *) die "unknown option: $1" ;;
         esac
     done
 
     case "$mode" in
-    S)
-        if [[ -n "$file" ]]; then
-            ai_git_forensics_run_and_capture "$mode" "$search_target" "$file" "$output_json" git log -S "$search_target" -p -- "$file"
-        else
-            ai_git_forensics_run_and_capture "$mode" "$search_target" "$file" "$output_json" git log -S "$search_target" -p
-        fi
-        ;;
-    G)
-        if [[ -n "$file" ]]; then
-            ai_git_forensics_run_and_capture "$mode" "$search_target" "$file" "$output_json" git log -G "$search_target" -p -- "$file"
-        else
-            ai_git_forensics_run_and_capture "$mode" "$search_target" "$file" "$output_json" git log -G "$search_target" -p
-        fi
-        ;;
-    L)
-        ai_git_forensics_run_and_capture "$mode" "$search_target" "$file" "$output_json" git log -L "$search_target"
-        ;;
-    blame)
-        [[ -n "$file" ]] || die "file required for blame mode"
-        if git blame -L "$search_target" -- "$file" >/dev/null 2>&1; then
-            ai_git_forensics_run_and_capture "$mode" "$search_target" "$file" "$output_json" git blame -L "$search_target" -- "$file"
-        elif git blame -L "$search_target" "$file" >/dev/null 2>&1; then
-            ai_git_forensics_run_and_capture "$mode" "$search_target" "$file" "$output_json" git blame -L "$search_target" "$file"
-        else
-            # Fallback for files not yet in HEAD/history in fixture-heavy worktrees.
-            ai_git_forensics_run_and_capture "$mode" "$search_target" "$file" "$output_json" sed -n "${search_target}p" "$file"
-        fi
-        ;;
-    *) die "unknown mode: $mode" ;;
+        S)
+            if [[ -n "$file" ]]; then
+                ai_git_forensics_run_and_capture "$mode" "$search_target" "$file" "$output_json" git log -S "$search_target" -p -- "$file"
+            else
+                ai_git_forensics_run_and_capture "$mode" "$search_target" "$file" "$output_json" git log -S "$search_target" -p
+            fi
+            ;;
+        G)
+            if [[ -n "$file" ]]; then
+                ai_git_forensics_run_and_capture "$mode" "$search_target" "$file" "$output_json" git log -G "$search_target" -p -- "$file"
+            else
+                ai_git_forensics_run_and_capture "$mode" "$search_target" "$file" "$output_json" git log -G "$search_target" -p
+            fi
+            ;;
+        L)
+            ai_git_forensics_run_and_capture "$mode" "$search_target" "$file" "$output_json" git log -L "$search_target"
+            ;;
+        blame)
+            [[ -n "$file" ]] || die "file required for blame mode"
+            if git blame -L "$search_target" -- "$file" >/dev/null 2>&1; then
+                ai_git_forensics_run_and_capture "$mode" "$search_target" "$file" "$output_json" git blame -L "$search_target" -- "$file"
+            elif git blame -L "$search_target" "$file" >/dev/null 2>&1; then
+                ai_git_forensics_run_and_capture "$mode" "$search_target" "$file" "$output_json" git blame -L "$search_target" "$file"
+            else
+                # Fallback for files not yet in HEAD/history in fixture-heavy worktrees.
+                ai_git_forensics_run_and_capture "$mode" "$search_target" "$file" "$output_json" sed -n "${search_target}p" "$file"
+            fi
+            ;;
+        *) die "unknown mode: $mode" ;;
     esac
 }

@@ -18,15 +18,15 @@ ai_diff_context_main() {
     shift || true
 
     case "$cmd" in
-    since) cmd_since "$@" ;;
-    unstaged) cmd_unstaged "$@" ;;
-    pr) cmd_pr "$@" ;;
-    recent) cmd_recent "$@" ;;
-    touched) cmd_touched "$@" ;;
-    --help | -h) usage ;;
-    *)
-        usage
-        die "unknown command: $cmd"
-        ;;
+        since) cmd_since "$@" ;;
+        unstaged) cmd_unstaged "$@" ;;
+        pr) cmd_pr "$@" ;;
+        recent) cmd_recent "$@" ;;
+        touched) cmd_touched "$@" ;;
+        --help | -h) usage ;;
+        *)
+            usage
+            die "unknown command: $cmd"
+            ;;
     esac
 }

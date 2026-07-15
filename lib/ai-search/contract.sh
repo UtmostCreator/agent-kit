@@ -171,22 +171,22 @@ normalize_legacy_alias() {
     legacy_alias=0
 
     case "$mode" in
-    changed)
-        legacy_alias=1
-        if [[ "${AI_SEARCH_STRICT:-0}" == "1" ]]; then
-            fail "error" "mode 'changed' is deprecated; use 'changed-files' for file lists or 'changed-text' for content search"
-        fi
-        add_warning "mode 'changed' is deprecated; use 'changed-files' for file lists or 'changed-text' for content search"
-        mode="changed-files"
-        ;;
-    staged)
-        legacy_alias=1
-        if [[ "${AI_SEARCH_STRICT:-0}" == "1" ]]; then
-            fail "error" "mode 'staged' is deprecated; use 'staged-files' for file lists or 'staged-text' for content search"
-        fi
-        add_warning "mode 'staged' is deprecated; use 'staged-files' for file lists or 'staged-text' for content search"
-        mode="staged-files"
-        ;;
+        changed)
+            legacy_alias=1
+            if [[ "${AI_SEARCH_STRICT:-0}" == "1" ]]; then
+                fail "error" "mode 'changed' is deprecated; use 'changed-files' for file lists or 'changed-text' for content search"
+            fi
+            add_warning "mode 'changed' is deprecated; use 'changed-files' for file lists or 'changed-text' for content search"
+            mode="changed-files"
+            ;;
+        staged)
+            legacy_alias=1
+            if [[ "${AI_SEARCH_STRICT:-0}" == "1" ]]; then
+                fail "error" "mode 'staged' is deprecated; use 'staged-files' for file lists or 'staged-text' for content search"
+            fi
+            add_warning "mode 'staged' is deprecated; use 'staged-files' for file lists or 'staged-text' for content search"
+            mode="staged-files"
+            ;;
     esac
 
     g_mode="$mode"

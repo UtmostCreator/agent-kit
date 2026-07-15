@@ -10,7 +10,7 @@ trap 'rm -rf "$tmp"' EXIT
 
 mkdir -p "$tmp/app" "$tmp/node_modules/pkg" "$tmp/.git"
 
-cat > "$tmp/app/UserService.php" <<'PHP'
+cat >"$tmp/app/UserService.php" <<'PHP'
 <?php
 class UserService {
     public function login() {
@@ -36,8 +36,8 @@ PHP
 "$BASH_BIN" "$script" "$tmp/app/UserService.php" --around 7 --context 1 | grep -q 'logout'
 
 # JSON envelope.
-AI_OUTPUT=json "$BASH_BIN" "$script" "$tmp/app/UserService.php" --lines 4 \
-    | jq -e '
+AI_OUTPUT=json "$BASH_BIN" "$script" "$tmp/app/UserService.php" --lines 4 |
+    jq -e '
         .schema == "1"
         and .status == "ok"
         and .tool == "preview-file"
@@ -48,8 +48,8 @@ AI_OUTPUT=json "$BASH_BIN" "$script" "$tmp/app/UserService.php" --lines 4 \
     ' >/dev/null
 
 # JSON range/total_lines/limits/meta contract.
-AI_OUTPUT=json "$BASH_BIN" "$script" "$tmp/app/UserService.php" --range 3:5 \
-    | jq -e '
+AI_OUTPUT=json "$BASH_BIN" "$script" "$tmp/app/UserService.php" --range 3:5 |
+    jq -e '
         .range.start == 3
         and .range.end == 5
         and .total_lines == 10
@@ -62,8 +62,8 @@ AI_OUTPUT=json "$BASH_BIN" "$script" "$tmp/app/UserService.php" --range 3:5 \
     ' >/dev/null
 
 # Dry run.
-AI_OUTPUT=json "$BASH_BIN" "$script" "$tmp/app/UserService.php" --around 4 --dry-run \
-    | jq -e '.status == "dry_run" and .content == ""' >/dev/null
+AI_OUTPUT=json "$BASH_BIN" "$script" "$tmp/app/UserService.php" --around 4 --dry-run |
+    jq -e '.status == "dry_run" and .content == ""' >/dev/null
 
 # Invalid line count must fail.
 if "$BASH_BIN" "$script" "$tmp/app/UserService.php" --lines abc >/dev/null 2>&1; then
@@ -82,7 +82,7 @@ missing_json="$(AI_OUTPUT=json "$BASH_BIN" "$script" "$tmp/app/Missing.php" 2>/d
 printf '%s' "$missing_json" | jq -e '.status == "error" and (.errors | length == 1)' >/dev/null
 
 # Binary-looking file blocked by default.
-printf '\000\001\002' > "$tmp/app/blob.bin"
+printf '\000\001\002' >"$tmp/app/blob.bin"
 
 if "$BASH_BIN" "$script" "$tmp/app/blob.bin" >/dev/null 2>&1; then
     echo "expected binary file to be blocked" >&2
@@ -105,12 +105,12 @@ if "$BASH_BIN" "$script" "$tmp/app/large.txt" --max-bytes 100 >/dev/null 2>&1; t
 fi
 
 # Long line truncation.
-"$BASH_BIN" "$script" "$tmp/app/large.txt" --force --max-bytes 10K --max-columns 20 --lines 1 \
-    | grep -q 'truncated'
+"$BASH_BIN" "$script" "$tmp/app/large.txt" --force --max-bytes 10K --max-columns 20 --lines 1 |
+    grep -q 'truncated'
 
 # JSON mode must honor --max-columns (content bounded + truncated flag set).
-AI_OUTPUT=json "$BASH_BIN" "$script" "$tmp/app/large.txt" --force --max-bytes 10K --max-columns 20 --lines 1 \
-    | jq -e '
+AI_OUTPUT=json "$BASH_BIN" "$script" "$tmp/app/large.txt" --force --max-bytes 10K --max-columns 20 --lines 1 |
+    jq -e '
         .status == "ok"
         and .truncated == true
         and (.limits.max_columns == 20)
@@ -119,11 +119,11 @@ AI_OUTPUT=json "$BASH_BIN" "$script" "$tmp/app/large.txt" --force --max-bytes 10
     ' >/dev/null
 
 # Generated/vendor path warning.
-AI_OUTPUT=json "$BASH_BIN" "$script" "$tmp/node_modules/pkg/index.js" --force 2>/dev/null \
-    | jq -e '.status == "error" or (.warnings | type == "array")' >/dev/null || true
+AI_OUTPUT=json "$BASH_BIN" "$script" "$tmp/node_modules/pkg/index.js" --force 2>/dev/null |
+    jq -e '.status == "error" or (.warnings | type == "array")' >/dev/null || true
 
 # .git internals blocked unless forced.
-echo "secretish" > "$tmp/.git/config"
+echo "secretish" >"$tmp/.git/config"
 
 if "$BASH_BIN" "$script" "$tmp/.git/config" >/dev/null 2>&1; then
     echo "expected .git internals to be blocked" >&2
@@ -235,8 +235,8 @@ printf '%s' "$unknown_json" | jq -e '.status == "error" and (.errors[0] | contai
 # --max-bytes=N / --max-columns=N equals-form flags (combined with --lines=
 # already covered above; use --force so max-bytes=1M is not the limiting
 # factor for a tiny file, --max-columns=20 to truncate the padded line).
-"$BASH_BIN" "$script" "$tmp/app/large.txt" --force --max-bytes=10K --max-columns=20 --lines=1 \
-    | grep -q 'truncated'
+"$BASH_BIN" "$script" "$tmp/app/large.txt" --force --max-bytes=10K --max-columns=20 --lines=1 |
+    grep -q 'truncated'
 
 # Unexpected second positional argument.
 if "$BASH_BIN" "$script" "$tmp/app/UserService.php" "$tmp/app/large.txt" >/dev/null 2>&1; then

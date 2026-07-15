@@ -65,8 +65,8 @@ ai_context_ensure_want_regen() {
         local reply
         read -r reply || reply=""
         case "$reply" in
-        y | Y | yes | YES) return 0 ;;
-        *) return 1 ;;
+            y | Y | yes | YES) return 0 ;;
+            *) return 1 ;;
         esac
     fi
     # Non-interactive and not explicitly permitted: do not prompt, do not regen.
@@ -82,20 +82,20 @@ ai_context_ensure_main() {
     local arg
     for arg in "$@"; do
         case "$arg" in
-        --help | -h)
-            ai_context_ensure_usage
-            return 0
-            ;;
-        --regen)
-            REGEN="1"
-            ;;
-        --no-regen)
-            REGEN="0"
-            ASSUME_NO="1"
-            ;;
-        *)
-            args+=("$arg")
-            ;;
+            --help | -h)
+                ai_context_ensure_usage
+                return 0
+                ;;
+            --regen)
+                REGEN="1"
+                ;;
+            --no-regen)
+                REGEN="0"
+                ASSUME_NO="1"
+                ;;
+            *)
+                args+=("$arg")
+                ;;
         esac
     done
     if [[ ${#args[@]} -gt 0 ]]; then
@@ -115,47 +115,47 @@ ai_context_ensure_main() {
 
     local state="unknown"
     case "$freshness_code" in
-    0)
-        # fresh or stale; distinguish by message
-        if printf '%s' "$freshness_out" | head -n1 | grep -qi '^stale'; then
-            state="stale"
-        else
-            state="fresh"
-        fi
-        ;;
-    3) state="expired" ;;
-    4) state="missing" ;;
-    *) state="unknown" ;;
+        0)
+            # fresh or stale; distinguish by message
+            if printf '%s' "$freshness_out" | head -n1 | grep -qi '^stale'; then
+                state="stale"
+            else
+                state="fresh"
+            fi
+            ;;
+        3) state="expired" ;;
+        4) state="missing" ;;
+        *) state="unknown" ;;
     esac
 
     printf '%s\n' "$freshness_out"
 
     case "$state" in
-    fresh)
-        return 0
-        ;;
-    stale)
-        # Usable; recommend regen but never force it.
-        if ai_context_ensure_want_regen; then
-            ai_context_ensure_regenerate
-        else
-            echo "recommend: $regen_cmd"
-        fi
-        return 0
-        ;;
-    expired | missing)
-        if ai_context_ensure_want_regen; then
-            ai_context_ensure_regenerate
+        fresh)
             return 0
-        fi
-        echo "recommend: $regen_cmd"
-        echo "Repomix context is ${state}; not regenerated (no permission). Provide --regen or run the command above."
-        [[ "$state" == "expired" ]] && return 3
-        return 4
-        ;;
-    *)
-        echo "recommend: $regen_cmd"
-        return 1
-        ;;
+            ;;
+        stale)
+            # Usable; recommend regen but never force it.
+            if ai_context_ensure_want_regen; then
+                ai_context_ensure_regenerate
+            else
+                echo "recommend: $regen_cmd"
+            fi
+            return 0
+            ;;
+        expired | missing)
+            if ai_context_ensure_want_regen; then
+                ai_context_ensure_regenerate
+                return 0
+            fi
+            echo "recommend: $regen_cmd"
+            echo "Repomix context is ${state}; not regenerated (no permission). Provide --regen or run the command above."
+            [[ "$state" == "expired" ]] && return 3
+            return 4
+            ;;
+        *)
+            echo "recommend: $regen_cmd"
+            return 1
+            ;;
     esac
 }

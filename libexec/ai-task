@@ -9,6 +9,8 @@
 #   agent-kit task list             # list every task this project already defines
 #   agent-kit task test             # print the command to run this repo's tests
 #   agent-kit task verify           # print the recommended "verify" command to run
+#
+# Modes: list verify test lint typecheck json
 
 set -euo pipefail
 
@@ -134,83 +136,83 @@ recommend_command() {
     fi
 
     case "$intent" in
-    verify)
-        if command -v just >/dev/null 2>&1 && just --summary 2>/dev/null | grep -qw verify; then
-            printf 'just verify\n'
-        elif has_package_script verify; then
-            if [[ -n "$pm" ]]; then
-                printf '%s run verify\n' "$pm"
+        verify)
+            if command -v just >/dev/null 2>&1 && just --summary 2>/dev/null | grep -qw verify; then
+                printf 'just verify\n'
+            elif has_package_script verify; then
+                if [[ -n "$pm" ]]; then
+                    printf '%s run verify\n' "$pm"
+                else
+                    printf 'scripts/ai/ai-verify.sh .\n'
+                fi
+            elif [[ -f composer.json ]] && jq -e '.scripts.verify // empty' composer.json >/dev/null 2>&1; then
+                printf 'composer run-script verify\n'
             else
                 printf 'scripts/ai/ai-verify.sh .\n'
             fi
-        elif [[ -f composer.json ]] && jq -e '.scripts.verify // empty' composer.json >/dev/null 2>&1; then
-            printf 'composer run-script verify\n'
-        else
-            printf 'scripts/ai/ai-verify.sh .\n'
-        fi
-        ;;
+            ;;
 
-    test)
-        if has_package_script test; then
-            printf '%s test\n' "$pm"
-        elif [[ -f composer.json ]] && [[ -x vendor/bin/phpunit ]]; then
-            printf 'vendor/bin/phpunit\n'
-        elif [[ -f composer.json ]] && [[ -x vendor/bin/pest ]]; then
-            printf 'vendor/bin/pest\n'
-        else
-            printf 'scripts/ai/ai-verify.sh .\n'
-        fi
-        ;;
+        test)
+            if has_package_script test; then
+                printf '%s test\n' "$pm"
+            elif [[ -f composer.json ]] && [[ -x vendor/bin/phpunit ]]; then
+                printf 'vendor/bin/phpunit\n'
+            elif [[ -f composer.json ]] && [[ -x vendor/bin/pest ]]; then
+                printf 'vendor/bin/pest\n'
+            else
+                printf 'scripts/ai/ai-verify.sh .\n'
+            fi
+            ;;
 
-    lint)
-        if has_package_script lint; then
-            printf '%s run lint\n' "$pm"
-        elif [[ -f composer.json ]] && [[ -x vendor/bin/pint ]]; then
-            printf 'vendor/bin/pint --test\n'
-        else
-            printf 'scripts/ai/ai-verify.sh .\n'
-        fi
-        ;;
+        lint)
+            if has_package_script lint; then
+                printf '%s run lint\n' "$pm"
+            elif [[ -f composer.json ]] && [[ -x vendor/bin/pint ]]; then
+                printf 'vendor/bin/pint --test\n'
+            else
+                printf 'scripts/ai/ai-verify.sh .\n'
+            fi
+            ;;
 
-    typecheck)
-        if has_package_script typecheck; then
-            printf '%s run typecheck\n' "$pm"
-        elif [[ -f tsconfig.json ]]; then
-            printf '%s exec tsc --noEmit\n' "$pm"
-        elif [[ -f composer.json ]] && [[ -x vendor/bin/phpstan ]]; then
-            printf 'vendor/bin/phpstan analyse\n'
-        else
-            printf 'scripts/ai/ai-verify.sh .\n'
-        fi
-        ;;
+        typecheck)
+            if has_package_script typecheck; then
+                printf '%s run typecheck\n' "$pm"
+            elif [[ -f tsconfig.json ]]; then
+                printf '%s exec tsc --noEmit\n' "$pm"
+            elif [[ -f composer.json ]] && [[ -x vendor/bin/phpstan ]]; then
+                printf 'vendor/bin/phpstan analyse\n'
+            else
+                printf 'scripts/ai/ai-verify.sh .\n'
+            fi
+            ;;
 
-    *)
-        die "unknown recommendation intent: $intent"
-        ;;
+        *)
+            die "unknown recommendation intent: $intent"
+            ;;
     esac
 }
 
 case "$mode" in
-list)
-    build_inventory
-    ;;
+    list)
+        build_inventory
+        ;;
 
-json)
-    build_inventory
-    ;;
+    json)
+        build_inventory
+        ;;
 
-verify | test | lint | typecheck)
-    recommend_command "$mode"
-    ;;
+    verify | test | lint | typecheck)
+        recommend_command "$mode"
+        ;;
 
---help | -h)
-    usage
-    ;;
+    --help | -h)
+        usage
+        ;;
 
-*)
-    usage
-    die "unknown mode: $mode"
-    ;;
+    *)
+        usage
+        die "unknown mode: $mode"
+        ;;
 esac
 
 log_json "task.query" "$(jq -cn --arg mode "$mode" '{mode:$mode}')"

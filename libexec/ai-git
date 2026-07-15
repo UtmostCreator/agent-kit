@@ -11,6 +11,8 @@
 #   agent-kit git blame LINES FILE [--json]
 #   agent-kit git pr-context NUMBER [--diff] [--checks] [--reviews] [--pack] [--json]
 #
+# Modes: origin history blame pr-context
+#
 # Example:
 #   agent-kit git origin                          # print the branch your branch was created from
 #   agent-kit git history S "TODO" README.md      # find commits that added/removed "TODO"
@@ -39,28 +41,28 @@ ai_git_usage() {
 }
 
 case "${1:-}" in
-origin)
-    shift
-    ai_git_origin_main "$@"
-    ;;
-history)
-    shift
-    ai_git_forensics_main "$@"
-    ;;
-blame)
-    shift
-    ai_git_forensics_main blame "$@"
-    ;;
-pr-context)
-    shift
-    ai_git_pr_context_main "$@"
-    ;;
---help | -h | "")
-    ai_git_usage
-    exit 0
-    ;;
-*)
-    echo "agent-kit git: unknown mode '$1' (expected origin|history|blame|pr-context)" >&2
-    exit 2
-    ;;
+    origin)
+        shift
+        ai_git_origin_main "$@"
+        ;;
+    history)
+        shift
+        ai_git_forensics_main "$@"
+        ;;
+    blame)
+        shift
+        ai_git_forensics_main blame "$@"
+        ;;
+    pr-context)
+        shift
+        ai_git_pr_context_main "$@"
+        ;;
+    --help | -h | "")
+        ai_git_usage
+        exit 0
+        ;;
+    *)
+        echo "agent-kit git: unknown mode '$1' (expected origin|history|blame|pr-context)" >&2
+        exit 2
+        ;;
 esac

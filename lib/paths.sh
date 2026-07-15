@@ -79,8 +79,8 @@ assert_relative_safe_path() {
 path_matches_protected_pattern() {
     local p="${1,,}"
     case "$p" in
-    .env | .env.* | *.key | *.pem | *.crt | *.p12 | *.pfx | *secret* | agents.md | .github/* | docs/ai/generated/*) return 0 ;;
-    *) return 1 ;;
+        .env | .env.* | *.key | *.pem | *.crt | *.p12 | *.pfx | *secret* | agents.md | .github/* | docs/ai/generated/*) return 0 ;;
+        *) return 1 ;;
     esac
 }
 

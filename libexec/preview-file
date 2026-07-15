@@ -67,9 +67,9 @@ parse_size() {
     if [[ "$raw" =~ ^([0-9]+)([KkMmGg])$ ]]; then
         local n="${BASH_REMATCH[1]}"
         case "${BASH_REMATCH[2],,}" in
-        k) echo $((n * 1024)) ;;
-        m) echo $((n * 1024 * 1024)) ;;
-        g) echo $((n * 1024 * 1024 * 1024)) ;;
+            k) echo $((n * 1024)) ;;
+            m) echo $((n * 1024 * 1024)) ;;
+            g) echo $((n * 1024 * 1024 * 1024)) ;;
         esac
     else
         echo "$raw"
@@ -91,83 +91,83 @@ max_columns=200
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-    --help | -h)
-        usage
-        exit 0
-        ;;
-    --plain)
-        plain=1
-        shift
-        ;;
-    --dry-run)
-        dry_run=1
-        shift
-        ;;
-    --force)
-        force=1
-        shift
-        ;;
-    --lines)
-        lines="${2:-}"
-        shift 2
-        ;;
-    --lines=*)
-        lines="${1#*=}"
-        shift
-        ;;
-    --range)
-        range="${2:-}"
-        shift 2
-        ;;
-    --range=*)
-        range="${1#*=}"
-        shift
-        ;;
-    --around)
-        around="${2:-}"
-        shift 2
-        ;;
-    --around=*)
-        around="${1#*=}"
-        shift
-        ;;
-    --context)
-        context="${2:-3}"
-        shift 2
-        ;;
-    --context=*)
-        context="${1#*=}"
-        shift
-        ;;
-    --max-bytes)
-        max_bytes_raw="${2:-65536}"
-        shift 2
-        ;;
-    --max-bytes=*)
-        max_bytes_raw="${1#*=}"
-        shift
-        ;;
-    --max-columns)
-        max_columns="${2:-200}"
-        shift 2
-        ;;
-    --max-columns=*)
-        max_columns="${1#*=}"
-        shift
-        ;;
-    --*)
-        if [[ "$json_mode" == "json" ]]; then
-            emit_json "error" "" "" "[\"unknown option: $1\"]"
-            exit 1
-        fi
-        die "unknown option: $1"
-        ;;
-    *)
-        if [[ -z "$file" ]]; then
-            file="$1"
+        --help | -h)
+            usage
+            exit 0
+            ;;
+        --plain)
+            plain=1
             shift
-        else die "unexpected arg: $1"; fi
-        ;;
+            ;;
+        --dry-run)
+            dry_run=1
+            shift
+            ;;
+        --force)
+            force=1
+            shift
+            ;;
+        --lines)
+            lines="${2:-}"
+            shift 2
+            ;;
+        --lines=*)
+            lines="${1#*=}"
+            shift
+            ;;
+        --range)
+            range="${2:-}"
+            shift 2
+            ;;
+        --range=*)
+            range="${1#*=}"
+            shift
+            ;;
+        --around)
+            around="${2:-}"
+            shift 2
+            ;;
+        --around=*)
+            around="${1#*=}"
+            shift
+            ;;
+        --context)
+            context="${2:-3}"
+            shift 2
+            ;;
+        --context=*)
+            context="${1#*=}"
+            shift
+            ;;
+        --max-bytes)
+            max_bytes_raw="${2:-65536}"
+            shift 2
+            ;;
+        --max-bytes=*)
+            max_bytes_raw="${1#*=}"
+            shift
+            ;;
+        --max-columns)
+            max_columns="${2:-200}"
+            shift 2
+            ;;
+        --max-columns=*)
+            max_columns="${1#*=}"
+            shift
+            ;;
+        --*)
+            if [[ "$json_mode" == "json" ]]; then
+                emit_json "error" "" "" "[\"unknown option: $1\"]"
+                exit 1
+            fi
+            die "unknown option: $1"
+            ;;
+        *)
+            if [[ -z "$file" ]]; then
+                file="$1"
+                shift
+            else die "unexpected arg: $1"; fi
+            ;;
     esac
 done
 

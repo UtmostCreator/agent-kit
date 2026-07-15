@@ -22,12 +22,23 @@ class AgentKit < Formula
   depends_on "ripgrep"
 
   def install
-    libexec.install "bin", "lib", "libexec", "share", "VERSION"
+    libexec.install "bin", "lib", "libexec", "share", "completions", "VERSION"
     libexec.install "hooks" if File.directory?("hooks")
-    (bin/"agent-kit").write <<~SH
+    wrapper = <<~SH
       #!/bin/bash
       exec "#{Formula["bash"].opt_bin}/bash" "#{libexec}/bin/agent-kit" "$@"
     SH
+    # Install the canonical command and the short `ak` alias (e.g. `ak s TODO`),
+    # both pointing at the same dispatcher under the brewed Bash.
+    (bin/"agent-kit").write wrapper
+    (bin/"ak").write wrapper
+
+    # Wire the generated, committed completion files into Homebrew's own
+    # shell-completion directories so `agent-kit`/`ak` complete out of the box
+    # (no `agent-kit completion install` step required for Homebrew installs).
+    bash_completion.install "completions/agent-kit.bash" => "agent-kit"
+    zsh_completion.install "completions/_agent-kit"
+    fish_completion.install "completions/agent-kit.fish"
   end
 
   test do
@@ -36,5 +47,7 @@ class AgentKit < Formula
     assert_match "Available commands", shell_output("#{bin}/agent-kit --list")
     assert_match "Usage", shell_output("#{bin}/agent-kit search --help")
     assert_match(/"status"\s*:\s*"ok"/, shell_output("AI_OUTPUT=json #{bin}/agent-kit search doctor"))
+    # The short alias resolves to the same dispatcher.
+    assert_match "Available commands", shell_output("#{bin}/ak --list")
   end
 end

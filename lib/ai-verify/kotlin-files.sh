@@ -41,17 +41,17 @@ kotlin_language_pathspecs() {
     local lang="${1:?language required}"
 
     case "$lang" in
-    kotlin)
-        printf '%s\n' \
-            '*.kt' \
-            '*.kts' \
-            '*.gradle.kts' \
-            '*.gradle' \
-            'gradle/libs.versions.toml'
-        ;;
-    *)
-        die "unknown language: $lang"
-        ;;
+        kotlin)
+            printf '%s\n' \
+                '*.kt' \
+                '*.kts' \
+                '*.gradle.kts' \
+                '*.gradle' \
+                'gradle/libs.versions.toml'
+            ;;
+        *)
+            die "unknown language: $lang"
+            ;;
     esac
 }
 

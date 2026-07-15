@@ -26,15 +26,15 @@ search_git_scoped_files() {
         fail "error" "not a git repository: $root"
 
     case "$scope" in
-    changed)
-        mapfile -d '' files < <(git -C "$repo_root" diff --name-only -z --)
-        ;;
-    staged)
-        mapfile -d '' files < <(git -C "$repo_root" diff --name-only --cached -z --)
-        ;;
-    *)
-        fail "error" "unknown scoped search: $scope"
-        ;;
+        changed)
+            mapfile -d '' files < <(git -C "$repo_root" diff --name-only -z --)
+            ;;
+        staged)
+            mapfile -d '' files < <(git -C "$repo_root" diff --name-only --cached -z --)
+            ;;
+        *)
+            fail "error" "unknown scoped search: $scope"
+            ;;
     esac
 
     for f in "${files[@]}"; do
@@ -73,14 +73,14 @@ backend_tracked() {
     # case/pattern modes to git-grep-compatible flags here.
     local git_grep_args=() rc=0
     case "$case_mode" in
-    ignore) git_grep_args+=(-i) ;;
-    sensitive) : ;;
-    smart | *) [[ "$query" =~ [[:upper:]] ]] || git_grep_args+=(-i) ;;
+        ignore) git_grep_args+=(-i) ;;
+        sensitive) : ;;
+        smart | *) [[ "$query" =~ [[:upper:]] ]] || git_grep_args+=(-i) ;;
     esac
     case "$pattern_mode" in
-    fixed) git_grep_args+=(--fixed-strings) ;;
-    pcre2) git_grep_args+=(-P) ;;
-    *) : ;;
+        fixed) git_grep_args+=(--fixed-strings) ;;
+        pcre2) git_grep_args+=(-P) ;;
+        *) : ;;
     esac
     out="$(git -C "$root" grep "${git_grep_args[@]}" -n -- "$query" 2>/dev/null)" || rc=$?
     # git grep: 0 = match, 1 = no match, >=2 = error.
@@ -115,14 +115,14 @@ backend_text_fallback() {
     add_warning "rg (ripgrep) not installed; 'text' mode degraded to 'git grep' (tracked files only; git regex, not rg; default ignores/globs not applied)"
 
     case "$case_mode" in
-    ignore) git_grep_args+=(-i) ;;
-    sensitive) : ;;
-    smart | *) [[ "$query" =~ [[:upper:]] ]] || git_grep_args+=(-i) ;;
+        ignore) git_grep_args+=(-i) ;;
+        sensitive) : ;;
+        smart | *) [[ "$query" =~ [[:upper:]] ]] || git_grep_args+=(-i) ;;
     esac
     case "$pattern_mode" in
-    fixed) git_grep_args+=(--fixed-strings) ;;
-    pcre2) git_grep_args+=(-P) ;;
-    *) : ;;
+        fixed) git_grep_args+=(--fixed-strings) ;;
+        pcre2) git_grep_args+=(-P) ;;
+        *) : ;;
     esac
 
     out="$(git -C "$root" grep "${git_grep_args[@]}" -n -- "$query" 2>/dev/null)" || rc=$?
@@ -151,18 +151,18 @@ backend_shortcut_text() {
     local rc=0 escaped shortcut_query
     escaped="$(regex_escape_literal "$query")"
     case "$mode" in
-    function | method)
-        shortcut_query="\\bfunction[[:space:]]+${escaped}\\b"
-        ;;
-    interface)
-        shortcut_query="\\binterface[[:space:]]+${escaped}\\b"
-        ;;
-    enum)
-        shortcut_query="\\benum[[:space:]]+${escaped}\\b"
-        ;;
-    *)
-        fail "error" "unknown shortcut text mode: $mode"
-        ;;
+        function | method)
+            shortcut_query="\\bfunction[[:space:]]+${escaped}\\b"
+            ;;
+        interface)
+            shortcut_query="\\binterface[[:space:]]+${escaped}\\b"
+            ;;
+        enum)
+            shortcut_query="\\benum[[:space:]]+${escaped}\\b"
+            ;;
+        *)
+            fail "error" "unknown shortcut text mode: $mode"
+            ;;
     esac
     out="$(rg --json "${case_args[@]}" --pcre2 "${ignore_args[@]+"${ignore_args[@]}"}" "${rg_scope_args[@]}" -- "$shortcut_query" "$root" 2>/dev/null)" || rc=$?
     [[ "$rc" -eq 2 ]] && fail "error" "search backend error (invalid shortcut regex): $query"

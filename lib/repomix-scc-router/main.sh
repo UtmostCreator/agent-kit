@@ -30,13 +30,13 @@ repomix_scc_router_main() {
             continue
         fi
         case "$1" in
-        --help | -h)
-            usage
-            exit 0
-            ;;
-        *)
-            die "unknown option '$1'"
-            ;;
+            --help | -h)
+                usage
+                exit 0
+                ;;
+            *)
+                die "unknown option '$1'"
+                ;;
         esac
     done
 
@@ -63,30 +63,30 @@ repomix_scc_router_main() {
     BUNDLE_PLAN_JSON="$OUTPUT_DIR_ABS/bundle-plan.json"
 
     case "$COMMAND" in
-    stats)
-        run_stats
-        ;;
-    plan)
-        run_stats
-        write_bundle_plan
-        ;;
-    pack)
-        run_pack
-        ;;
-    all)
-        run_stats
-        write_bundle_plan
-        run_pack
-        ;;
-    clean)
-        run_clean
-        ;;
-    purge)
-        run_purge
-        ;;
-    *)
-        usage
-        die "unknown command '$COMMAND'"
-        ;;
+        stats)
+            run_stats
+            ;;
+        plan)
+            run_stats
+            write_bundle_plan
+            ;;
+        pack)
+            run_pack
+            ;;
+        all)
+            run_stats
+            write_bundle_plan
+            run_pack
+            ;;
+        clean)
+            run_clean
+            ;;
+        purge)
+            run_purge
+            ;;
+        *)
+            usage
+            die "unknown command '$COMMAND'"
+            ;;
     esac
 }

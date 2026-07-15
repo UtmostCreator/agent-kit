@@ -16,17 +16,17 @@
 
 mode_needs_rg() {
     case "$1" in
-    text | docs | tests | config | deps | changed-text | staged-text | \
-        todo | unsafe-patterns) return 0 ;;
-    *) return 1 ;;
+        text | docs | tests | config | deps | changed-text | staged-text | \
+            todo | unsafe-patterns) return 0 ;;
+        *) return 1 ;;
     esac
 }
 
 mode_needs_git() {
     case "$1" in
-    changed-files | staged-files | changed-text | staged-text | tracked | \
-        diff | history) return 0 ;;
-    *) return 1 ;;
+        changed-files | staged-files | changed-text | staged-text | tracked | \
+            diff | history) return 0 ;;
+        *) return 1 ;;
     esac
 }
 

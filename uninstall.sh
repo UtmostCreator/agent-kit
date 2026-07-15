@@ -13,16 +13,22 @@ bindir=$HOME/.local/bin
 while (($# > 0)); do
     case "$1" in
         --prefix)
-            (($# >= 2)) || { printf 'error: --prefix requires a path\n' >&2; exit 2; }
+            (($# >= 2)) || {
+                printf 'error: --prefix requires a path\n' >&2
+                exit 2
+            }
             prefix=$2
             shift 2
             ;;
         --bindir)
-            (($# >= 2)) || { printf 'error: --bindir requires a path\n' >&2; exit 2; }
+            (($# >= 2)) || {
+                printf 'error: --bindir requires a path\n' >&2
+                exit 2
+            }
             bindir=$2
             shift 2
             ;;
-        -h|--help)
+        -h | --help)
             usage
             exit 0
             ;;
@@ -39,13 +45,16 @@ if [[ ! -f "$marker" ]] || [[ $(<"$marker") != 'agent-kit' ]]; then
     exit 1
 fi
 
-wrapper="$bindir/agent-kit"
-# Identify our wrapper by its stable marker, not by the exec path: install.sh
+# Remove both the canonical `agent-kit` wrapper and the short `ak` alias.
+# Identify our wrappers by their stable marker, not by the exec path: install.sh
 # writes that path `printf %q`-escaped, so a literal path match fails whenever
 # the prefix contains spaces or shell metacharacters.
-if [[ -f "$wrapper" ]] && grep -Fq -- '# agent-kit-wrapper' "$wrapper"; then
-    rm -f -- "$wrapper"
-fi
+for wrapper_name in agent-kit ak; do
+    wrapper="$bindir/$wrapper_name"
+    if [[ -f "$wrapper" ]] && grep -Fq -- '# agent-kit-wrapper' "$wrapper"; then
+        rm -f -- "$wrapper"
+    fi
+done
 rm -rf -- "$prefix"
 
 # A project-local install (install.sh --project) nests both prefix and bindir

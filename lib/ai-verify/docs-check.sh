@@ -38,9 +38,9 @@ EOF
 # broken-link errors, so they are excluded from doc checks.
 ai_verify_docs_is_excluded_path() {
     case "$1" in
-    docs/ai/generated/* | ./docs/ai/generated/*)
-        return 0
-        ;;
+        docs/ai/generated/* | ./docs/ai/generated/*)
+            return 0
+            ;;
     esac
     return 1
 }
@@ -64,10 +64,10 @@ ai_verify_docs_resolve_paths() {
                 continue
             fi
             case "$pattern" in
-            *[*?[]*) ;;
-            *)
-                continue
-                ;;
+                *[*?[]*) ;;
+                *)
+                    continue
+                    ;;
             esac
             # Intentional glob expansion (globstar + nullglob enabled by the caller).
             # shellcheck disable=SC2206
@@ -199,25 +199,25 @@ ai_verify_docs_main() {
 
     if (($# > 0)); then
         case "$1" in
-        all | markdownlint | links | drift)
-            mode="$1"
-            shift
-            ;;
-        --check)
-            shift
-            ;;
-        --help | -h)
-            ai_verify_docs_usage
-            return 0
-            ;;
-        *)
-            # A first argument that is neither a known mode/flag nor an existing
-            # path is an unknown mode. Existing paths fall through as [paths...].
-            if [[ ! -e "$1" ]]; then
-                ai_verify_docs_usage >&2
-                die "unknown mode: $1"
-            fi
-            ;;
+            all | markdownlint | links | drift)
+                mode="$1"
+                shift
+                ;;
+            --check)
+                shift
+                ;;
+            --help | -h)
+                ai_verify_docs_usage
+                return 0
+                ;;
+            *)
+                # A first argument that is neither a known mode/flag nor an existing
+                # path is an unknown mode. Existing paths fall through as [paths...].
+                if [[ ! -e "$1" ]]; then
+                    ai_verify_docs_usage >&2
+                    die "unknown mode: $1"
+                fi
+                ;;
         esac
     fi
 
@@ -228,27 +228,27 @@ ai_verify_docs_main() {
     agent_session_init "ai-doc-check"
 
     case "$mode" in
-    all)
-        ai_verify_docs_run_markdownlint
-        ai_verify_docs_run_links
-        ai_verify_docs_run_drift
-        ;;
-    markdownlint)
-        ai_verify_docs_run_markdownlint
-        ;;
-    links)
-        ai_verify_docs_run_links
-        ;;
-    drift)
-        ai_verify_docs_run_drift
-        ;;
-    --help | -h)
-        ai_verify_docs_usage
-        ;;
-    *)
-        ai_verify_docs_usage
-        die "unknown mode: $mode"
-        ;;
+        all)
+            ai_verify_docs_run_markdownlint
+            ai_verify_docs_run_links
+            ai_verify_docs_run_drift
+            ;;
+        markdownlint)
+            ai_verify_docs_run_markdownlint
+            ;;
+        links)
+            ai_verify_docs_run_links
+            ;;
+        drift)
+            ai_verify_docs_run_drift
+            ;;
+        --help | -h)
+            ai_verify_docs_usage
+            ;;
+        *)
+            ai_verify_docs_usage
+            die "unknown mode: $mode"
+            ;;
     esac
 
     if ((failures > 0)); then

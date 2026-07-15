@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "description": "Safety-first CLI toolkit for coding agents: scoped search, context packing, guarded edits, rollback, test selection, and repository verification.",
   "bin": {
-    "agent-kit": "npm/cli.js"
+    "agent-kit": "npm/cli.js",
+    "ak": "npm/cli.js"
   },
   "publishConfig": {
     "access": "public"
@@ -13,6 +14,7 @@
     "lib/",
     "libexec/",
     "share/",
+    "completions/",
     "hooks/",
     "npm/cli.js",
     "VERSION",

@@ -50,8 +50,8 @@ PLAN_STATUS_DIFFICULTY_PATTERN="${PLAN_STATUS_DIFFICULTY_PATTERN:-impossible|not
 # docs/tickets/<folder>/plan*.md, excluding anything under an archive/ dir.
 is_plan_status_target() {
     case "$1" in
-    docs/tickets/*/archive/* | */archive/*) return 1 ;;
-    docs/tickets/*/plan*.md) return 0 ;;
+        docs/tickets/*/archive/* | */archive/*) return 1 ;;
+        docs/tickets/*/plan*.md) return 0 ;;
     esac
     return 1
 }

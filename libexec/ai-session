@@ -10,6 +10,8 @@
 #   agent-kit session checkpoint [label]                 (session-checkpoint)
 #   agent-kit session watch <command> [extensions]        (watch-loop)
 #
+# Modes: checkpoint watch
+#
 # Example:
 #   agent-kit session checkpoint before-refactor        # save a labelled snapshot you can find later
 #   agent-kit session watch "agent-kit verify"          # re-run verify whenever files change (Ctrl-C to stop)
@@ -25,20 +27,20 @@ _sess_route() {
 }
 
 case "${1:-}" in
-checkpoint)
-    shift
-    _sess_route session-checkpoint "$@"
-    ;;
-watch)
-    shift
-    _sess_route watch-loop "$@"
-    ;;
---help | -h | "")
-    sed -n '2,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
-    exit 0
-    ;;
-*)
-    echo "agent-kit session: unknown mode '$1' (expected checkpoint|watch)" >&2
-    exit 2
-    ;;
+    checkpoint)
+        shift
+        _sess_route session-checkpoint "$@"
+        ;;
+    watch)
+        shift
+        _sess_route watch-loop "$@"
+        ;;
+    --help | -h | "")
+        sed -n '2,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+        exit 0
+        ;;
+    *)
+        echo "agent-kit session: unknown mode '$1' (expected checkpoint|watch)" >&2
+        exit 2
+        ;;
 esac

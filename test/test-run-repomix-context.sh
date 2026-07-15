@@ -60,8 +60,8 @@ if command -v scc >/dev/null 2>&1 && command -v repomix >/dev/null 2>&1; then
         fix="$(mktemp -d)"
         printf 'package main\nfunc main() {}\n' >"$fix/main.go"
         printf 'echo one\necho two\necho three\necho four\necho five\necho six\necho seven\necho eight\necho nine\necho ten\necho a\necho b\necho c\necho d\necho e\necho f\necho g\necho h\necho i\necho j\necho k\necho l\necho m\necho n\necho o\n' >"$fix/lots.sh"
-        ( cd "$fix" && git init -q && git add -A \
-            && git -c user.email=t@t -c user.name=t commit -qm init ) >/dev/null 2>&1
+        (cd "$fix" && git init -q && git add -A &&
+            git -c user.email=t@t -c user.name=t commit -qm init) >/dev/null 2>&1
         "$BASH_BIN" "$SCRIPT" "$fix" --top 0 >/dev/null 2>&1
         manifest="$fix/.repomix-context/tree-context/run-manifest.json"
         [[ -f "$manifest" ]] || return 1
@@ -85,8 +85,8 @@ if command -v scc >/dev/null 2>&1 && command -v repomix >/dev/null 2>&1; then
     test_die_tree_generation_failed() {
         local fix out
         fix="$(mktemp -d)"
-        (cd "$fix" && git init -q && printf 'hi\n' >f.txt && git add -A \
-            && git -c user.email=t@t -c user.name=t commit -qm init) >/dev/null 2>&1
+        (cd "$fix" && git init -q && printf 'hi\n' >f.txt && git add -A &&
+            git -c user.email=t@t -c user.name=t commit -qm init) >/dev/null 2>&1
         out="$("$BASH_BIN" "$SCRIPT" "$fix" --top 1 --style bogus 2>&1)"
         local rc=$?
         [[ $rc -ne 0 ]] && [[ "$out" == *"context tree generation failed"* ]]
@@ -167,8 +167,8 @@ $rsa_begin_marker
 MIIEpAIBAAKCAQEA1c7+9z5Pad7OejecsQ0bu3aumgIJYowaXlrIrGuFdEwzhpvzB4rF7QNcYAyPFA82OGdlgnfnb4qqOgpm0lZcbGRb3+VBrO0LkVUiB6/HLnu5vXA4mzhqYzHTiJgxVLoyvpXFJvpV5cN/hkbA5PfPMx==
 $rsa_end_marker
 EOF
-        (cd "$secroot" && git add -A \
-            && git -c user.email=t@t -c user.name=t commit -qm "add key") >/dev/null 2>&1
+        (cd "$secroot" && git add -A &&
+            git -c user.email=t@t -c user.name=t commit -qm "add key") >/dev/null 2>&1
         out="$("$BASH_BIN" "$SCRIPT" "$secroot" --top 1 2>&1)"
         local rc=$?
         [[ $rc -ne 0 ]] && [[ "$out" == *"secrets detected"* ]]
@@ -206,8 +206,8 @@ if command -v scc >/dev/null 2>&1 && command -v repomix >/dev/null 2>&1; then
         local fakeroot cleanroot
         fakeroot="$(mktemp -d)"
         cleanroot="$(mktemp -d)"
-        (cd "$cleanroot" && git init -q && printf 'hi\n' >f.txt && git add -A \
-            && git -c user.email=t@t -c user.name=t commit -qm init) >/dev/null 2>&1
+        (cd "$cleanroot" && git init -q && printf 'hi\n' >f.txt && git add -A &&
+            git -c user.email=t@t -c user.name=t commit -qm init) >/dev/null 2>&1
         build_fake_tree_root "$fakeroot"
         printf '#!/usr/bin/env bash\nexit 0\n' >"$fakeroot/libexec/internal/repomix-context-tree"
         chmod +x "$fakeroot/libexec/internal/repomix-context-tree"
@@ -222,8 +222,8 @@ if command -v scc >/dev/null 2>&1 && command -v repomix >/dev/null 2>&1; then
         local fakeroot cleanroot
         fakeroot="$(mktemp -d)"
         cleanroot="$(mktemp -d)"
-        (cd "$cleanroot" && git init -q && printf 'hi\n' >f.txt && git add -A \
-            && git -c user.email=t@t -c user.name=t commit -qm init) >/dev/null 2>&1
+        (cd "$cleanroot" && git init -q && printf 'hi\n' >f.txt && git add -A &&
+            git -c user.email=t@t -c user.name=t commit -qm init) >/dev/null 2>&1
         build_fake_tree_root "$fakeroot"
         cat >"$fakeroot/libexec/internal/repomix-context-tree" <<'EOF'
 #!/usr/bin/env bash
@@ -243,8 +243,8 @@ EOF
         local fakeroot cleanroot
         fakeroot="$(mktemp -d)"
         cleanroot="$(mktemp -d)"
-        (cd "$cleanroot" && git init -q && printf 'hi\n' >f.txt && git add -A \
-            && git -c user.email=t@t -c user.name=t commit -qm init) >/dev/null 2>&1
+        (cd "$cleanroot" && git init -q && printf 'hi\n' >f.txt && git add -A &&
+            git -c user.email=t@t -c user.name=t commit -qm init) >/dev/null 2>&1
         build_fake_tree_root "$fakeroot"
         cat >"$fakeroot/libexec/internal/repomix-context-tree" <<'EOF'
 #!/usr/bin/env bash
@@ -265,8 +265,8 @@ EOF
         local fakeroot cleanroot
         fakeroot="$(mktemp -d)"
         cleanroot="$(mktemp -d)"
-        (cd "$cleanroot" && git init -q && printf 'hi\n' >f.txt && git add -A \
-            && git -c user.email=t@t -c user.name=t commit -qm init) >/dev/null 2>&1
+        (cd "$cleanroot" && git init -q && printf 'hi\n' >f.txt && git add -A &&
+            git -c user.email=t@t -c user.name=t commit -qm init) >/dev/null 2>&1
         build_fake_tree_root "$fakeroot"
         cat >"$fakeroot/libexec/internal/repomix-context-tree" <<'EOF'
 #!/usr/bin/env bash
@@ -288,8 +288,8 @@ EOF
         local fakeroot cleanroot
         fakeroot="$(mktemp -d)"
         cleanroot="$(mktemp -d)"
-        (cd "$cleanroot" && git init -q && printf 'hi\n' >f.txt && git add -A \
-            && git -c user.email=t@t -c user.name=t commit -qm init) >/dev/null 2>&1
+        (cd "$cleanroot" && git init -q && printf 'hi\n' >f.txt && git add -A &&
+            git -c user.email=t@t -c user.name=t commit -qm init) >/dev/null 2>&1
         build_fake_tree_root "$fakeroot"
         cat >"$fakeroot/libexec/internal/repomix-context-tree" <<'EOF'
 #!/usr/bin/env bash

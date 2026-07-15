@@ -34,8 +34,8 @@ backend_files() {
     fd_ignore_args=()
     for _ia in "${ignore_args[@]+"${ignore_args[@]}"}"; do
         case "$_ia" in
-        --no-ignore | --no-ignore-vcs | --no-ignore-parent) fd_ignore_args+=("$_ia") ;;
-        --no-ignore-global | --no-ignore-dot) fd_ignore_args+=(--no-ignore) ;;
+            --no-ignore | --no-ignore-vcs | --no-ignore-parent) fd_ignore_args+=("$_ia") ;;
+            --no-ignore-global | --no-ignore-dot) fd_ignore_args+=(--no-ignore) ;;
         esac
     done
     out="$("$fd_bin" --hidden "${fd_ignore_args[@]+"${fd_ignore_args[@]}"}" --exclude .git -- "$query" "$root" 2>/dev/null || true)"

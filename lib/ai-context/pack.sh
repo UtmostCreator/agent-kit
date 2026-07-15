@@ -30,9 +30,9 @@ ai_context_pack_args_contain_output() {
     local arg
     for arg in "$@"; do
         case "$arg" in
-        --output | --output=*)
-            return 0
-            ;;
+            --output | --output=*)
+                return 0
+                ;;
         esac
     done
     return 1
@@ -41,32 +41,32 @@ ai_context_pack_args_contain_output() {
 ai_context_pack_select_backend() {
     local backend="$1"
     case "$backend" in
-    auto)
-        if command -v repomix >/dev/null 2>&1; then
+        auto)
+            if command -v repomix >/dev/null 2>&1; then
+                printf 'repomix\n'
+            elif command -v files-to-prompt >/dev/null 2>&1; then
+                printf 'files-to-prompt\n'
+            elif command -v code2prompt >/dev/null 2>&1; then
+                printf 'code2prompt\n'
+            else
+                die "no supported context packer found; install repomix, files-to-prompt, or code2prompt"
+            fi
+            ;;
+        repomix)
+            require_bins repomix
             printf 'repomix\n'
-        elif command -v files-to-prompt >/dev/null 2>&1; then
+            ;;
+        files-to-prompt)
+            require_bins files-to-prompt
             printf 'files-to-prompt\n'
-        elif command -v code2prompt >/dev/null 2>&1; then
+            ;;
+        code2prompt)
+            require_bins code2prompt
             printf 'code2prompt\n'
-        else
-            die "no supported context packer found; install repomix, files-to-prompt, or code2prompt"
-        fi
-        ;;
-    repomix)
-        require_bins repomix
-        printf 'repomix\n'
-        ;;
-    files-to-prompt)
-        require_bins files-to-prompt
-        printf 'files-to-prompt\n'
-        ;;
-    code2prompt)
-        require_bins code2prompt
-        printf 'code2prompt\n'
-        ;;
-    *)
-        die "unknown backend: $backend"
-        ;;
+            ;;
+        *)
+            die "unknown backend: $backend"
+            ;;
     esac
 }
 
@@ -74,17 +74,17 @@ ai_context_pack_main() {
     local backend="${1:-auto}"
 
     case "$backend" in
-    auto | repomix | files-to-prompt | code2prompt)
-        shift || true
-        ;;
-    --help | -h)
-        ai_context_pack_usage
-        exit 0
-        ;;
-    *)
-        # Backward-compatible behaviour: first arg is probably a tool arg; use auto backend.
-        backend="auto"
-        ;;
+        auto | repomix | files-to-prompt | code2prompt)
+            shift || true
+            ;;
+        --help | -h)
+            ai_context_pack_usage
+            exit 0
+            ;;
+        *)
+            # Backward-compatible behaviour: first arg is probably a tool arg; use auto backend.
+            backend="auto"
+            ;;
     esac
 
     agent_session_init "pack-context"
@@ -112,37 +112,37 @@ ai_context_pack_main() {
     log_info "Output: $OUTPUT_FILE"
 
     case "$selected_backend" in
-    repomix)
-        local repomix_args=("$@")
+        repomix)
+            local repomix_args=("$@")
 
-        if ! ai_context_pack_args_contain_output "${repomix_args[@]+${repomix_args[@]}}"; then
-            repomix_args+=(--output "$OUTPUT_FILE")
-        fi
+            if ! ai_context_pack_args_contain_output "${repomix_args[@]+${repomix_args[@]}}"; then
+                repomix_args+=(--output "$OUTPUT_FILE")
+            fi
 
-        if [[ "$OUTPUT_STYLE" != "" ]]; then
-            repomix_args+=(--style "$OUTPUT_STYLE")
-        fi
+            if [[ "$OUTPUT_STYLE" != "" ]]; then
+                repomix_args+=(--style "$OUTPUT_STYLE")
+            fi
 
-        (
-            cd "$root"
-            repomix "${repomix_args[@]}"
-        )
-        ;;
-    files-to-prompt)
-        (
-            cd "$root"
-            files-to-prompt "$@"
-        ) >"$OUTPUT_FILE"
-        ;;
-    code2prompt)
-        (
-            cd "$root"
-            code2prompt "$@"
-        ) >"$OUTPUT_FILE"
-        ;;
-    *)
-        die "unsupported selected backend: $selected_backend"
-        ;;
+            (
+                cd "$root"
+                repomix "${repomix_args[@]}"
+            )
+            ;;
+        files-to-prompt)
+            (
+                cd "$root"
+                files-to-prompt "$@"
+            ) >"$OUTPUT_FILE"
+            ;;
+        code2prompt)
+            (
+                cd "$root"
+                code2prompt "$@"
+            ) >"$OUTPUT_FILE"
+            ;;
+        *)
+            die "unsupported selected backend: $selected_backend"
+            ;;
     esac
 
     [[ -f "$OUTPUT_FILE" ]] || die "expected output file was not created: $OUTPUT_FILE"

@@ -24,19 +24,19 @@ run_ast_mode() {
     local pattern kind=""
 
     case "$mode" in
-    struct)
-        pattern="$query"
-        ;;
-    class)
-        kind="class"
-        pattern="class $query"
-        ;;
-    symbols)
-        # Resolve a bare name to its definition. Default to class def; callers
-        # use the dedicated shortcuts for other kinds.
-        kind="class"
-        pattern="class $query"
-        ;;
+        struct)
+            pattern="$query"
+            ;;
+        class)
+            kind="class"
+            pattern="class $query"
+            ;;
+        symbols)
+            # Resolve a bare name to its definition. Default to class def; callers
+            # use the dedicated shortcuts for other kinds.
+            kind="class"
+            pattern="class $query"
+            ;;
     esac
 
     local out rc=0 root_abs
