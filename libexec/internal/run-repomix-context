@@ -22,14 +22,14 @@ Usage:
 Defaults:
   --compress
   --style xml
-  --depth 2 --top 0 --min-code 25 --min-files 1
+  --depth 2 --top 5 --min-code 25 --min-files 1
   --context-window 1000000 --reserved-output 25000 --instruction-overhead 30000 --safety-factor 0.8
 
 Examples:
   scripts/ai/run-repomix-context.sh .
-  scripts/ai/run-repomix-context.sh . --depth 2 --top 0 --min-code 25 --min-files 1
+  scripts/ai/run-repomix-context.sh . --depth 2 --top 5 --min-code 25 --min-files 1
   SECRETS_SCAN=0 bash scripts/ai/run-repomix-context.sh /Users/example-user/Workspaces/example-app \
-    --depth 2 --top 0 --min-code 25 --min-files 1 \
+    --depth 2 --top 5 --min-code 25 --min-files 1 \
     --context-window 1000000 --reserved-output 25000 --instruction-overhead 30000 --safety-factor 0.8
 
   # Focused 273K budget profile:
@@ -74,7 +74,7 @@ if ! bash "$TREE_SCRIPT" all "$root_abs" \
     --compress \
     --style xml \
     --depth 2 \
-    --top 0 \
+    --top 5 \
     --min-code 25 \
     --min-files 1 \
     --context-window 1000000 \
@@ -98,6 +98,16 @@ BUNDLES_DIR="$OUTPUT_DIR/bundles"
 
 jq . "$PLAN_JSON" >/dev/null
 jq . "$MANIFEST_JSON" >/dev/null
+
+total_tokens="$(jq '.meta.total_tokens // 0' "$MANIFEST_JSON")"
+usable_budget=750000
+
+if (( total_tokens > usable_budget )); then
+    log_warn "Bundle size ($total_tokens tokens) exceeds usable budget ($usable_budget tokens)"
+    log_info "  Excess: $(( total_tokens - usable_budget )) tokens ($(( (total_tokens * 100) / usable_budget ))% over budget)"
+    log_info "  Recommendation: Use --top 2 to --top 5 for safe packing"
+    log_info "  Try: ak context tree all . --top 5"
+fi
 
 bundle_count="$(find "$BUNDLES_DIR" -type f 2>/dev/null | wc -l | tr -d ' ')"
 
