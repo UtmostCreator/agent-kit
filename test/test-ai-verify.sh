@@ -186,6 +186,80 @@ test_branch_scope_recognized() {
 }
 run_test "branch scope is recognized (no unknown-scope error)" test_branch_scope_recognized
 
+# Regression: an invalid AI_VERIFY_SCOPE must fail the gate with a nonzero exit,
+# not silently exit 0. The scope helpers die() inside process substitutions, so
+# the value is validated up front in libexec/ai-verify before the pipeline runs.
+test_bogus_scope_fails_nonzero() {
+    local rc=0
+    AI_VERIFY_SCOPE=bogus "$BASH_BIN" "$SCRIPT" "$REPO_ROOT" >/dev/null 2>&1 || rc=$?
+    ((rc != 0))
+}
+run_test "invalid AI_VERIFY_SCOPE fails with a nonzero exit" test_bogus_scope_fails_nonzero
+
+# ── Opt-in JSON summary envelope (schema ai.verify/v1) ────────────────────────
+# --json / AI_OUTPUT=json emit a single machine-readable envelope on stdout
+# (schema + status + failures + steps) while the human step stream is routed to
+# stderr, so an agent/CI can parse the gate result without scraping tool output.
+
+# --json: stdout is exactly one ai.verify/v1 envelope carrying the required keys.
+test_json_envelope_keys() {
+    local out
+    out="$(AI_VERIFY_TEST_MODE=1 "$BASH_BIN" "$SCRIPT" "$REPO_ROOT" --json 2>/dev/null)"
+    # stdout must be pure JSON (human stream went to stderr).
+    jq -e . >/dev/null 2>&1 <<<"$out" || return 1
+    [[ "$(jq -r '.schema' <<<"$out")" == "ai.verify/v1" ]] &&
+        [[ "$(jq -r '.tool' <<<"$out")" == "restsift" ]] &&
+        jq -e 'has("status") and has("failures") and (.steps|type=="array")' >/dev/null <<<"$out"
+}
+run_test "--json emits a single ai.verify/v1 envelope with schema/status/steps keys" test_json_envelope_keys
+
+# AI_OUTPUT=json is the env form of --json (same envelope).
+test_json_env_form() {
+    local out
+    out="$(AI_OUTPUT=json AI_VERIFY_TEST_MODE=1 "$BASH_BIN" "$SCRIPT" "$REPO_ROOT" 2>/dev/null)"
+    [[ "$(jq -r '.schema' <<<"$out")" == "ai.verify/v1" ]]
+}
+run_test "AI_OUTPUT=json is the env form of --json" test_json_env_form
+
+# The envelope .status mirrors the process exit code (pass<=>0, fail<=>nonzero)
+# and .steps records each run_step outcome. Uses a throwaway git repo with one
+# changed shell script so a real shellcheck step runs and is recorded.
+test_json_status_tracks_exit_and_records_steps() {
+    local tmp
+    tmp="$(mktemp -d)"
+    _test_tmp_dirs+=("$tmp")
+    (
+        cd "$tmp"
+        git init -q
+        git config user.email t@t
+        git config user.name t
+        printf '#!/usr/bin/env bash\necho hi\n' >ok.sh
+        git add ok.sh
+        git commit -qm init
+        printf '#!/usr/bin/env bash\necho hi\necho bye\n' >ok.sh
+        local out rc=0
+        out="$(VERIFY_SECRETS=0 AI_VERIFY_SCOPE=changed "$BASH_BIN" "$SCRIPT" . --json 2>/dev/null)" || rc=$?
+        # Clean change => exit 0 => status "pass"; a shellcheck step was recorded.
+        ((rc == 0)) &&
+            [[ "$(jq -r '.status' <<<"$out")" == "pass" ]] &&
+            jq -e '.steps | length >= 1 and (map(.status) | index("pass"))' >/dev/null <<<"$out"
+    )
+}
+if command -v shellcheck >/dev/null 2>&1; then
+    run_test "--json status tracks exit code and records per-step outcomes" test_json_status_tracks_exit_and_records_steps
+else
+    skip_test "--json status tracks exit code and records per-step outcomes" "shellcheck not installed"
+fi
+
+# Backward compatibility: without --json, stdout must NOT contain the JSON
+# envelope schema (default/human streaming output is unchanged).
+test_json_off_by_default() {
+    local out
+    out="$(AI_VERIFY_TEST_MODE=1 "$BASH_BIN" "$SCRIPT" "$REPO_ROOT" 2>/dev/null)"
+    [[ "$out" == *"==>"* ]] && [[ "$out" != *"ai.verify/v1"* ]]
+}
+run_test "default (no --json) stdout carries no JSON envelope (backward compat)" test_json_off_by_default
+
 # Run the script with a fake "lychee" on PATH that records every invocation.
 # This proves the link checker never reaches the network by accident.
 run_with_fake_lychee() {
@@ -2472,6 +2546,73 @@ SHEOF
         [[ "$out" == *"validate-script-access"* ]]
 }
 run_test "verify docs drift: every remaining gated step runs when its guard file exists" test_docs_drift_all_remaining_gated_steps_run
+
+# ── Regression: osv-scanner "nothing to scan" (exit 128) is not a gate failure ─
+# osv-scanner exits 128 ("No package sources found") on any repo without a
+# manifest/lockfile it recognizes. That is a benign "nothing to scan"
+# condition, not a vulnerability or crash, so it must not fail the verification
+# gate. Before the fix, run_step counted the 128 as a failure and the run
+# exited 1 with "FAIL: osv-scanner ...".
+test_osv_scanner_exit_128_is_skip_not_failure() {
+    local tmp rc=0 out
+    tmp="$(mktemp -d)"
+    _write_fake_recorder "$tmp/bin" "$tmp/tool.calls" trivy 0
+    _write_fake_recorder "$tmp/bin" "$tmp/tool.calls" semgrep 0
+    _write_fake_recorder "$tmp/bin" "$tmp/tool.calls" osv-scanner 128
+    mkdir -p "$tmp/work"
+    out="$(
+        cd "$tmp/work"
+        git init -q
+        git config user.email t@t.t
+        git config user.name t
+        git commit -q -m init --allow-empty
+        PATH="$tmp/bin:$PATH" AI_LOG_DIR="$tmp/logs" AI_EVENT_LOG="$tmp/logs/ev.jsonl" \
+            AI_VERIFY_TEST_MODE=0 AI_VERIFY_SCOPE=changed VERIFY_SECURITY=1 VERIFY_SECRETS=0 VERIFY_FULL=0 \
+            VERIFY_LINECOUNT=0 VERIFY_LINKS=0 \
+            "$BASH_BIN" "$SCRIPT" . 2>&1
+    )" || rc=$?
+    rm -rf "$tmp"
+    ((rc == 0)) && [[ "$out" != *"FAIL: osv-scanner"* ]] && [[ "$out" == *"nothing to scan"* ]]
+}
+run_test "verify: osv-scanner exit 128 (no package sources) is a skip, not a gate failure" test_osv_scanner_exit_128_is_skip_not_failure
+
+# ── Regression: `verify refs` on a nonexistent path errors, not false-clean ───
+# git ls-files exits 128 on an invalid path; capturing it via process
+# substitution (`mapfile < <(...)`) swallowed that failure, so the scan
+# silently degraded to an empty candidate list and printed a false "No
+# orphaned files found" with exit 0. It must now surface the error.
+test_refs_invalid_path_errors_not_false_clean() {
+    local out rc=0
+    out="$("$BASH_BIN" "$SCRIPT" refs /nope/nonexistent 2>&1)" || rc=$?
+    ((rc != 0)) && [[ "$out" != *"No orphaned files found"* ]]
+}
+run_test "verify refs: invalid path errors instead of a false 'no orphans' clean scan" test_refs_invalid_path_errors_not_false_clean
+
+# ── Regression: `verify docs drift [paths...]` warns the path is ignored ───────
+# drift runs a repo-wide validator battery with no per-path filter, so it
+# cannot honor the documented [paths...] argument. Before the fix it silently
+# ignored the argument; it must now warn that the path was ignored.
+test_docs_drift_warns_when_path_arg_ignored() {
+    local tmp rc=0 out
+    tmp="$(mktemp -d)"
+    mkdir -p "$tmp/bin" "$tmp/work/tools/ai"
+    cat >"$tmp/bin/php" <<'PHPEOF'
+#!/usr/bin/env bash
+exit 0
+PHPEOF
+    chmod +x "$tmp/bin/php"
+    : >"$tmp/work/tools/ai/validate-context-budgets.php"
+    printf '# t\n' >"$tmp/work/README.md"
+    out="$(
+        cd "$tmp/work"
+        PATH="$tmp/bin:$PATH" AI_LOG_DIR="$tmp/logs" AI_EVENT_LOG="$tmp/logs/ev.jsonl" \
+            "$BASH_BIN" "$SCRIPT" docs drift README.md 2>&1
+    )"
+    rc=$?
+    rm -rf "$tmp"
+    ((rc == 0)) && [[ "$out" == *"cannot filter by path"* ]] && [[ "$out" == *"README.md"* ]]
+}
+run_test "verify docs drift: warns that an explicit [paths...] argument is ignored" test_docs_drift_warns_when_path_arg_ignored
 
 printf '\n=== Results ===\n'
 printf '  Passed: %d  Failed: %d  Skipped: %d\n' "$PASS" "$FAIL" "$SKIP"

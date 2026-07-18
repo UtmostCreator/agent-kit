@@ -30,9 +30,26 @@ query_matches_line() {
     printf '%s' "$line" | grep -q "${grep_args[@]}" -- "$query"
 }
 
+# query_grep_flags — print (one per line) the grep flags implied by the active
+# pattern/case mode. Lets a single grep pass replace a per-line
+# query_matches_line call when filtering a large batch of lines (diff mode),
+# preserving byte-identical fixed/pcre2/regex + smart-case semantics.
+query_grep_flags() {
+    case "$pattern_mode" in
+        fixed) printf '%s\n' -F ;;
+        pcre2) printf '%s\n' -P ;;
+        *) printf '%s\n' -E ;;
+    esac
+    case "$case_mode" in
+        ignore) printf '%s\n' -i ;;
+        sensitive) : ;;
+        smart | *) [[ "$query" =~ [[:upper:]] ]] || printf '%s\n' -i ;;
+    esac
+}
+
 run_diff_mode() {
     require_git_root
-    local repo_root diff_out git_args=()
+    local repo_root diff_out git_args=() diff_rc=0
     repo_root="$(git -C "$root" rev-parse --show-toplevel 2>/dev/null)" ||
         fail "error" "not a git repository: $root"
 
@@ -44,7 +61,16 @@ run_diff_mode() {
         git_args=(diff)
     fi
 
-    diff_out="$(cd "$repo_root" && git "${git_args[@]}" -U0 2>/dev/null || true)"
+    # git diff (no --exit-code) returns 0 regardless of differences; a non-zero
+    # status means a real error (e.g. an invalid --base ref), which must surface
+    # instead of being swallowed into an empty, success-looking result set.
+    diff_out="$(cd "$repo_root" && git "${git_args[@]}" -U0 2>/dev/null)" || diff_rc=$?
+    if [[ "$diff_rc" -ne 0 ]]; then
+        if [[ -n "$diff_base" ]]; then
+            fail "error" "invalid --base ref: $diff_base"
+        fi
+        fail "error" "git diff failed in $repo_root"
+    fi
 
     # Walk the unified diff: track current file from +++ headers and the new
     # line number from @@ hunk headers; collect added lines matching the query.
@@ -68,23 +94,48 @@ run_diff_mode() {
         '
     )"
 
-    local result_objs=() path line text
-    while IFS=$'\t' read -r path line text; do
-        [[ -n "$path" ]] || continue
-        query_matches_line "$text" || continue
-        result_objs+=("$(jq -cn \
-            --arg path "$path" --argjson new_line "$line" --arg text "$text" \
-            '{path: $path, marker: "+", new_line: $new_line, text: $text}')")
-    done <<<"$results"
-
+    # Filter added lines by the query in ONE grep pass rather than spawning a
+    # grep subprocess per added line (was O(added-lines) processes, so
+    # `diff --base` timed out on a branch far ahead of main). Each added line is
+    # a single line with no embedded newline, so stripping the leading
+    # path<TAB>new_line<TAB> fields reproduces the original text exactly; grep -n
+    # then reports the 1-based record indices that match, in order.
     local scope="unstaged"
     [[ "$diff_staged" -eq 1 ]] && scope="staged"
     [[ -n "$diff_base" ]] && scope="base:$diff_base"
 
-    g_results_json="$(printf '%s\n' "${result_objs[@]:-}" |
-        jq -s 'map(select(. != null))')"
-    g_results_json="$(printf '%s' "$g_results_json" |
-        jq --arg scope "$scope" 'map(.scope = $scope)')"
+    local path line text
+    local _grep_flags=() _records=() _match_nums _n _payload=""
+    mapfile -t _grep_flags < <(query_grep_flags)
+    mapfile -t _records <<<"$results"
+    if ((${#_records[@]})) && [[ -n "${_records[0]}" ]]; then
+        _match_nums="$(printf '%s\n' "${_records[@]}" |
+            sed $'s/^[^\t]*\t[^\t]*\t//' |
+            grep -n "${_grep_flags[@]}" -- "$query" | cut -d: -f1 || true)"
+        # Collect each match's fields (path, new_line, text — one per line; none
+        # of them can contain a newline) into a single stream, then build every
+        # result object in ONE jq pass below. The old code spawned one `jq -cn`
+        # per match, so a base far ahead of HEAD (tens of thousands of added
+        # lines) launched thousands of jq processes and timed out.
+        while IFS= read -r _n; do
+            [[ -n "$_n" ]] || continue
+            IFS=$'\t' read -r path line text <<<"${_records[_n - 1]}"
+            [[ -n "$path" ]] || continue
+            _payload+="$path"$'\n'"$line"$'\n'"$text"$'\n'
+        done <<<"$_match_nums"
+    fi
+
+    # Rebuild the {path, marker, new_line, text, scope} objects (same shape and
+    # key order the per-match `jq -cn` + `map(.scope=…)` produced) from the
+    # newline-delimited field stream in a single jq invocation. Empty payload
+    # yields an empty array, matching the previous no-match result.
+    g_results_json="$(printf '%s' "$_payload" | jq -Rs --arg scope "$scope" '
+        split("\n")
+        | (if (length > 0 and .[-1] == "") then .[:-1] else . end)
+        | [ range(0; length; 3) as $i
+            | { path: .[$i], marker: "+", new_line: (.[$i + 1] | tonumber),
+                text: .[$i + 2], scope: $scope } ]
+    ')"
 
     local matches_json status
     matches_json="$(printf '%s' "$g_results_json" |
@@ -165,13 +216,19 @@ run_history_mode() {
 
     if [[ "$history_patch" -eq 1 ]]; then
         # Attach the commit patch text on request only.
-        local enriched=() row commit_hash patch
+        local enriched=() row commit_hash patch _patch_tmp
+        _patch_tmp="$(mktemp)"
         while IFS= read -r row; do
             [[ -n "$row" ]] || continue
             commit_hash="$(printf '%s' "$row" | jq -r '.commit')"
             patch="$(cd "$repo_root" && git show --format= --patch "$commit_hash" 2>/dev/null || true)"
-            enriched+=("$(printf '%s' "$row" | jq -c --arg p "$patch" '.patch = $p')")
+            # Pass the patch via --rawfile, not --arg: a large patch exceeds
+            # ARG_MAX as a command-line argument (jq: "Argument list too long",
+            # exit 126). A file has no such limit.
+            printf '%s' "$patch" >"$_patch_tmp"
+            enriched+=("$(printf '%s' "$row" | jq -c --rawfile p "$_patch_tmp" '.patch = $p')")
         done < <(printf '%s' "$results_json" | jq -c '.[]')
+        rm -f "$_patch_tmp"
         results_json="$(printf '%s\n' "${enriched[@]:-}" | jq -s 'map(select(. != null))')"
     fi
 

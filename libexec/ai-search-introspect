@@ -11,21 +11,32 @@ set -euo pipefail
 # never executed.
 #
 # Usage:
-#   agent-kit search-introspect            # human-readable capability report
-#   agent-kit search-introspect --probe    # also runtime-probe every mode
+#   restsift search-introspect            # human-readable capability report
+#   restsift search-introspect --probe    # also runtime-probe every mode
 #
 # Example:
-#   agent-kit search-introspect            # print the full ai-search capability map
-#   agent-kit search-introspect --probe    # confirm every search mode is reachable
+#   restsift search-introspect            # print the full ai-search capability map
+#   restsift search-introspect --probe    # confirm every search mode is reachable
+#   AI_OUTPUT=json restsift search-introspect   # capability map as a JSON envelope
+#
+# Flags: --probe --json --help --introspect
+#
+# Exit codes: 0 = report rendered (or --probe completed); 2 = unknown argument,
+#   or a missing ai-search source file on the --introspect/--json paths. The
+#   ai-search targets are only ever parsed as text, never executed.
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     _self="${BASH_SOURCE[0]}"
     _here="$(cd "$(dirname "$_self")" && pwd)"
     [[ -x "$_here/sh-introspect" ]] && exec bash "$_here/sh-introspect" --format=help "$_self"
-    sed -n '2,24p' "$_self" | sed 's/^# \{0,1\}//'
+    sed -n '4,19p' "$_self" | sed 's/^# \{0,1\}//'
     exit 0
 fi
 if [[ "${1:-}" == "--introspect" ]]; then
     _ai_introspect_here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    [[ -f "$_ai_introspect_here/sh-introspect" ]] || {
+        echo "ai-search-introspect: helper sh-introspect not found beside this script" >&2
+        exit 1
+    }
     exec env AI_OUTPUT=json bash "$_ai_introspect_here/sh-introspect" "${BASH_SOURCE[0]}"
 fi
 
@@ -45,7 +56,23 @@ for f in "$search" "$multi" "$search_contract" "$search_modes" "$search_flags"; 
 done
 
 probe=0
-[[ "${1:-}" == "--probe" ]] && probe=1
+# Opt-in machine-readable output: the AI_OUTPUT=json env var (the repo-wide
+# convention) or an additive --json flag emit the parsed capability surface as a
+# JSON envelope. Absent both, the default human report is byte-for-byte unchanged.
+json_out=0
+[[ "${AI_OUTPUT:-}" == "json" ]] && json_out=1
+while (($# > 0)); do
+    case "$1" in
+        --probe) probe=1 ;;
+        --json) json_out=1 ;;
+        *)
+            echo "ai-search-introspect: unknown argument: $1" >&2
+            echo "ai-search-introspect: valid args: (none) | --probe | --json | --help | --introspect" >&2
+            exit 2
+            ;;
+    esac
+    shift
+done
 
 hr() { printf '%s\n' "------------------------------------------------------------"; }
 
@@ -65,6 +92,50 @@ extract_modes_from_family() {
         }
     ' "$file"
 }
+
+# ---------------------------------------------------------------------------
+# 0. Machine-readable capability map (AI_OUTPUT=json or --json)
+# ---------------------------------------------------------------------------
+# Emits the SAME parsed inventory the human report renders — mode families,
+# ai-search flags, envelope keys, env vars — as a JSON envelope that mirrors the
+# sibling `ai.<tool>/v1` convention. Opt-in only; the default human path below is
+# untouched. Targets are parsed as text here too, never executed.
+if [[ "$json_out" -eq 1 ]]; then
+    _isp_arr() {
+        if [[ -z "$1" ]]; then printf '[]'; else printf '%s\n' "$1" | jq -R . | jq -sc .; fi
+    }
+    content_modes="$(extract_modes_from_family is_content_mode "$search_modes" | sort -u)"
+    file_list_modes="$(extract_modes_from_family is_file_list_mode "$search_modes" | sort -u)"
+    no_query_modes="$(extract_modes_from_family is_no_query_mode "$search_modes" | sort -u)"
+    surface_modes="$(extract_modes_from_family is_surface_mode "$search_modes" | sort -u)"
+    ast_modes="$(extract_modes_from_family is_ast_mode "$search_modes" | sort -u)"
+    # Primary long flags only (drop the ` | -X` short alias) from the parser cases.
+    flags_list="$(grep -oE '^\s+--[a-z][a-z-]*( \| -[A-Za-z])?\)' "$search_flags" |
+        sed -E 's/^[[:space:]]+//; s/\)$//; s/ .*$//' | sort -u || true)"
+    env_list="$(grep -hoE '\b(AI_OUTPUT|AI_LANG|AI_SEARCH_STRICT|AI_SEARCH_MULTI_MAX|XDG_CONFIG_HOME)\b' \
+        "$search" "$multi" "$search_lib"/*.sh | sort -u || true)"
+    jq -nc \
+        --argjson content "$(_isp_arr "$content_modes")" \
+        --argjson file_list "$(_isp_arr "$file_list_modes")" \
+        --argjson no_query "$(_isp_arr "$no_query_modes")" \
+        --argjson surface "$(_isp_arr "$surface_modes")" \
+        --argjson ast "$(_isp_arr "$ast_modes")" \
+        --argjson flags "$(_isp_arr "$flags_list")" \
+        --argjson env "$(_isp_arr "$env_list")" \
+        '{schema:"ai.ai-search-introspect/v1", status:"ok", tool:"ai-search-introspect",
+          describes:["ai-search","ai-search-multi"],
+          activation:"AI_OUTPUT=json env var (or --json flag)",
+          modes:{content:$content, file_list:$file_list, no_query:$no_query,
+                 surface:$surface, ast:$ast,
+                 special:["doctor","unsafe-all"],
+                 deprecated_aliases:["changed","staged"]},
+          flags:$flags, env:$env,
+          envelope:{always:["schema","status","tool","query","mode","matches",
+                            "results","warnings","errors","limits","meta"],
+                    status_values:["ok","no_matches","error","unavailable","dry_run","blocked"]},
+          meta:{target_executed:false, exit_codes:{ok:0, error:2}}}'
+    exit 0
+fi
 
 echo
 echo "############################################################"

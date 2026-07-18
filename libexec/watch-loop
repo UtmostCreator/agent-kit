@@ -1,20 +1,47 @@
 #!/usr/bin/env bash
+# Re-run a command automatically whenever watched files change (blocks until Ctrl-C).
+#
+# Usage:
+#   watch-loop [--json] <command> [extensions]
+#   extensions is a comma list (default: md,json,sh,lua,php,yml,yaml)
+#   --json (or AI_OUTPUT=json) also prints a one-line ai.watch-loop/v1 start envelope on stdout
+#
+# Flags: --json
+#
+# Example:
+#   restsift watch-loop "restsift verify"          # re-run verify whenever files change (Ctrl-C to stop)
+#   restsift watch-loop "restsift task test" sh,md # re-run tests only when .sh or .md files change
+#
+# Exit codes:
+#   0  watcher exited cleanly (e.g. Ctrl-C via the watchexec branch)
+#   1  no command given, or no file watcher (watchexec/entr) installed
+
 set -euo pipefail
 
 # shellcheck source=scripts/ai/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
-# Re-run a command automatically whenever watched files change (blocks until Ctrl-C).
-#
-# Usage:
-#   watch-loop <command> [extensions]
-#   extensions is a comma list (default: md,json,sh,lua,php,yml,yaml)
-#
-# Example:
-#   agent-kit watch-loop "agent-kit verify"          # re-run verify whenever files change (Ctrl-C to stop)
-#   agent-kit watch-loop "agent-kit task test" sh,md # re-run tests only when .sh or .md files change
+# Opt-in machine output: AI_OUTPUT=json or an additive --json flag. Default
+# (human) behavior is unchanged — no envelope is printed unless requested.
+json_output=0
+[[ "${AI_OUTPUT:-}" == "json" ]] && json_output=1
+_wl_args=()
+for _wl_a in "$@"; do
+    if [[ "$_wl_a" == "--json" ]]; then
+        json_output=1
+    else
+        _wl_args+=("$_wl_a")
+    fi
+done
+set -- ${_wl_args[@]+"${_wl_args[@]}"}
 
-command_to_run="${1:?command required}"
+# Friendly, tool-namespaced guard instead of a raw `${1:?}` file:line message.
+if [[ $# -lt 1 || -z "${1:-}" ]]; then
+    echo "watch-loop: command required. Usage: watch-loop [--json] <command> [extensions]" >&2
+    exit 1
+fi
+
+command_to_run="$1"
 extensions="${2:-md,json,sh,lua,php,yml,yaml}"
 debounce_ms="${WATCH_DEBOUNCE_MS:-500}"
 
@@ -26,22 +53,46 @@ log_watch_event() {
     jq -cn --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg event "$event" --arg command "$command_to_run" --arg extensions "$extensions" --arg debounce "$debounce_ms" '{ts:$ts, event:$event, command:$command, extensions:$extensions, debounceMs:($debounce|tonumber)}' >>"$watch_log"
 }
 
+# One-line ai.watch-loop/v1 start envelope (only under --json / AI_OUTPUT=json).
+# Names the chosen backend, watched extensions, debounce, and the event-log path
+# so an orchestrating agent can parse start without scraping the watcher banner.
+emit_start_envelope() {
+    local backend="$1"
+    jq -cn \
+        --arg backend "$backend" \
+        --arg command "$command_to_run" \
+        --arg extensions "$extensions" \
+        --arg debounce "$debounce_ms" \
+        --arg log "$watch_log" \
+        '{schema:"ai.watch-loop/v1", status:"ok", tool:"watch-loop", event:"watch.start", backend:$backend, command:$command, extensions:($extensions|split(",")), debounceMs:($debounce|tonumber), logFile:$log}'
+}
+
 if command -v watchexec >/dev/null 2>&1; then
     log_watch_event "watch.start.watchexec"
-    watchexec --debounce "$debounce_ms" -e "$extensions" -- bash -lc "$command_to_run"
+    if [[ "$json_output" == 1 ]]; then
+        emit_start_envelope watchexec
+    fi
+    watchexec --debounce "${debounce_ms}ms" -e "$extensions" -- bash -lc "$command_to_run"
     exit 0
 fi
 
 if command -v entr >/dev/null 2>&1; then
     log_watch_event "watch.start.entr"
+    if [[ "$json_output" == 1 ]]; then
+        emit_start_envelope entr
+    fi
     rg --files \
         -g '!vendor' \
         -g '!node_modules' \
         -g '!dist' \
         -g '!.git' |
-        entr -r bash -lc "$command_to_run"
+        entr -n -r bash -lc "$command_to_run"
     exit 0
 fi
 
-echo "No file watcher found. Install watchexec (preferred) or entr." >&2
+echo "No file watcher found. Install watchexec (preferred) or entr, then re-run:" >&2
+echo "  macOS:   brew install watchexec        (or: brew install entr)" >&2
+echo "  Rust:    cargo install watchexec-cli" >&2
+echo "  Linux:   apt install entr              (Debian/Ubuntu)" >&2
+echo "watch-loop exits 1 until a file watcher is installed." >&2
 exit 1

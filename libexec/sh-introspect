@@ -71,6 +71,26 @@ format="text"
 [[ "${AI_OUTPUT:-}" == "json" ]] && format="json"
 list_dir=""
 
+fail() {
+    # Emit a JSON error envelope when json output is requested, else plain text.
+    # An optional second arg is an actionable next-step hint, surfaced on both
+    # the JSON envelope (as a `hint` field) and the plain-text stderr path. The
+    # documented exit-code contract is embedded in the envelope's `meta` so
+    # agents can branch on it without scraping the header prose. Defined before
+    # the parser so mistyped-flag diagnostics can route through it.
+    local msg="$1" hint="${2:-}"
+    if [[ "$format" == "json" ]]; then
+        jq -nc --arg tool "sh-introspect" --arg error "$msg" --arg hint "$hint" \
+            '{schema:"ai.sh-introspect/v1", status:"error", tool:$tool, error:$error}
+             + (if $hint == "" then {} else {hint:$hint} end)
+             + {meta:{target_executed:false, exit_codes:{ok:0, error:2}}}'
+    else
+        printf 'sh-introspect: %s\n' "$msg" >&2
+        [[ -n "$hint" ]] && printf 'sh-introspect: hint: %s\n' "$hint" >&2
+    fi
+    exit 2
+}
+
 # --- argument parsing ---------------------------------------------------------
 args=()
 while (($# > 0)); do
@@ -92,24 +112,18 @@ while (($# > 0)); do
             format="json"
             shift
             ;;
+        -*)
+            # A token starting with '-' that matched none of the known flags is
+            # a mistyped flag, not a FILE path — diagnose it as such instead of
+            # letting it fall through and surface as a confusing "no such file".
+            fail "unknown flag: $1" "run 'sh-introspect --help' to see valid flags and formats"
+            ;;
         *)
             args+=("$1")
             shift
             ;;
     esac
 done
-
-fail() {
-    # Emit a JSON error envelope when json output is requested, else plain text.
-    local msg="$1"
-    if [[ "$format" == "json" ]]; then
-        jq -nc --arg tool "sh-introspect" --arg error "$msg" \
-            '{schema:"ai.sh-introspect/v1", status:"error", tool:$tool, error:$error}'
-    else
-        printf 'sh-introspect: %s\n' "$msg" >&2
-    fi
-    exit 2
-}
 
 # --- section extractors (all text-only; the script is never sourced/executed) -
 
@@ -139,7 +153,12 @@ extract_comment_section() {
     local heading="$1"
     awk -v h="$heading" '
         function is_heading(s) { return (s ~ /^(Usage|Examples?|Requires|Environment|Flags|Modes|Exit codes)[: ]?$/ || s ~ /^(Usage|Examples?|Requires|Environment|Flags|Modes|Exit codes):/) }
+        # Only the leading doc-comment block declares sections. Skip the shebang
+        # and any preamble (set -e, blanks, simple opts) before that block.
+        NR==1 && /^#!/ { next }
+        !started && /^[[:space:]]*(set[[:space:]]|export[[:space:]]|shopt[[:space:]]|$)/ { next }
         /^#/ {
+            started=1
             line=$0; sub(/^#[[:space:]]?/, "", line)
             if (ingrab) {
                 # A blank comment line ends the section once we have content,
@@ -156,6 +175,9 @@ extract_comment_section() {
             }
             next
         }
+        # The first real code line ends the leading comment block; never scan
+        # later per-function doc comments for section headings.
+        started && /^[^#]/ { exit }
         /^[^#]/ { if (ingrab) exit; else next }
     ' "$target"
 }
@@ -212,13 +234,21 @@ extract_env() {
 
 # Required commands: explicit `# Requires:` wins; else infer from `command -v X`.
 extract_requires() {
-    local declared
-    declared="$(extract_comment_section Requires | tr ' ' '\n' | grep -vE '^$' || true)"
-    if [[ -n "$declared" ]]; then
-        printf '%s\n' "$declared" | sort -u
+    local section
+    section="$(extract_comment_section Requires || true)"
+    if [[ -n "$section" ]]; then
+        # A trailing human annotation in parens is prose, not a command list
+        # (e.g. "git (root auto-detection...)" or "(none — degrades...)"), so
+        # drop it and keep only the bare, space-separated command tokens. An
+        # explicitly-declared-but-empty section stays empty (no inference).
+        printf '%s\n' "${section%%(*}" | tr ' ' '\n' | grep -vE '^$' | sort -u
         return
     fi
-    grep -oE 'command -v [A-Za-z][A-Za-z0-9_-]*' "$target" 2>/dev/null |
+    # Infer from real code only: skip comment lines so an explanatory
+    # `command -v X` in prose (e.g. this tool's own doc comments) is not
+    # mistaken for a required binary.
+    grep -vE '^[[:space:]]*#' "$target" 2>/dev/null |
+        grep -oE 'command -v [A-Za-z][A-Za-z0-9_-]*' 2>/dev/null |
         awk '{print $3}' | sort -u
 }
 
@@ -226,10 +256,29 @@ extract_requires() {
 # extract_description as the per-file path so the human listing and the JSON
 # contract never disagree.
 if [[ -n "$list_dir" ]]; then
-    [[ -d "$list_dir" ]] || {
-        printf 'sh-introspect: not a directory: %s\n' "$list_dir" >&2
-        exit 2
-    }
+    # Route the dir check through fail() so an agent requesting json gets the
+    # ai.sh-introspect/v1 error envelope here too, matching every other error
+    # path (the plain-text form stays byte-identical to the previous printf).
+    [[ -d "$list_dir" ]] || fail "not a directory: $list_dir" \
+        "pass an existing directory, e.g. 'sh-introspect --list libexec'"
+    if [[ "$format" == "json" ]]; then
+        # Machine-readable listing: an array of {name, summary} under the same
+        # schema as the single-file contract, so agents can enumerate the
+        # toolkit surface without parsing the fixed-width text columns.
+        _list_items="$(
+            find "$list_dir" -maxdepth 1 -type f | sort | while IFS= read -r f; do
+                jq -nc --arg name "$(basename "$f")" \
+                    --arg summary "$(extract_description "$f" | head -n1)" \
+                    '{name:$name, summary:$summary}'
+            done | jq -sc .
+        )"
+        jq -nc --arg tool "sh-introspect" --arg dir "$list_dir" \
+            --argjson commands "${_list_items:-[]}" \
+            '{schema:"ai.sh-introspect/v1", status:"ok", tool:$tool, dir:$dir,
+              meta:{target_executed:false, exit_codes:{ok:0, error:2}},
+              commands:$commands}'
+        exit 0
+    fi
     find "$list_dir" -maxdepth 1 -type f | sort | while IFS= read -r f; do
         printf '  %-24s %s\n' "$(basename "$f")" "$(extract_description "$f" | head -n1)"
     done
@@ -237,8 +286,15 @@ if [[ -n "$list_dir" ]]; then
 fi
 
 target="${args[0]:-}"
-[[ -n "$target" ]] || fail "missing FILE argument"
-[[ -f "$target" ]] || fail "no such file: $target"
+[[ -n "$target" ]] || fail "missing FILE argument" "pass a shell script path, or '--list DIR' to enumerate a directory"
+[[ -f "$target" ]] || fail "no such file: $target" "check the path; introspection reads exactly one FILE"
+# Single-file contract: surface (don't silently swallow) extra positionals so a
+# caller expecting batch behavior learns only the first arg is introspected.
+# stderr-only + exit unchanged, so existing single-file stdout stays identical.
+if ((${#args[@]} > 1)); then
+    printf 'sh-introspect: warning: %d FILE arguments given; introspecting only the first: %s\n' \
+        "${#args[@]}" "$target" >&2
+fi
 name="$(basename "$target")"
 
 description="$(extract_description || true)"
@@ -316,7 +372,7 @@ render_json() {
         --argjson requires "$(to_arr "$requires")" \
         --argjson modes "$(to_arr "$modes")" \
         '{schema:"ai.sh-introspect/v1", status:"ok", tool:$tool, target:$target,
-          name:$name, meta:{target_executed:false},
+          name:$name, meta:{target_executed:false, exit_codes:{ok:0, error:2}},
           description:$description, usage:$usage, examples:$examples,
           flags:$flags, env:$env, requires:$requires, modes:$modes}'
 }
@@ -328,6 +384,7 @@ render_json() {
 case "$format" in
     json) _rendered="$(render_json)" ;;
     help) _rendered="$(render_help)" ;;
-    text | *) _rendered="$(render_text)" ;;
+    text) _rendered="$(render_text)" ;;
+    *) fail "unknown format: $format" "valid formats: text, help, json" ;;
 esac
 printf '%s\n' "$_rendered"

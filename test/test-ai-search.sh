@@ -168,10 +168,17 @@ tmp_search_dir="$(mktemp -d)"
 tmp_dir="$(mktemp -d)"
 phase2_repo="$(mktemp -d)"
 p1_repo="$(mktemp -d)"
+bigmatch_dir="$(mktemp -d)"
 nogit=""
-trap 'rm -rf "$tmp_search_dir" "$tmp_dir" "$phase2_repo" "$p1_repo" ${nogit:+"$nogit"}' EXIT
+trap 'rm -rf "$tmp_search_dir" "$tmp_dir" "$phase2_repo" "$p1_repo" "$bigmatch_dir" ${nogit:+"$nogit"}' EXIT
 
 printf 'AlphaBeta\n' >"$tmp_search_dir/case.txt"
+
+# A large single-file match set (12k matching lines) used by the [regression]
+# block below to prove the rg --json parse is linear: the former `splits("\n")`
+# jq prelude was O(n^2) and hung past 12s on this input, so a bounded `timeout`
+# around a JSON-mode search reliably catches a regression back to it.
+seq 1 12000 | awk '{ print "NeedleHang line " $0 }' >"$bigmatch_dir/big.txt"
 
 # --- Phase 2 fixture ----------------------------------------------------------
 git -C "$phase2_repo" init -q
@@ -923,7 +930,11 @@ else
     exit 1
 fi
 
-run_search_batch_plain text foo bar "$phase2_repo" --fixed
+# Use queries that BOTH match in phase2_repo so each per-query plain block is
+# non-empty and the "---" separator sits between real content. (A no-match plain
+# search now correctly emits nothing instead of raw rg --json, so two no-match
+# queries would collapse to a bare "---" with no surrounding newlines.)
+run_search_batch_plain text Tenant unchanged "$phase2_repo" --fixed
 if [[ "$LAST_RC" -eq 0 && "$LAST_JSON" == *$'\n---\n'* ]]; then
     printf '  PASS batch plain multi-query -> "---"-separated output\n'
 else
@@ -1018,6 +1029,126 @@ if command -v jq >/dev/null 2>&1; then
         exit 1
     fi
 fi
+
+# =============================================================================
+# Regression — defects fixed in libexec/ai-search + lib/ai-search/*
+# These live in the always-on block (before the P1 gate) so the default suite
+# run guards each fix.
+# =============================================================================
+printf '[regression] rg-json parse / plain-output / truncation defects\n'
+
+# Defect 1 [high]: JSON-mode content search over a large match set must return
+# quickly and bounded, not hang. The old `splits("\n")` jq prelude was O(n^2)
+# and hung well past 12s on this 12k-line fixture; `timeout 20` fails (rc 124)
+# if that regresses. Assert a bounded, truncated envelope.
+set +e
+REG_D1_JSON="$(AI_OUTPUT=json timeout 20 "$BASH_BIN" "$SCRIPT" text NeedleHang "$bigmatch_dir" --max-results 5 2>&1)"
+REG_D1_RC=$?
+set -e
+if [[ "$REG_D1_RC" -eq 0 ]] &&
+    printf '%s' "$REG_D1_JSON" | jq -e '.status=="ok" and (.matches|length)==5 and .meta.truncated==true' >/dev/null 2>&1; then
+    printf '  PASS defect1: large JSON content search returns fast + bounded (no splits() hang)\n'
+else
+    printf '  FAIL defect1: large JSON content search hung or unbounded (rc=%s)\n' "$REG_D1_RC" >&2
+    printf '       envelope: %s\n' "$REG_D1_JSON" >&2
+    exit 1
+fi
+
+# Defect 2 [high]: human (plain) output for rg --json backends must be
+# path:line:text, never raw ripgrep `--json` NDJSON.
+set +e
+REG_D2_OUT="$("$BASH_BIN" "$SCRIPT" text AlphaBeta "$tmp_search_dir" 2>&1)"
+REG_D2_RC=$?
+set -e
+if [[ "$REG_D2_RC" -eq 0 && "$REG_D2_OUT" == *"case.txt:1:AlphaBeta"* &&
+    "$REG_D2_OUT" != *'"type":"match"'* && "$REG_D2_OUT" != *'"type":"summary"'* ]]; then
+    printf '  PASS defect2: plain text output is human path:line:text (no raw rg --json)\n'
+else
+    printf '  FAIL defect2: plain text output not human-readable (rc=%s)\n' "$REG_D2_RC" >&2
+    printf '       output: %s\n' "$REG_D2_OUT" >&2
+    exit 1
+fi
+
+# Defect 4 [med]: plain-mode truncation must exit cleanly (0), not SIGPIPE (141).
+set +e
+"$BASH_BIN" "$SCRIPT" text NeedleHang "$bigmatch_dir" --max-results 1 >/dev/null 2>"$bigmatch_dir/d4.err"
+REG_D4_RC=$?
+set -e
+if [[ "$REG_D4_RC" -eq 0 ]] && grep -q 'truncated' "$bigmatch_dir/d4.err"; then
+    printf '  PASS defect4: plain-mode truncation exits 0 with a stderr notice (no SIGPIPE 141)\n'
+else
+    printf '  FAIL defect4: plain-mode truncation exit=%s (expected 0 + truncation notice)\n' "$REG_D4_RC" >&2
+    printf '       stderr: %s\n' "$(cat "$bigmatch_dir/d4.err")" >&2
+    exit 1
+fi
+
+# Defect 5 [med]: a content mode given a single FILE as root must still emit a
+# valid JSON envelope (exit 0), not abort empty with rc 1 under set -e. The old
+# canonical_root() returned non-zero for a file root, tripping set -e before
+# emit_json ran.
+run_search text AlphaBeta "$tmp_search_dir/case.txt"
+expect_status "defect5: file-root content search -> ok (envelope emitted)" "ok"
+expect_jq "defect5: file-root search finds the match" 'any(.matches[]; contains("AlphaBeta"))'
+
+# ---------------------------------------------------------------------------
+# Phase 8 — output-quality contract additions (runs in the DEFAULT suite, i.e.
+# before the P1 gate below):
+#   - --pcre2 advertised in the --introspect flags[] contract
+#   - stable machine-readable error_code + error_hint on error envelopes
+#   - ok envelopes stay byte-compatible (no error_code / error_hint key)
+#   - aggregation flags print a stderr note in plain (non-JSON) mode
+# ---------------------------------------------------------------------------
+printf '[phase8] output-quality contract additions\n'
+
+# --pcre2 must be discoverable via the machine-readable flags[] contract.
+INTRO_FLAGS_JSON="$("$BASH_BIN" "$SCRIPT" --introspect 2>/dev/null)"
+if printf '%s' "$INTRO_FLAGS_JSON" | jq -e '.flags | index("--pcre2") != null' >/dev/null; then
+    printf '  PASS --introspect flags[] advertises --pcre2\n'
+else
+    printf '  FAIL --introspect flags[] missing --pcre2 (flags=%s)\n' \
+        "$(printf '%s' "$INTRO_FLAGS_JSON" | jq -c '.flags' 2>/dev/null)" >&2
+    exit 1
+fi
+
+# Error envelopes carry a stable code + actionable hint (unknown flag).
+run_search text StructuredNeedle "$p1_repo" --nope
+expect_status "unknown flag -> error (phase8)" "error"
+expect_jq "unknown flag -> error_code=unknown_flag" '.error_code == "unknown_flag"'
+expect_jq "unknown flag -> error_hint present" '(.error_hint | type == "string") and (.error_hint | length > 0)'
+
+# not-a-git-repository error carries its own stable code + hint.
+phase8_nogit="$(mktemp -d)"
+run_search tracked StructuredNeedle "$phase8_nogit"
+expect_status "tracked on non-git root -> error (phase8)" "error"
+expect_jq "non-git root -> error_code=not_a_git_repository" '.error_code == "not_a_git_repository"'
+expect_jq "non-git root -> error_hint present" '(.error_hint | type == "string") and (.error_hint | length > 0)'
+rm -rf "$phase8_nogit"
+
+# Backward compat: a successful (ok) envelope must NOT gain an error_code /
+# error_hint key. Also exercises --pcre2 end-to-end (lookahead).
+run_search text 'Structured(?=Needle)' "$p1_repo" --pcre2
+expect_status "pcre2 lookahead ok search (phase8)" "ok"
+expect_no_jq "ok envelope has no error_code key" 'has("error_code")'
+expect_no_jq "ok envelope has no error_hint key" 'has("error_hint")'
+
+# Plain (non-JSON) mode: aggregation flags print a stderr note but keep the
+# match-line stdout byte-identical to a plain search without the flag.
+phase8_plain_err="$(mktemp)"
+phase8_with="$("$BASH_BIN" "$SCRIPT" text StructuredNeedle "$p1_repo" --fixed --count 2>"$phase8_plain_err")"
+phase8_without="$("$BASH_BIN" "$SCRIPT" text StructuredNeedle "$p1_repo" --fixed 2>/dev/null)"
+if grep -q 'AI_OUTPUT=json' "$phase8_plain_err"; then
+    printf '  PASS plain --count prints a JSON-only stderr note\n'
+else
+    printf '  FAIL plain --count did not print the stderr note\n' >&2
+    exit 1
+fi
+if [[ "$phase8_with" == "$phase8_without" ]]; then
+    printf '  PASS plain --count keeps stdout byte-identical (flag ignored on stdout)\n'
+else
+    printf '  FAIL plain --count altered stdout\n' >&2
+    exit 1
+fi
+rm -f "$phase8_plain_err"
 
 if [[ "${AI_SEARCH_RUN_P1_TESTS:-0}" != "1" ]]; then
     printf '[phase3-5] skipped P1 tests; run with AI_SEARCH_RUN_P1_TESTS=1 when implementing Phase 3+\n'
@@ -1272,6 +1403,49 @@ expect_jq "diff --base main has file metadata" '
   .results[] | select(.path == "app/DiffTarget.php" and (.text|contains("DiffNeedle")))
 '
 
+# Regression: many added lines matching one query must all come back, built in a
+# single jq pass. The prior code spawned one `jq -cn` per match, so a base far
+# ahead of HEAD (tens of thousands of added lines) launched thousands of jq
+# processes and timed out. Guard both correctness (all matches, exact metadata,
+# special chars preserved) and completion on a small deterministic fixture.
+diffbatch_repo="$(mktemp -d)"
+git -C "$diffbatch_repo" init -q
+git -C "$diffbatch_repo" config user.email "test@example.com"
+git -C "$diffbatch_repo" config user.name "Test User"
+git -C "$diffbatch_repo" branch -M main
+printf 'line one base\nline two base\n' >"$diffbatch_repo/code.txt"
+git -C "$diffbatch_repo" add code.txt
+git -C "$diffbatch_repo" commit -qm "base for diff-batch regression"
+# Append five matching added lines (new_line 3..7); one carries quotes, a
+# backslash and a '$' to prove exact text survives the single-jq rebuild.
+{
+    printf 'line one base\nline two base\n'
+    printf 'first BatchNeedle line\n'
+    printf 'second BatchNeedle line\n'
+    printf 'third BatchNeedle "q" \\ $v end\n'
+    printf 'fourth BatchNeedle line\n'
+    printf 'fifth BatchNeedle line\n'
+} >"$diffbatch_repo/code.txt"
+
+run_search diff BatchNeedle "$diffbatch_repo" --fixed --base main
+expect_status "diff --base batch -> ok" "ok"
+expect_count "diff --base batch returns every match" "==" 5
+expect_jq "diff --base batch metadata + scope on first added line" '
+  .results[]
+  | select(
+      .path == "code.txt"
+      and (.marker == "+")
+      and (.new_line == 3)
+      and (.scope == "base:main")
+      and (.text == "first BatchNeedle line")
+    )
+'
+expect_jq "diff --base batch preserves quotes, backslash and \$" '
+  .results[]
+  | select(.new_line == 5 and (.text == "third BatchNeedle \"q\" \\ $v end"))
+'
+rm -rf "$diffbatch_repo"
+
 run_search history HistoryNeedle "$p1_repo" --fixed
 expect_status "history pickaxe -> ok" "ok"
 expect_jq "history returns commit metadata" '
@@ -1308,6 +1482,29 @@ expect_status "history --patch -> ok" "ok"
 expect_jq "history --patch includes patch only on request" '
   .results[] | select((.patch|type=="string") and (.patch|contains("HistoryNeedle")))
 '
+
+# Regression: `history --patch` on a commit whose patch exceeds ~128 KB must not
+# abort with "Argument list too long" (exit 126). The patch is carried through
+# emit_json, which now passes matches/results to jq via --slurpfile (files)
+# instead of --argjson (a single argv element capped at MAX_ARG_STRLEN).
+bigpatch_repo="$(mktemp -d)"
+(
+    cd "$bigpatch_repo"
+    git init -q
+    git config user.email t@t.t
+    git config user.name t
+    { printf 'BigPatchNeedle\n'; seq 1 6000 | awk '{ print "lorem ipsum dolor sit amet consectetur " $0 }'; } >big.txt
+    git add -A
+    git commit -qm "big BigPatchNeedle"
+)
+run_search history BigPatchNeedle "$bigpatch_repo" --fixed --patch
+[[ "$LAST_RC" -eq 0 ]] ||
+    { printf '  FAIL history --patch on >128KB patch: exit %s (ARG_MAX regression)\n' "$LAST_RC" >&2; exit 1; }
+expect_status "history --patch large patch -> ok (no ARG_MAX crash)" "ok"
+expect_jq "history --patch large patch carries the patch" '
+  .results[] | select((.patch|type=="string") and (.patch|contains("BigPatchNeedle")))
+'
+rm -rf "$bigpatch_repo"
 
 run_search tests TestNeedle "$p1_repo" --fixed
 expect_status "tests mode -> ok" "ok"

@@ -16,11 +16,19 @@ dirty_files_json() {
         return 0
     fi
 
+    # Filter out the tool's own log/session/snapshot tree (AI_LOG_DIR, e.g.
+    # ".ai-logs/") so changedFiles/baselineDirtyFiles/sessionChangedFiles report
+    # only user-facing edits, not this run's manifests and snapshots. grep -v may
+    # legitimately drop every line (a run that touched only its own logs), so it
+    # is guarded with `|| true` to keep the pipeline green under pipefail.
+    local log_prefix="${AI_LOG_DIR%/}"
     {
         git diff --name-only || true
         git diff --cached --name-only || true
         git ls-files --others --exclude-standard || true
-    } | sort -u | sed '/^$/d' | jq -R . | jq -s -c .
+    } | sort -u | sed '/^$/d' |
+        { grep -v -e "^${log_prefix}/" -e "^${log_prefix}\$" || true; } |
+        jq -R . | jq -s -c .
 }
 
 is_json_output() {
@@ -100,15 +108,33 @@ write_session_manifest() {
     log_json "edit.manifest" "$(cat "$manifest_path")" || true
 }
 
+# Maps a terminal status to a short, actionable next-step hint so an agent can
+# self-correct (pick the flag to re-run with) without a human in the loop. Only
+# non-terminal/blocking statuses carry a hint; success statuses return "" (which
+# emit_result_json renders as JSON null). Additive: surfaced only in the
+# opt-in ai.edit/v1 envelope, never in default/human output.
+next_step_hint() {
+    case "$1" in
+    dry_run) printf 're-run with --apply (or APPLY=1) to modify files' ;;
+    blocked) printf 'resolve the condition in errors[]: commit/stash or pass --allow-dirty-tree for a dirty tree; for a rejected patch inspect artifacts.diffPatch/patch-check.log; then re-run' ;;
+    limit_exceeded) printf 'raise --max-files/--max-replacements/--max-bytes or narrow the scope (root/--glob/--exclude), then re-run' ;;
+    unavailable) printf 'install the required backend tool named in errors[], then re-run' ;;
+    verify_failed) printf 'inspect the verify log under artifacts.sessionDir, fix the failure, then re-run' ;;
+    *) printf '' ;;
+    esac
+}
+
 emit_result_json() {
     local status="$1"
-    local after_json session_changed_json
+    local after_json session_changed_json next_step
 
     after_json="$(dirty_files_json)"
     session_changed_json="$(json_array_diff "$baseline_dirty_json" "$after_json")"
+    next_step="$(next_step_hint "$status")"
 
     jq -n \
         --arg status "$status" \
+        --arg nextStep "$next_step" \
         --arg mode "${mode:-unknown}" \
         --arg root "${root:-.}" \
         --arg snapshot "${snapshot:-}" \
@@ -121,12 +147,13 @@ emit_result_json() {
         --argjson sessionChangedFiles "$session_changed_json" \
         --argjson warnings "$warnings_json" \
         --argjson errors "$errors_json" \
-        --argjson maxFiles "$max_files" \
-        --argjson maxReplacements "$max_replacements" \
-        --argjson maxBytes "$max_bytes" \
+        --arg maxFiles "$max_files" \
+        --arg maxReplacements "$max_replacements" \
+        --arg maxBytes "$max_bytes" \
         '{
           schema: "ai.edit/v1",
           status: $status,
+          nextStep: (if $nextStep == "" then null else $nextStep end),
           tool: "ai-edit",
           mode: $mode,
           root: $root,
@@ -139,9 +166,9 @@ emit_result_json() {
           warnings: $warnings,
           errors: $errors,
           limits: {
-            maxFiles: $maxFiles,
-            maxReplacements: $maxReplacements,
-            maxBytes: $maxBytes
+            maxFiles: ($maxFiles | tonumber? // null),
+            maxReplacements: ($maxReplacements | tonumber? // null),
+            maxBytes: ($maxBytes | tonumber? // null)
           },
           snapshot: (if $snapshot == "" then null else $snapshot end),
           artifacts: {
@@ -172,7 +199,20 @@ finish() {
             no_matches) printf 'No matches.\n' ;;
             applied) printf 'Applied changes. Manifest: %s/edit-session.json\n' "$SESSION_DIR" ;;
             verified) printf 'Applied and verified. Manifest: %s/edit-session.json\n' "$SESSION_DIR" ;;
-            limit_exceeded | blocked | error | verify_failed) printf '%s\n' "$status" >&2 ;;
+            limit_exceeded | blocked | error | verify_failed)
+                # Surface the accumulated diagnostic(s) so a human gets an
+                # actionable reason, not just the opaque status keyword. The
+                # trailing status word is preserved (last line) for backward
+                # compatibility with callers/tests that match on it. A
+                # non-terminal hint, when one exists, is printed last.
+                local _msg _hint
+                while IFS= read -r _msg; do
+                    [[ -n "$_msg" ]] && printf '%s\n' "$_msg" >&2
+                done < <(jq -r '.[]' <<<"$errors_json")
+                printf '%s\n' "$status" >&2
+                _hint="$(next_step_hint "$status")"
+                [[ -n "$_hint" ]] && printf 'next step: %s\n' "$_hint" >&2
+                ;;
         esac
     fi
 
@@ -200,13 +240,33 @@ validate_uint() {
     [[ "$value" =~ ^[0-9]+$ ]] || fail_status "error" "$name must be a non-negative integer: $value" 2
 }
 
+# Clean-tree preflight for the apply branches. The shared require_clean_tree
+# (lib/paths.sh) calls die(), which prints raw non-JSON "[ERROR] ..." text and
+# exits 1 — bypassing the ai.edit/v1 envelope under AI_OUTPUT=json. Route the
+# same checks through fail_status "blocked" 4 (a documented status) so the JSON
+# contract is honored while text-mode output stays equivalent.
+require_clean_tree_guarded() {
+    git rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
+        fail_status "blocked" "not inside a git repository" 4
+    if ! git diff --quiet || ! git diff --cached --quiet; then
+        fail_status "blocked" "working tree is not clean; commit or stash changes first" 4
+    fi
+}
+
+# Resolves the ast-grep binary into the caller-visible `ast_bin` global (dynamic
+# scope, like the rest of this module) rather than stdout. Emitting the name via
+# `printf` forced the caller to use `ast_bin="$(resolve_ast_grep)"`, which ran
+# fail_status/finish inside a command-substitution subshell: the JSON envelope
+# never reached the real stdout and the failed assignment tripped the generic
+# on_error ERR trap. Setting the global keeps fail_status/finish in the parent
+# shell so the documented status:"unavailable" / exit 127 actually surfaces.
 resolve_ast_grep() {
     if command -v ast-grep >/dev/null 2>&1; then
-        printf 'ast-grep\n'
+        ast_bin="ast-grep"
         return 0
     fi
     if command -v sg >/dev/null 2>&1; then
-        printf 'sg\n'
+        ast_bin="sg"
         return 0
     fi
     fail_status "unavailable" "required tool not found: ast-grep or sg" 127

@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Usage questions and design discussion
-    url: https://github.com/UtmostCreator/agent-kit/discussions
+    url: https://github.com/UtmostCreator/restsift/discussions
     about: Ask questions or discuss broad proposals.
   - name: Security vulnerability
-    url: https://github.com/UtmostCreator/agent-kit/security/advisories/new
+    url: https://github.com/UtmostCreator/restsift/security/advisories/new
     about: Report vulnerabilities privately.

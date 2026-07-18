@@ -24,7 +24,7 @@ fi
 
 ./scripts/check-publishable.sh
 
-name="agent-kit-${version}"
+name="restsift-${version}"
 dist="$repo_root/dist"
 stage=$(mktemp -d)
 trap 'rm -rf -- "$stage"' EXIT
@@ -32,7 +32,7 @@ mkdir -p -- "$dist" "$stage/$name"
 rm -f -- "$dist"/*
 
 include=(
-    bin lib libexec hooks integrations share docs
+    bin lib libexec hooks completions share docs
     README.md INSTALL.md AGENTS.md CLAUDE.md
     LICENSE NOTICE SECURITY.md SUPPORT.md CONTRIBUTING.md CHANGELOG.md VERSION
     install.sh uninstall.sh

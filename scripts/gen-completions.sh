@@ -26,8 +26,8 @@ jq -e '
     all(.commands[]; (.name | type == "string") and (.modes | type == "array") and (.flags | type == "array"))
 ' "$spec_file" >/dev/null
 
-bash "$repo_root/scripts/completions/render-bash.sh" "$spec_file" >"$output_dir/agent-kit.bash"
-bash "$repo_root/scripts/completions/render-zsh.sh" "$spec_file" >"$output_dir/_agent-kit"
-bash "$repo_root/scripts/completions/render-fish.sh" "$spec_file" >"$output_dir/agent-kit.fish"
+bash "$repo_root/scripts/completions/render-bash.sh" "$spec_file" >"$output_dir/restsift.bash"
+bash "$repo_root/scripts/completions/render-zsh.sh" "$spec_file" >"$output_dir/_restsift"
+bash "$repo_root/scripts/completions/render-fish.sh" "$spec_file" >"$output_dir/restsift.fish"
 
 printf 'Generated Bash, Zsh and Fish completions in %s/\n' "$output_dir"

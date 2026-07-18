@@ -26,7 +26,36 @@ require_clean_secret_scan() {
         return 0
     fi
 
-    if ! secrets_scan "$target"; then
-        die "secrets detected; refusing to continue"
+    if command -v gitleaks >/dev/null 2>&1; then
+        local report_file
+        report_file=$(mktemp) || {
+            die "secrets detected; refusing to continue (failed to create temp report file)"
+        }
+        # shellcheck disable=SC2064
+        trap "rm -f '$report_file'" RETURN
+
+        # Run gitleaks and capture JSON output
+        if ! gitleaks detect --source "$target" --report-format json --report-path "$report_file" --redact >/dev/null 2>&1; then
+            # Extract file:line information from JSON report
+            local error_msg="secrets detected; refusing to continue"
+
+            if [[ -f "$report_file" ]] && command -v jq >/dev/null 2>&1; then
+                # Try to parse JSON and extract files with line numbers
+                local files_info
+                files_info=$(jq -r '.[] | "\(.File):\(.StartLine)"' "$report_file" 2>/dev/null | sort -u)
+
+                if [[ -n "$files_info" ]]; then
+                    error_msg+=$'\n\nDetected in:\n'
+                    while IFS= read -r line; do
+                        error_msg+="  $line"$'\n'
+                    done <<< "$files_info"
+                fi
+            fi
+
+            error_msg+=$'\n\nTo skip this check, run: SECRETS_SCAN=0 res context pack auto'
+            die "$error_msg"
+        fi
+    else
+        log_warn "gitleaks not installed; skipping secrets scan"
     fi
 }

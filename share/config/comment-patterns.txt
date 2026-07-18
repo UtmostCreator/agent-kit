@@ -1,0 +1,25 @@
+# Comment-detection patterns for `refactor-scan comments` (marker scan).
+#
+# Format (TAB-separated, exactly 3 fields):
+#   key <TAB> ext,csv,list <TAB> pcre2-pattern
+#
+# The pattern is string-aware: an alternation `(?P<s>...strings...)|(?P<c>...comments...)`.
+# The scanner replaces every match with `\x01${c}\x02`, so a string match collapses
+# to an empty capture and is discarded, while a real comment survives with its exact
+# text and line number. This is the 75-88/100 "string-aware regex" tier; it cannot
+# reach a full lexer's accuracy (template literals with `${...}`, heredocs, block
+# scalars) but it correctly rejects the common false positives:
+#     const u = "https://x"      x="# not a comment"      SELECT '-- not'
+#
+# Requires ripgrep built with PCRE2 (`rg --pcre2`), which this repo already assumes.
+# Lines beginning with `#` are comments here; patterns themselves may contain `#`.
+#
+# key         extensions                                                             pattern
+c_family	js,mjs,cjs,jsx,ts,mts,cts,tsx,go,c,h,cc,cpp,cxx,hpp,hh,cs,java,kt,kts,rs,swift,dart,scala,groovy,scss,sass,less	(?P<s>"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)|(?P<c>//[^\r\n]*|/\*[\s\S]*?\*/)
+php	php	(?P<s>"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|(?P<c>//[^\r\n]*|#[^\r\n]*|/\*[\s\S]*?\*/)
+hash	sh,bash,zsh,ksh,py,rb,yaml,yml,toml,tf,hcl,pl,pm,r,jl,nim,ex,exs,gql,graphql	(?P<s>'[^']*'|"(?:\\.|[^"\\])*")|(?P<c>#[^\r\n]*)
+sql	sql	(?P<s>'(?:''|[^'])*')|(?P<c>--[^\r\n]*|/\*[\s\S]*?\*/)
+css	css	(?P<s>"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|(?P<c>/\*[\s\S]*?\*/)
+html	html,htm,xml,svg,vue,svelte,astro,md,markdown,mdx	(?P<c><!--[\s\S]*?-->)
+lua	lua	(?P<c>--\[(=*)\[[\s\S]*?\]\1\]|--[^\r\n]*)
+powershell	ps1,psm1,psd1	(?P<c>#[^\r\n]*|<#[\s\S]*?#>)

@@ -4,18 +4,33 @@
 # Sourced by libexec/ai-git (thin loader). Not an entrypoint. Behavior is
 # byte-for-byte identical to the previous standalone libexec/gh-pr-context,
 # just wrapped in ai_git_pr_context_main(). Requires AI_GIT_LIBEXEC_DIR (set by
-# the loader) to resolve the sibling ai-diff-context engine for --pack, since
-# BASH_SOURCE inside a sourced function points at this module file, not the
-# libexec/ entrypoint.
+# the loader) to locate the sibling `ai-context` entrypoint, which --pack runs
+# as a subprocess (`ai-context diff pr <n>`), since BASH_SOURCE inside a
+# sourced function points at this module file, not the libexec/ entrypoint.
 
 ai_git_pr_context_usage() {
-    echo "Usage: agent-kit git pr-context <PR-number> [--diff] [--checks] [--reviews] [--pack] [--json]"
+    cat <<'EOF'
+Usage: restsift git pr-context <PR-number> [--diff] [--checks] [--reviews] [--pack] [--json]
+
+Exit codes:
+  0    success
+  1    usage/validation error (missing PR number, unknown flag)
+  5    gh/network passthrough error (gh CLI failure)
+EOF
 }
 
 ai_git_pr_context_main() {
     require_bins gh jq
 
-    local pr="${1:?PR number required}"
+    case "${1:-}" in
+        --help | -h)
+            ai_git_pr_context_usage
+            exit 0
+            ;;
+    esac
+
+    [[ $# -ge 1 ]] || die "PR number required (usage: restsift git pr-context <PR-number> ...)"
+    local pr="$1"
     shift || true
 
     local want_diff=0
@@ -35,7 +50,10 @@ ai_git_pr_context_main() {
                 ai_git_pr_context_usage
                 exit 0
                 ;;
-            *) die "unknown option: $1" ;;
+            *)
+                ai_git_pr_context_usage >&2
+                die "unknown option: $1"
+                ;;
         esac
         shift
     done
@@ -73,6 +91,9 @@ ai_git_pr_context_main() {
             --argjson reviews "${reviews_json:-null}" \
             --arg diff "$diff_content" \
             '{
+          schema: 1,
+          status: "ok",
+          tool: "gh-pr-context",
           pr: {
             title: $pr.title,
             state: $pr.state,
@@ -91,7 +112,9 @@ ai_git_pr_context_main() {
           },
           checks: $checks,
           reviews: $reviews,
-          diff: (if $diff != "" then $diff else null end)
+          diff: (if $diff != "" then $diff else null end),
+          warnings: [],
+          errors: []
         }'
     else
         printf '# PR #%s - %s\n\n' "$pr" "$(echo "$pr_json" | jq -r '.title')"

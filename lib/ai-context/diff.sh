@@ -30,11 +30,11 @@ source "$AI_CONTEXT_DIFF_DIR/main.sh"
 ai_context_diff_usage() {
     cat <<'EOF'
 Usage:
-  agent-kit context diff since <ref> [options]
-  agent-kit context diff unstaged [options]
-  agent-kit context diff pr <number> [options]
-  agent-kit context diff recent [--count N] [options]
-  agent-kit context diff touched <pattern> [options]
+  restsift context diff since <ref> [options]
+  restsift context diff unstaged [options]
+  restsift context diff pr <number> [options]
+  restsift context diff recent [--count N] [options]
+  restsift context diff touched <pattern> [options]
 
 Options:
   --include-diffs         Include git diff / PR diff as context artifact
@@ -54,6 +54,10 @@ Environment:
   STRICT_TOKENS=0
   SPLIT_OUTPUT=
   TOKEN_ESTIMATOR_CMD=custom-token-counter
+
+Exit codes:
+  0  ok — bundle written (or help shown)
+  1  usage error (missing/unknown subcommand) or packing failure
 EOF
 }
 
@@ -71,6 +75,16 @@ ai_context_diff_main() {
     # Bind the bare `usage` name lib/ai-diff-context/main.sh's dispatch relies
     # on to this mode's help text for the duration of this call only.
     usage() { ai_context_diff_usage; }
+
+    # The shared dispatch prints usage + exit 1 for a missing subcommand but
+    # emits no diagnostic; surface an explicit stderr line first so a bare
+    # `context diff` says what was wrong. (Unknown subcommands already get a
+    # `[ERROR] unknown command: X` line from the shared dispatch's die.) The
+    # delegation below is left intact so session-init and the exit-1 path run
+    # exactly as before.
+    if (($# == 0)); then
+        printf 'error: a diff subcommand is required (expected since|unstaged|pr|recent|touched)\n' >&2
+    fi
 
     ai_diff_context_main "$@"
 }

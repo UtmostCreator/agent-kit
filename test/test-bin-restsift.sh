@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Tests for bin/agent-kit (the dispatcher).
+# Tests for bin/restsift (the dispatcher).
 set -euo pipefail
 BASH_BIN="${BASH_BIN:-$(command -v bash)}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-AI="$REPO_ROOT/bin/agent-kit"
+AI="$REPO_ROOT/bin/restsift"
 cd "$REPO_ROOT"
 
 PASS=0 FAIL=0
@@ -23,7 +23,7 @@ run_test() {
     fi
 }
 
-printf 'bin/agent-kit\n'
+printf 'bin/restsift\n'
 
 # --list exits 0 and enumerates commands.
 test_list() {
@@ -56,13 +56,13 @@ test_help_short_flag() {
 }
 run_test "-h prints usage (exit 0)" test_help_short_flag
 
-# `agent-kit <name>` resolves the exact libexec file.
+# `restsift <name>` resolves the exact libexec file.
 test_exact_resolution() {
     "$BASH_BIN" "$AI" repo-stats --help >/dev/null 2>&1
 }
 run_test "resolves an exact command name" test_exact_resolution
 
-# `agent-kit search` resolves via the ai- prefix fallback to libexec/ai-search.
+# `restsift search` resolves via the ai- prefix fallback to libexec/ai-search.
 test_prefix_resolution() {
     local out
     out="$(AI_OUTPUT=json "$BASH_BIN" "$AI" search doctor 2>/dev/null || true)"
@@ -70,7 +70,88 @@ test_prefix_resolution() {
 }
 run_test "resolves via the ai- prefix fallback" test_prefix_resolution
 
-# `agent-kit search capabilities` routes through ai-search to the compatibility
+# --- Short alias resolution (lib/command-aliases.txt) -----------------------
+#
+# Every "alias target" pair in lib/command-aliases.txt (the single source
+# shared with completion generation, see libexec/internal/completion-spec)
+# must resolve `restsift ALIAS` to the exact same libexec file as its
+# canonical target -- verified generically here, rather than one hardcoded
+# test per alias, so a new alias added to the data file is covered without a
+# matching test edit.
+ALIASES_FILE="$REPO_ROOT/lib/command-aliases.txt"
+
+test_every_alias_resolves_to_its_target() {
+    [[ -f "$ALIASES_FILE" ]] || return 1
+    local alias target want got
+    while read -r alias target; do
+        [[ -n "$alias" && "$alias" != \#* ]] || continue
+        [[ -f "$REPO_ROOT/libexec/$target" ]] || {
+            echo "alias '$alias' points at missing libexec/$target"
+            return 1
+        }
+        # --help (not --introspect) -- router-style targets (e.g. ai-inspect)
+        # treat their first arg as a MODE rather than intercepting --introspect
+        # the way leaf scripts do, so --introspect isn't a universal probe
+        # here. --help is: every libexec/* script answers it identically
+        # regardless of invocation path.
+        want="$("$BASH_BIN" "$REPO_ROOT/libexec/$target" --help 2>&1)"
+        got="$("$BASH_BIN" "$AI" "$alias" --help 2>&1)"
+        [[ -n "$want" && "$want" == "$got" ]] || {
+            echo "alias '$alias' did not resolve to libexec/$target (--help output differs)"
+            return 1
+        }
+    done <"$ALIASES_FILE"
+}
+run_test "every alias in lib/command-aliases.txt resolves to its declared target" test_every_alias_resolves_to_its_target
+
+# A representative sample of aliases spot-checked end-to-end (not just via
+# --introspect equality above), so a resolution AND an execution regression
+# are both caught.
+test_alias_rb_runs_rollback() {
+    local out
+    out="$("$BASH_BIN" "$AI" rb --help 2>&1)"
+    printf '%s' "$out" | grep -q 'rollback snapshots'
+}
+run_test "alias 'rb' runs ai-rollback" test_alias_rb_runs_rollback
+
+test_alias_g_runs_git() {
+    local out
+    out="$("$BASH_BIN" "$AI" g --help 2>&1)"
+    printf '%s' "$out" | grep -q 'git-inspection'
+}
+run_test "alias 'g' runs ai-git" test_alias_g_runs_git
+
+# Exact and ai-prefixed resolution both take priority over the alias table --
+# no real command name is shadowed by an alias.
+test_exact_and_prefix_resolution_beat_aliases() {
+    "$BASH_BIN" "$AI" repo-stats --help >/dev/null 2>&1 &&
+        "$BASH_BIN" "$AI" search --help >/dev/null 2>&1
+}
+run_test "exact/ai-prefixed resolution still takes priority over aliases" test_exact_and_prefix_resolution_beat_aliases
+
+# An alias key must not collide with any real libexec basename (stripped of
+# its "ai-" prefix) -- such a collision would make the alias unreachable
+# (exact/prefix resolution always wins), so catch it as a data-file defect
+# rather than a silently-dead alias.
+test_no_alias_collides_with_a_real_command_name() {
+    [[ -f "$ALIASES_FILE" ]] || return 1
+    local alias target f base friendly
+    while read -r alias target; do
+        [[ -n "$alias" && "$alias" != \#* ]] || continue
+        for f in "$REPO_ROOT"/libexec/*; do
+            [[ -f "$f" ]] || continue
+            base="$(basename "$f")"
+            friendly="${base#ai-}"
+            if [[ "$alias" == "$base" || "$alias" == "$friendly" ]]; then
+                echo "alias '$alias' collides with real command '$base'"
+                return 1
+            fi
+        done
+    done <"$ALIASES_FILE"
+}
+run_test "no alias collides with a real command name" test_no_alias_collides_with_a_real_command_name
+
+# `restsift search capabilities` routes through ai-search to the compatibility
 # introspection implementation.
 test_search_capabilities() {
     local out
@@ -79,7 +160,7 @@ test_search_capabilities() {
 }
 run_test "routes search capabilities to introspection" test_search_capabilities
 
-# `agent-kit search batch` routes through ai-search to the ai-search-multi
+# `restsift search batch` routes through ai-search to the ai-search-multi
 # batch implementation.
 test_search_batch() {
     local out
@@ -88,7 +169,7 @@ test_search_batch() {
 }
 run_test "routes search batch to ai-search-multi" test_search_batch
 
-# `agent-kit context estimate` routes through ai-context to query-usage.
+# `restsift context estimate` routes through ai-context to query-usage.
 test_context_estimate() {
     local out
     out="$($BASH_BIN "$AI" context estimate README.md 2>/dev/null || true)"
@@ -96,7 +177,7 @@ test_context_estimate() {
 }
 run_test "routes context estimate to query-usage" test_context_estimate
 
-# `agent-kit repo stats` routes through ai-repo to repo-stats.
+# `restsift repo stats` routes through ai-repo to repo-stats.
 test_repo_stats() {
     local out
     out="$($BASH_BIN "$AI" repo stats 2>/dev/null || true)"
@@ -104,7 +185,7 @@ test_repo_stats() {
 }
 run_test "routes repo stats to repo-stats" test_repo_stats
 
-# `agent-kit inspect shell` routes through ai-inspect to sh-introspect.
+# `restsift inspect shell` routes through ai-inspect to sh-introspect.
 test_inspect_shell() {
     local out
     out="$($BASH_BIN "$AI" inspect shell libexec/ai-search 2>/dev/null || true)"
@@ -112,7 +193,7 @@ test_inspect_shell() {
 }
 run_test "routes inspect shell to sh-introspect" test_inspect_shell
 
-# `agent-kit session checkpoint --help` routes through ai-session to
+# `restsift session checkpoint --help` routes through ai-session to
 # session-checkpoint (using --help avoids creating a real snapshot). --help is
 # intercepted by lib/common.sh's universal guard before session-checkpoint's
 # own usage(), so assert on the script's header description instead.
@@ -123,7 +204,7 @@ test_session_checkpoint() {
 }
 run_test "routes session checkpoint to session-checkpoint" test_session_checkpoint
 
-# `agent-kit git origin --help` routes through ai-git to the fused origin module.
+# `restsift git origin --help` routes through ai-git to the fused origin module.
 test_git_origin() {
     local out
     out="$($BASH_BIN "$AI" git origin --help 2>/dev/null || true)"
@@ -131,7 +212,7 @@ test_git_origin() {
 }
 run_test "routes git origin to the ai-git origin module" test_git_origin
 
-# `agent-kit verify refs --help` routes through the fused ai-verify to the file-refs module.
+# `restsift verify refs --help` routes through the fused ai-verify to the file-refs module.
 test_verify_refs() {
     local out
     out="$($BASH_BIN "$AI" verify refs --help 2>&1 || true)"
@@ -139,7 +220,7 @@ test_verify_refs() {
 }
 run_test "routes verify refs to the fused file-refs module" test_verify_refs
 
-# `agent-kit test select changed` routes through the fused ai-test to the select module.
+# `restsift test select changed` routes through the fused ai-test to the select module.
 test_test_select() {
     local out
     out="$(AI_OUTPUT=json $BASH_BIN "$AI" test select json 2>/dev/null || true)"
@@ -151,7 +232,7 @@ run_test "routes test select to the fused ai-test select module" test_test_selec
 test_version() {
     local out
     out="$("$BASH_BIN" "$AI" --version 2>/dev/null)" || return 1
-    [[ "$out" == "agent-kit $(tr -d '[:space:]' <"$REPO_ROOT/VERSION")" ]]
+    [[ "$out" == "restsift $(tr -d '[:space:]' <"$REPO_ROOT/VERSION")" ]]
 }
 run_test "--version prints the version (exit 0)" test_version
 
@@ -162,7 +243,7 @@ test_version_json() {
     want="$(tr -d '[:space:]' <"$REPO_ROOT/VERSION")"
     printf '%s' "$out" | jq -e \
         --arg v "$want" \
-        '.schema=="ai.version/v1" and .name=="agent-kit" and .version==$v and has("commit")' \
+        '.schema=="ai.version/v1" and .name=="restsift" and .version==$v and has("commit")' \
         >/dev/null 2>&1
 }
 run_test "--version --json emits a valid JSON envelope" test_version_json
@@ -245,7 +326,7 @@ run_test "routes repo status to ai-file-freshness (exit 0)" test_repo_status
 test_repo_help() {
     local out _rc=0
     out="$($BASH_BIN "$AI" repo --help 2>/dev/null)" || _rc=$?
-    [[ "$_rc" -eq 0 ]] && printf '%s' "$out" | grep -q 'agent-kit repo tasks'
+    [[ "$_rc" -eq 0 ]] && printf '%s' "$out" | grep -q 'restsift repo tasks'
 }
 run_test "repo --help prints router usage (exit 0)" test_repo_help
 
@@ -260,7 +341,8 @@ run_test "repo with no mode prints usage (exit 0)" test_repo_no_args
 test_repo_unknown_mode() {
     local out _rc=0
     out="$($BASH_BIN "$AI" repo bogus-mode 2>&1)" || _rc=$?
-    [[ "$_rc" -eq 2 && "$out" == *"unknown mode 'bogus-mode'"* ]]
+    [[ "$_rc" -eq 2 && "$out" == *"unknown mode 'bogus-mode'"* \
+        && "$out" == *"repo --help"* ]]
 }
 run_test "repo unknown mode exits 2 with a clear message" test_repo_unknown_mode
 
@@ -276,7 +358,7 @@ run_test "routes inspect data to ai-structured" test_inspect_data
 test_inspect_help() {
     local out _rc=0
     out="$($BASH_BIN "$AI" inspect --help 2>/dev/null)" || _rc=$?
-    [[ "$_rc" -eq 0 ]] && printf '%s' "$out" | grep -q 'agent-kit inspect file'
+    [[ "$_rc" -eq 0 ]] && printf '%s' "$out" | grep -q 'restsift inspect file'
 }
 run_test "inspect --help prints router usage (exit 0)" test_inspect_help
 
@@ -308,7 +390,7 @@ run_test "routes session watch to watch-loop" test_session_watch
 test_session_help() {
     local out _rc=0
     out="$($BASH_BIN "$AI" session --help 2>/dev/null)" || _rc=$?
-    [[ "$_rc" -eq 0 ]] && printf '%s' "$out" | grep -q 'agent-kit session checkpoint'
+    [[ "$_rc" -eq 0 ]] && printf '%s' "$out" | grep -q 'restsift session checkpoint'
 }
 run_test "session --help prints router usage (exit 0)" test_session_help
 
@@ -326,6 +408,39 @@ test_session_unknown_mode() {
     [[ "$_rc" -eq 2 && "$out" == *"unknown mode 'bogus-mode'"* ]]
 }
 run_test "session unknown mode exits 2 with a clear message" test_session_unknown_mode
+
+# --- Deprecated compatibility aliases (agent-kit / ak) ----------------------
+# The toolkit was renamed agent-kit -> RestSift. The bin/agent-kit and bin/ak
+# shims must still resolve commands AND print a one-line deprecation notice to
+# stderr ONLY (never stdout, so piped/JSON output stays clean). Protects the
+# backward-compatibility window.
+AGENT_KIT="$REPO_ROOT/bin/agent-kit"
+AK="$REPO_ROOT/bin/ak"
+
+test_deprecated_agent_kit_resolves_commands() {
+    local out
+    out="$("$BASH_BIN" "$AGENT_KIT" --list 2>/dev/null)" || return 1
+    printf '%s' "$out" | grep -q 'ai-search'
+}
+run_test "deprecated 'agent-kit' alias still resolves commands (exit 0)" test_deprecated_agent_kit_resolves_commands
+
+test_deprecated_agent_kit_warns_on_stderr_only() {
+    local err out
+    err="$("$BASH_BIN" "$AGENT_KIT" --list 2>&1 >/dev/null)"
+    out="$("$BASH_BIN" "$AGENT_KIT" --list 2>/dev/null)"
+    printf '%s' "$err" | grep -qi 'deprecated' &&
+        ! printf '%s' "$out" | grep -qi 'deprecated'
+}
+run_test "deprecated 'agent-kit' alias warns on stderr, not stdout" test_deprecated_agent_kit_warns_on_stderr_only
+
+test_deprecated_ak_resolves_and_warns() {
+    local out err
+    out="$("$BASH_BIN" "$AK" --list 2>/dev/null)" || return 1
+    err="$("$BASH_BIN" "$AK" --list 2>&1 >/dev/null)"
+    printf '%s' "$out" | grep -q 'ai-search' &&
+        printf '%s' "$err" | grep -qi 'deprecated'
+}
+run_test "deprecated 'ak' alias still resolves commands and warns on stderr" test_deprecated_ak_resolves_and_warns
 
 printf '\n=== Results ===\n'
 printf '  Passed: %d  Failed: %d\n' "$PASS" "$FAIL"

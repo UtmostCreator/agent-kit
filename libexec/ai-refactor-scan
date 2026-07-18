@@ -2,11 +2,16 @@
 # Flag refactor candidates: rank files by scc complexity and functions by lizard NLOC.
 #
 # Usage:
-#   agent-kit refactor-scan [complexity|nloc|all] [folder] [options]
+#   restsift refactor-scan [complexity|nloc|comments|all] [folder] [options]
 #
 # Example:
-#   agent-kit refactor-scan all .            # flag files (scc complexity > 15) and functions (lizard NLOC > 40)
-#   agent-kit refactor-scan complexity src --ext go --scc-format json --ai
+#   restsift refactor-scan all .            # flag files (scc complexity > 15) and functions (lizard NLOC > 40)
+#   restsift refactor-scan complexity src --ext go --scc-format json --ai
+#   restsift refactor-scan comments .       # flag TODO/FIXME/... markers in real comments (string-aware)
+#   restsift refactor-scan complexity --changed   # scc on git-changed files only
+#   restsift refactor-scan dupes --changed  # duplication of changed files vs the whole repo
+#
+# Modes: complexity nloc comments dupes all
 set -euo pipefail
 
 _rs_self="${BASH_SOURCE[0]}"

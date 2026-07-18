@@ -1,12 +1,12 @@
-# Releasing AgentKit
+# Releasing RestSift
 
-Step-by-step runbook for shipping a tagged AgentKit release across GitHub, npm,
+Step-by-step runbook for shipping a tagged RestSift release across GitHub, npm,
 and Homebrew. This is the "how to actually do it" companion to
 [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md), which is the gate list you must
 clear first. Run the checklist, then follow this runbook in order.
 
 Current state at time of writing: `VERSION` / `package.json` are at `0.1.0`,
-no `v*` tag has been pushed yet, and `Formula/agent-kit.rb` only has a `head`
+no `v*` tag has been pushed yet, and `Formula/restsift.rb` only has a `head`
 (main-branch) install block — there is no stable Homebrew release yet.
 
 ## Start here
@@ -14,8 +14,10 @@ no `v*` tag has been pushed yet, and `Formula/agent-kit.rb` only has a `head`
 Everything on `feat/project-local-install` has been verified clean and
 release-ready as of this writing:
 
-- `./scripts/check.sh` (655 passing test cases, 0 failures, across 27 files)
-  and `./scripts/check-publishable.sh` both pass with no uncommitted changes
+- `./scripts/check.sh` (at the time: 655 passing test cases, 0 failures,
+  across 27 files — the suite has since grown; see the README badge for the
+  current count) and `./scripts/check-publishable.sh` both pass with no
+  uncommitted changes
   in the working copy, and **again from a fresh clone** of this branch into
   an isolated directory (not just the working copy — a real `git clone` +
   full run).
@@ -36,7 +38,7 @@ release-ready as of this writing:
   `"version"` doesn't match the tag (previously only `VERSION` was checked —
   a real gap, since a silent `package.json` drift would have let step 4
   (`npm publish`) ship under the wrong version with nothing catching it).
-- **All of step 0 is done.** The GitHub repo is renamed to `agent-kit`,
+- **All of step 0 is done.** The GitHub repo is renamed to `restsift`,
   description/topics are set, delete-branch-on-merge is on, private
   vulnerability reporting is on, and branch protection is live on `main`
   (required `required` status check, PRs required with 0 approvals so the
@@ -60,10 +62,10 @@ action** is:
 
 ## 0. One-time repo setup
 
-All done, confirmed live via `gh api repos/UtmostCreator/agent-kit` (and
+All done, confirmed live via `gh api repos/UtmostCreator/restsift` (and
 sub-paths), except the social preview image:
 
-1. ~~Rename the GitHub repository to `agent-kit`~~ — done. The local `origin`
+1. ~~Rename the GitHub repository to `restsift`~~ — done. The local `origin`
    remote is already updated to match (`git remote -v`).
 2. ~~Set the description and topics from [GITHUB_METADATA.md](GITHUB_METADATA.md)~~
    and ~~enable automatic deletion of merged branches~~ — done via
@@ -75,7 +77,7 @@ sub-paths), except the social preview image:
    GitHub doesn't allow self-approval), `required_conversation_resolution:
    true`, `allow_force_pushes: false`, `allow_deletions: false`. Applied via:
    ```bash
-   gh api -X PUT repos/UtmostCreator/agent-kit/branches/main/protection --input - <<'EOF'
+   gh api -X PUT repos/UtmostCreator/restsift/branches/main/protection --input - <<'EOF'
    {
      "required_status_checks": {"strict": true, "contexts": ["required"]},
      "enforce_admins": false,
@@ -92,7 +94,7 @@ sub-paths), except the social preview image:
 4. ~~Enable private vulnerability reporting~~ — done (secret scanning + push
    protection were already on):
    ```bash
-   gh api -X PUT repos/UtmostCreator/agent-kit/private-vulnerability-reporting
+   gh api -X PUT repos/UtmostCreator/restsift/private-vulnerability-reporting
    ```
 5. **Still open** — upload a social preview image (Settings → General →
    Social preview). Needs an actual branded image asset, which doesn't exist
@@ -130,7 +132,7 @@ install/uninstall dry runs).
 ## 3. Tag and push
 
 ```bash
-git tag -s v0.1.0 -m "AgentKit v0.1.0"
+git tag -s v0.1.0 -m "RestSift v0.1.0"
 git push origin main
 git push origin v0.1.0
 ```
@@ -140,8 +142,8 @@ Pushing the tag triggers `.github/workflows/release.yml`, which:
 - checks out the exact tag,
 - re-runs `check-publishable.sh` and `check.sh`,
 - runs `scripts/package-release.sh v0.1.0` to build
-  `dist/agent-kit-0.1.0.tar.gz`, `.zip`, and `SHA256SUMS`,
-- publishes a GitHub release named `AgentKit v0.1.0` with those files attached
+  `dist/restsift-0.1.0.tar.gz`, `.zip`, and `SHA256SUMS`,
+- publishes a GitHub release named `RestSift v0.1.0` with those files attached
   and auto-generated notes,
 - then, in a separate downstream `attest` job scoped to only
   `id-token`/`attestations`/`contents:read` permissions, downloads the
@@ -154,7 +156,7 @@ others may have fetched it.
 Verify a release was really built by this repo's CI, from this commit:
 
 ```bash
-gh attestation verify agent-kit-0.1.0.tar.gz --repo UtmostCreator/agent-kit
+gh attestation verify restsift-0.1.0.tar.gz --repo UtmostCreator/restsift
 sha256sum --check SHA256SUMS
 ```
 
@@ -165,32 +167,32 @@ only be enabled after a package with this name exists on npm):
 
 ```bash
 npm login                          # if not already
-npm publish --access public        # required: @utmostcreator/agent-kit is scoped, private by default
+npm publish --access public        # required: @utmostcreator/restsift is scoped, private by default
 ```
 
 Verify:
 
 ```bash
-npm view @utmostcreator/agent-kit version
-npx --yes @utmostcreator/agent-kit --list   # smoke test in a scratch dir
+npm view @utmostcreator/restsift version
+npx --yes @utmostcreator/restsift --list   # smoke test in a scratch dir
 ```
 
 ## 5. Homebrew
 
-`Formula/agent-kit.rb` currently only ships a `head` block (`brew install
+`Formula/restsift.rb` currently only ships a `head` block (`brew install
 --HEAD`). After the GitHub release tarball exists, add a stable block so
-`brew install agent-kit` (no `--HEAD`) works from the tagged release:
+`brew install restsift` (no `--HEAD`) works from the tagged release:
 
 ```bash
-url="https://github.com/UtmostCreator/agent-kit/releases/download/v0.1.0/agent-kit-0.1.0.tar.gz"
-curl -fsSL "$url" -o /tmp/agent-kit-0.1.0.tar.gz
-shasum -a 256 /tmp/agent-kit-0.1.0.tar.gz
+url="https://github.com/UtmostCreator/restsift/releases/download/v0.1.0/restsift-0.1.0.tar.gz"
+curl -fsSL "$url" -o /tmp/restsift-0.1.0.tar.gz
+shasum -a 256 /tmp/restsift-0.1.0.tar.gz
 ```
 
 Add to the formula (alongside the existing `head` line), then commit:
 
 ```ruby
-url "https://github.com/UtmostCreator/agent-kit/releases/download/v0.1.0/agent-kit-0.1.0.tar.gz"
+url "https://github.com/UtmostCreator/restsift/releases/download/v0.1.0/restsift-0.1.0.tar.gz"
 sha256 "<checksum from above>"
 version "0.1.0"
 ```
@@ -198,17 +200,17 @@ version "0.1.0"
 Then verify locally:
 
 ```bash
-brew install --build-from-source ./Formula/agent-kit.rb
-brew test agent-kit
-brew uninstall agent-kit
+brew install --build-from-source ./Formula/restsift.rb
+brew test restsift
+brew uninstall restsift
 ```
 
 Once satisfied, tag consumers install with:
 
 ```bash
-brew tap utmostcreator/agent-kit https://github.com/UtmostCreator/agent-kit
-brew install agent-kit          # stable, from this point on
-brew install --HEAD agent-kit   # still available for main-branch installs
+brew tap utmostcreator/restsift https://github.com/UtmostCreator/restsift
+brew install restsift          # stable, from this point on
+brew install --HEAD restsift   # still available for main-branch installs
 ```
 
 ## 6. curl \| bash
@@ -217,17 +219,17 @@ Nothing to publish here beyond the tag itself — `web-install.sh` resolves the
 newest `v*` tag by default. Confirm it on a clean machine (or container):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/UtmostCreator/agent-kit/main/web-install.sh | bash
-agent-kit --list
+curl -fsSL https://raw.githubusercontent.com/UtmostCreator/restsift/main/web-install.sh | bash
+restsift --list
 ```
 
 ## 7. Post-release verification
 
 Run all three install paths in isolated `HOME`s (or containers) and confirm
-each produces a working `agent-kit --list` and `agent-kit search doctor`:
+each produces a working `restsift --list` and `restsift search doctor`:
 
 ```bash
-HOME=$(mktemp -d) bash -c 'curl -fsSL https://raw.githubusercontent.com/UtmostCreator/agent-kit/main/web-install.sh | bash && "$HOME/.local/bin/agent-kit" --list'
+HOME=$(mktemp -d) bash -c 'curl -fsSL https://raw.githubusercontent.com/UtmostCreator/restsift/main/web-install.sh | bash && "$HOME/.local/bin/restsift" --list'
 ```
 
 Then:

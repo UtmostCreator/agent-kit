@@ -1,18 +1,117 @@
 #!/usr/bin/env bash
-set -euo pipefail
-
-# shellcheck source=scripts/ai/common.sh
-source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
-
 # Show which docs/config files have uncommitted changes (git status of key paths).
 #
 # Reports the short `git status` for docs/, .github/, .opencode/, and AGENTS.md so
 # you can quickly see which agent-facing files are stale or edited but not committed.
 #
 # Usage:
-#   ai-file-freshness
+#   ai-file-freshness                    # human: `git status --short` of the watched paths
+#   ai-file-freshness --exit-code        # same output, but exit 1 if any watched path is dirty
+#   ai-file-freshness --json             # machine-readable ai.file-freshness/v1 envelope
+#   AI_OUTPUT=json ai-file-freshness     # same envelope via the toolkit-wide JSON signal
+#
+# Flags: --json --exit-code
+#
+# Exit codes:
+#   0  ran successfully (default mode always; --exit-code when clean or not-a-repo)
+#   1  --exit-code only: at least one watched path has uncommitted changes (state "stale")
+#   2  usage error (unknown argument)
 #
 # Example:
-#   agent-kit file-freshness   # list uncommitted changes under docs/, .github/, AGENTS.md
+#   restsift file-freshness             # list uncommitted changes under docs/, .github/, AGENTS.md
+#   restsift file-freshness --exit-code # fail a pre-commit/CI check if agent-facing docs are dirty
+#   restsift file-freshness --json | jq -r .state   # clean | stale | not-a-repo
+#
+# Requires: jq (only for --json / AI_OUTPUT=json)
 
-git status --short docs .github .opencode AGENTS.md 2>/dev/null || true
+set -euo pipefail
+
+# shellcheck source=scripts/ai/common.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
+
+# Paths whose freshness this command reports. Kept in one array so the human,
+# --exit-code, and --json surfaces all watch exactly the same set.
+WATCH_PATHS=(docs .github .opencode AGENTS.md)
+
+# Every new surface here is additive and default-off: bare `ai-file-freshness`
+# still prints the exact `git status --short` of WATCH_PATHS and exits 0,
+# byte-for-byte as before. AI_OUTPUT=json is the toolkit-wide machine-JSON signal
+# (the same one fd-files and siblings honor); --json is its per-command flag; and
+# --exit-code turns the command into a gate WITHOUT changing what it prints.
+AI_ENVELOPE=0
+[[ "${AI_OUTPUT:-}" == "json" ]] && AI_ENVELOPE=1
+EXIT_CODE_MODE=0
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --json)
+            AI_ENVELOPE=1
+            shift
+            ;;
+        --exit-code)
+            EXIT_CODE_MODE=1
+            shift
+            ;;
+        *)
+            printf 'ai-file-freshness: unknown argument: %s (valid flags: --json, --exit-code; run --help for the contract)\n' "$1" >&2
+            exit 2
+            ;;
+    esac
+done
+
+# DEFAULT (human) mode: unchanged behavior. Emit the short status of the watched
+# paths and exit 0 even outside a git repo, exactly as this command always has.
+if [[ "$AI_ENVELOPE" == "0" && "$EXIT_CODE_MODE" == "0" ]]; then
+    git status --short "${WATCH_PATHS[@]}" 2>/dev/null || true
+    exit 0
+fi
+
+# Structured / gating modes distinguish the three states the default mode
+# collapses into empty stdout: "clean" (in a repo, nothing dirty), "stale" (in a
+# repo, watched paths uncommitted), and "not-a-repo" (git could not resolve a
+# work tree here).
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git_out="$(git status --short "${WATCH_PATHS[@]}" 2>/dev/null || true)"
+    if [[ -n "$git_out" ]]; then
+        state="stale"
+    else
+        state="clean"
+    fi
+else
+    git_out=""
+    state="not-a-repo"
+fi
+
+if [[ "$AI_ENVELOPE" == "1" ]]; then
+    require_bins jq
+    if [[ -n "$git_out" ]]; then
+        entries_json="$(
+            printf '%s\n' "$git_out" | while IFS= read -r line; do
+                [[ -n "$line" ]] || continue
+                # git --short porcelain: 2 status chars, a space, then the path.
+                jq -n --arg code "${line:0:2}" --arg path "${line:3}" \
+                    '{status_code:$code, path:$path}'
+            done | jq -s .
+        )"
+    else
+        entries_json="[]"
+    fi
+    paths_json="$(printf '%s\n' "${WATCH_PATHS[@]}" | jq -R . | jq -s .)"
+    jq -n \
+        --arg schema "ai.file-freshness/v1" \
+        --arg tool "file-freshness" \
+        --arg state "$state" \
+        --argjson paths "$paths_json" \
+        --argjson entries "$entries_json" \
+        '{schema:$schema, status:"ok", tool:$tool, state:$state, paths:$paths, count:($entries|length), entries:$entries}'
+else
+    # Human output under --exit-code: the same lines the default mode prints.
+    [[ -n "$git_out" ]] && printf '%s\n' "$git_out"
+fi
+
+# --exit-code turns a stale worktree into a nonzero exit so the command can gate
+# a pre-commit/CI check. Clean and not-a-repo are treated as "nothing to commit".
+if [[ "$EXIT_CODE_MODE" == "1" && "$state" == "stale" ]]; then
+    exit 1
+fi
+exit 0

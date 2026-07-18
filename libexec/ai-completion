@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Print a generated shell-completion definition for agent-kit (and its short
-# alias `ak`) to stdout. Non-mutating: it only prints a file, it never touches
+# Print a generated shell-completion definition for restsift (and its short
+# alias `res`) to stdout. Non-mutating: it only prints a file, it never touches
 # shell configuration or installs anything.
 #
 # The printed file is generated ahead of time by scripts/gen-completions.sh
@@ -9,23 +9,33 @@
 # completions/ — nothing here parses `--help` text or spawns the CLI per Tab
 # press.
 #
+# Takes exactly one positional argument (the shell name, or `auto`). Any extra
+# positional arguments after it are ignored, with a warning naming them written
+# to stderr; stdout is unaffected.
+#
 # Usage:
-#   agent-kit completion bash    print the Bash completion definition
-#   agent-kit completion zsh     print the Zsh completion definition
-#   agent-kit completion fish    print the Fish completion definition
-#   agent-kit completion auto    detect the running shell and print its definition
+#   restsift completion bash    print the Bash completion definition
+#   restsift completion zsh     print the Zsh completion definition
+#   restsift completion fish    print the Fish completion definition
+#   restsift completion auto    detect the running shell and print its definition
 #
 # Example:
-#   source <(agent-kit completion bash)                                    # this session only
-#   agent-kit completion fish > ~/.config/fish/completions/agent-kit.fish  # persistent, fish
-#   echo 'source <(agent-kit completion zsh)' >> ~/.zshrc                  # persistent, zsh
+#   source <(restsift completion bash)                                    # this session only
+#   restsift completion fish > ~/.config/fish/completions/restsift.fish  # persistent, fish
+#   echo 'source <(restsift completion zsh)' >> ~/.zshrc                  # persistent, zsh
 #
 # Modes: bash zsh fish auto
 #
+# Environment:
+#   RES_COMPLETION_VERBOSE  when set and mode is `auto`, print the detected shell
+#                          to stderr (e.g. "detected shell: fish") so a caller
+#                          can confirm which definition was chosen.
+#
 # Requires: none
 #
-# Exit codes: 0 on success; 2 on a missing or unrecognized shell argument, or
-#   when `auto` cannot detect a supported shell. Read-only; never mutates.
+# Exit codes: 0 on success; 2 on a missing, empty, or unrecognized shell
+#   argument, or when `auto` cannot detect a supported shell. Read-only; never
+#   mutates.
 
 set -euo pipefail
 
@@ -49,10 +59,41 @@ SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SELF_DIR/.." && pwd)"
 COMPLETIONS_DIR="$ROOT_DIR/completions"
 
+# _caller_shell: the shell that actually invoked us, read from the parent
+# process. This script always runs under its own `#!/usr/bin/env bash`
+# interpreter, so BASH_VERSION is unconditionally set and useless as a "who is
+# asking" signal; and fish/zsh do not export FISH_VERSION/ZSH_VERSION into child
+# processes, so those env vars are absent in every real invocation. The parent
+# process name is the one reliable signal. Linux exposes it via /proc; elsewhere
+# fall back to `ps`.
+_caller_shell() {
+    local ppid comm
+    ppid="${PPID:-0}"
+    [[ "$ppid" == 0 ]] && return 1
+    if [[ -r "/proc/$ppid/comm" ]]; then
+        comm="$(< "/proc/$ppid/comm")"
+    elif command -v ps >/dev/null 2>&1; then
+        comm="$(ps -o comm= -p "$ppid" 2>/dev/null)"
+    else
+        return 1
+    fi
+    comm="${comm##*/}" # strip any leading path
+    comm="${comm#-}"   # strip a login-shell leading dash, e.g. -bash
+    case "$comm" in
+        bash | zsh | fish)
+            printf '%s\n' "$comm"
+            return 0
+            ;;
+    esac
+    return 1
+}
+
 # detect_shell: several signals rather than $SHELL alone, since $SHELL is the
 # user's LOGIN shell, not necessarily the shell currently asking for a
 # completion (e.g. an interactive fish session launched from a bash login).
 detect_shell() {
+    # An explicit FISH_VERSION/ZSH_VERSION in our environment is an intentional
+    # override by a caller that exported it on purpose; honor it first.
     case "${FISH_VERSION:-}" in
         ?*)
             printf '%s\n' fish
@@ -65,12 +106,14 @@ detect_shell() {
             return
             ;;
     esac
-    case "${BASH_VERSION:-}" in
-        ?*)
-            printf '%s\n' bash
-            return
-            ;;
-    esac
+    # The parent process reflects the shell currently asking for a completion.
+    # (BASH_VERSION is deliberately NOT consulted: bash sets it for our own
+    # subprocess unconditionally, so it would always mask fish/zsh callers.)
+    local via_parent
+    if via_parent="$(_caller_shell)"; then
+        printf '%s\n' "$via_parent"
+        return
+    fi
     case "${SHELL##*/}" in
         bash | zsh | fish)
             printf '%s\n' "${SHELL##*/}"
@@ -81,24 +124,41 @@ detect_shell() {
     esac
 }
 
-shell="${1:-}"
+# --- Positional-argument validation ------------------------------------------
+# Distinguish a truly missing argument (no positionals at all) from an
+# explicitly-passed empty string, and warn on unexpected trailing arguments so
+# a malformed invocation is not silently accepted. stdout is unaffected; all
+# diagnostics go to stderr.
+if (($# == 0)); then
+    echo "restsift completion: missing SHELL argument (bash|zsh|fish|auto); run 'restsift completion auto' to auto-detect, or 'restsift completion --help'" >&2
+    exit 2
+fi
+if (($# > 1)); then
+    echo "restsift completion: ignoring unexpected extra argument(s): ${*:2} (expected a single shell name; see 'restsift completion --help')" >&2
+fi
+
+shell="$1"
+if [[ -z "$shell" ]]; then
+    echo "restsift completion: empty SHELL argument (expected bash|zsh|fish|auto); run 'restsift completion auto' to auto-detect, or 'restsift completion --help'" >&2
+    exit 2
+fi
+
 if [[ "$shell" == "auto" ]]; then
     if ! shell="$(detect_shell)"; then
-        echo "agent-kit completion: could not detect a supported shell (bash|zsh|fish); pass one explicitly" >&2
+        echo "restsift completion: could not detect a supported shell (bash|zsh|fish); pass one explicitly, e.g. 'restsift completion bash' (see 'restsift completion --help')" >&2
         exit 2
+    fi
+    if [[ -n "${RES_COMPLETION_VERBOSE:-${AK_COMPLETION_VERBOSE:-}}" ]]; then
+        echo "restsift completion: detected shell: $shell" >&2
     fi
 fi
 
 case "$shell" in
-    bash) exec cat -- "$COMPLETIONS_DIR/agent-kit.bash" ;;
-    zsh) exec cat -- "$COMPLETIONS_DIR/_agent-kit" ;;
-    fish) exec cat -- "$COMPLETIONS_DIR/agent-kit.fish" ;;
-    "")
-        echo "agent-kit completion: missing SHELL argument (bash|zsh|fish|auto)" >&2
-        exit 2
-        ;;
+    bash) exec cat -- "$COMPLETIONS_DIR/restsift.bash" ;;
+    zsh) exec cat -- "$COMPLETIONS_DIR/_restsift" ;;
+    fish) exec cat -- "$COMPLETIONS_DIR/restsift.fish" ;;
     *)
-        echo "agent-kit completion: unsupported shell '$shell' (expected bash|zsh|fish|auto)" >&2
+        echo "restsift completion: unsupported shell '$shell' (expected bash|zsh|fish|auto); run 'restsift completion auto' to auto-detect, or 'restsift completion --help'" >&2
         exit 2
         ;;
 esac

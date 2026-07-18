@@ -12,7 +12,7 @@
 ai_context_file_usage() {
     cat <<'EOF'
 Usage:
-  agent-kit context file [REPO_ROOT] FILE [options]
+  restsift context file [REPO_ROOT] FILE [options]
 
 Arguments:
   REPO_ROOT   Repository root (optional; defaults to the current directory).
@@ -28,6 +28,11 @@ Options:
 Defaults:
   --compress
   --style xml
+
+Exit codes:
+  0  ok — file packed (path printed to stdout)
+  1  repo root / file not found, file outside repo root, or repomix missing
+  2  bad flag / unknown option / missing FILE argument
 EOF
 }
 

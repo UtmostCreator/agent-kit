@@ -7,16 +7,16 @@
 # version. Mutations run only inside ai_edit_main's apply branches.
 #
 # Usage:
-#   agent-kit edit MODE ARGS... [root] [flags]         modes: ast-grep | comby | sd | patch
-#   agent-kit edit apply MODE ARGS... [root] [flags]   same as above with an explicit "apply" prefix
-#   agent-kit edit rollback ARGS...                    routes to ai-rollback (list|show|apply|prune)
+#   restsift edit MODE ARGS... [root] [flags]         modes: ast-grep | comby | sd | patch
+#   restsift edit apply MODE ARGS... [root] [flags]   same as above with an explicit "apply" prefix
+#   restsift edit rollback ARGS...                    routes to ai-rollback (list|show|apply|prune)
 #   flags: --dry-run (default, preview) | --apply | --verify
 #
 # Example:
-#   agent-kit edit --help                                 # see every mode and flag, safely
-#   agent-kit edit sd OldName NewName . --dry-run          # preview a rename, changing nothing
-#   agent-kit edit apply sd OldName NewName . --dry-run    # same, with explicit "apply" prefix
-#   agent-kit edit rollback list                           # list rollback snapshots (routes to ai-rollback)
+#   restsift edit --help                                 # see every mode and flag, safely
+#   restsift edit sd OldName NewName . --dry-run          # preview a rename, changing nothing
+#   restsift edit apply sd OldName NewName . --dry-run    # same, with explicit "apply" prefix
+#   restsift edit rollback list                           # list rollback snapshots (routes to ai-rollback)
 #
 # Modes: ast-grep comby sd patch apply rollback
 #
@@ -36,7 +36,7 @@ if [[ "${1:-}" == "--introspect" ]]; then
     fi
 fi
 
-# Early "rollback" routing guard: `agent-kit edit rollback ...` execs straight
+# Early "rollback" routing guard: `restsift edit rollback ...` execs straight
 # into the sibling, independently-runnable ai-rollback script as a separate
 # process (same pattern as ai-search's "capabilities" shim). ai-rollback is
 # this toolkit's safety-recovery mechanism and stays a fully separate engine
@@ -49,8 +49,8 @@ if [[ "${1:-}" == "rollback" ]]; then
     exec "${BASH:-bash}" "$_ai_edit_here/ai-rollback" "$@"
 fi
 
-# Early "apply" prefix guard: `agent-kit edit apply MODE ARGS...` is an
-# additive alias of the existing `agent-kit edit MODE ARGS...` form. Dropping
+# Early "apply" prefix guard: `restsift edit apply MODE ARGS...` is an
+# additive alias of the existing `restsift edit MODE ARGS...` form. Dropping
 # the leading "apply" token here lets the rest of the arguments flow into the
 # unchanged mode-dispatch logic below exactly as before; the bare MODE form
 # (no "apply" prefix) keeps working unchanged too.
@@ -75,8 +75,27 @@ Usage:
   ai-edit.sh patch PATCH_FILE|- [root] [flags]
 
 JSON output: AI_OUTPUT=json
+  Under AI_OUTPUT=json (or --format json) every exit path — including error,
+  blocked, limit_exceeded and unavailable — emits exactly one ai.edit/v1 JSON
+  object on stdout (usage/diagnostics go to stderr). Non-terminal statuses also
+  carry a "nextStep" hint describing the flag to re-run with.
 
-Status values: dry_run applied verified no_matches error unavailable blocked verify_failed limit_exceeded
+Status values (status -> exit code):
+  dry_run        0    preview only; nothing modified (re-run with --apply)
+  applied        0    changes written
+  verified       0    changes written and ai-verify passed
+  no_matches     0    nothing matched the pattern
+  verify_failed  1    changes written but ai-verify failed
+  error          2    bad usage/arguments (unknown mode/flag/format, bad number)
+  limit_exceeded 3    a --max-files/--max-replacements bound was exceeded
+  blocked        4    a safety gate refused (dirty tree, unsafe patch path)
+  unavailable  127    a required backend tool (ast-grep/comby/sd/rg) is missing
+
+Working directory: git/session operations (dirty-file reporting, snapshot,
+diff) run in the current working directory's repo, while sd/ast-grep planning
+targets the [root] argument. Invoke ai-edit from within the target repository
+so changedFiles reflects the tree actually edited; passing a [root] outside the
+cwd's repo makes the reported changedFiles describe a different tree.
 
 Modes:
   structural:
@@ -121,16 +140,16 @@ Tools:
   mode-specific tools: see mode contract via --introspect
 
 Examples:
-  agent-kit edit sd OldName NewName . --dry-run
-  agent-kit edit apply sd OldName NewName . --dry-run
-  agent-kit edit sd OldName NewName . --apply --verify
-  agent-kit edit ast-grep php 'old($A)' 'new($A)' . --dry-run
-  agent-kit edit patch /tmp/agent.patch . --dry-run
-  agent-kit edit patch - . --apply --verify < /tmp/agent.patch
-  agent-kit edit rollback list
-  agent-kit edit rollback show SNAPSHOT_ID
+  restsift edit sd OldName NewName . --dry-run
+  restsift edit apply sd OldName NewName . --dry-run
+  restsift edit sd OldName NewName . --apply --verify
+  restsift edit ast-grep php 'old($A)' 'new($A)' . --dry-run
+  restsift edit patch /tmp/agent.patch . --dry-run
+  restsift edit patch - . --apply --verify < /tmp/agent.patch
+  restsift edit rollback list
+  restsift edit rollback show SNAPSHOT_ID
 
-Machine contract: agent-kit edit --introspect
+Machine contract: restsift edit --introspect
 EOF
 }
 

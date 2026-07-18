@@ -2,7 +2,7 @@
 # Batch wrapper around ai-search.sh: run one safe search MODE against several
 # queries in a single approved invocation.
 #
-# Compatibility command: prefer `agent-kit search batch`, which routes to this
+# Compatibility command: prefer `restsift search batch`, which routes to this
 # same implementation.
 #
 # Security model: this script never interprets shell metacharacters from its
@@ -10,13 +10,23 @@
 # argument via a normal process call (no eval, no `sh -c`, no string building).
 #
 # Example:
-#   agent-kit search batch text foo bar .          # search two terms in one pass
-#   agent-kit search batch files niri vicinae .    # find files matching either name
-#   agent-kit search batch changed-files .         # list files changed but not staged
+#   restsift search batch text foo bar .          # search two terms in one pass
+#   restsift search batch files .                 # list files under root
+#   restsift search batch changed-files .         # list files changed but not staged
 #
 # Modes: text tracked docs tests config config-key deps route changed-text
 #   staged-text diff history struct symbols class function method interface
 #   enum files changed-files staged-files todo unsafe-patterns
+#
+# Exit codes:
+#   0  all queries and wrapper validation succeeded
+#   1  wrapper-level validation error (unknown mode, missing/too-many queries,
+#      unsafe-all, or disallowed positionals for a mode)
+#   *  per-query ai-search failures do NOT abort a batch run; the LAST nonzero
+#      ai-search exit code becomes the overall exit code
+#
+# Under AI_OUTPUT=json, wrapper-level validation errors are emitted as a single
+# JSON error envelope on stdout instead of plain [ERROR] stderr text.
 
 set -euo pipefail
 
@@ -25,7 +35,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
 BASH_BIN="${BASH_BIN:-$(command -v bash)}"
 SEARCH="$(dirname "${BASH_SOURCE[0]}")/ai-search"
-MAX_QUERIES="${AI_SEARCH_MULTI_MAX:-20}"
+max_queries="${AI_SEARCH_MULTI_MAX:-20}"
 
 usage() {
     cat <<'EOF'
@@ -37,12 +47,12 @@ Usage:
 Runs ai-search.sh MODE once per QUERY in a single invocation.
 
 Query modes:
-  changed-text | staged-text | tracked | text | files | struct | docs
+  changed-text | staged-text | tracked | text | struct | docs
   diff | history | tests | config | deps | symbols | class
   function | method | interface | enum | route | config-key
 
 File-list modes:
-  changed-files | staged-files
+  changed-files | staged-files | files
 
 Deprecated aliases:
   changed | staged
@@ -62,12 +72,38 @@ Notes:
   - Set AI_OUTPUT=json for a JSON array of per-query ai-search envelopes.
   - At most AI_SEARCH_MULTI_MAX queries for query modes (default 20).
 
+Exit codes:
+  0  all queries and wrapper validation succeeded
+  1  wrapper-level validation error (unknown mode, missing/too-many queries,
+     unsafe-all, or disallowed positionals for a mode)
+  *  per-query ai-search failures do NOT abort a batch run; the LAST nonzero
+     ai-search exit code becomes the overall exit code
+
+Under AI_OUTPUT=json, wrapper-level validation errors are emitted as a single
+JSON error envelope {"schema":"1","status":"error","tool":"ai-search-multi",...}
+on stdout instead of plain [ERROR] stderr text.
+
 Examples:
-  ai-search-multi.sh files niri vicinae .
+  ai-search-multi.sh files .
   AI_OUTPUT=json ai-search-multi.sh text foo bar . --fixed
   AI_OUTPUT=json ai-search-multi.sh changed-files .
   AI_OUTPUT=json ai-search-multi.sh changed old-dummy .
 EOF
+}
+
+# Emit a single JSON error envelope for wrapper-level validation failures under
+# AI_OUTPUT=json, mirroring the ai-search error-envelope shape so an agent
+# parsing JSON never has to fall back to scraping [ERROR] stderr text.
+# Args: one or more human-readable error message strings.
+emit_json_wrapper_error() {
+    if command_exists jq; then
+        printf '%s\n' "$@" \
+            | jq -R . \
+            | jq -sc '{schema:"1",status:"error",tool:"ai-search-multi",errors:.}'
+    else
+        printf '{"schema":"1","status":"error","tool":"ai-search-multi","errors":["%s"]}\n' \
+            "${1//\"/\\\"}"
+    fi
 }
 
 json_mode="${AI_OUTPUT:-}"
@@ -82,7 +118,7 @@ shift
 mode_family=""
 
 case "$mode" in
-    changed-text | staged-text | tracked | text | files | struct | docs)
+    changed-text | staged-text | tracked | text | struct | docs)
         mode_family="query"
         ;;
     diff | history | tests | config | deps | symbols | class)
@@ -91,7 +127,7 @@ case "$mode" in
     function | method | interface | enum | route | config-key)
         mode_family="query"
         ;;
-    changed-files | staged-files)
+    changed-files | staged-files | files)
         mode_family="file-list"
         ;;
     changed | staged)
@@ -101,12 +137,20 @@ case "$mode" in
         mode_family="no-query-root"
         ;;
     unsafe-all)
-        echo "[ERROR] unsafe-all is not allowed via ai-search-multi.sh" >&2
+        if [[ "$json_mode" == "json" ]]; then
+            emit_json_wrapper_error "unsafe-all is not allowed via ai-search-multi.sh"
+        else
+            echo "[ERROR] unsafe-all is not allowed via ai-search-multi.sh" >&2
+        fi
         exit 1
         ;;
     *)
-        echo "[ERROR] unknown or unsupported mode: $mode" >&2
-        usage >&2
+        if [[ "$json_mode" == "json" ]]; then
+            emit_json_wrapper_error "unknown or unsupported mode: $mode"
+        else
+            echo "[ERROR] unknown or unsupported mode: $mode" >&2
+            echo "[hint] run 'ai-search-multi --help' for the list of supported modes" >&2
+        fi
         exit 1
         ;;
 esac
@@ -131,9 +175,17 @@ emit_single_result_array() {
     local output
     local rc
 
+    # `files` is an ai-search CONTENT mode: it matches the query against file
+    # basenames. To surface it here as a no-query "list every file under root"
+    # file-list mode, pass the match-all query ".". changed-files/staged-files
+    # are true root-only file-list modes in ai-search and take no query.
+    local inner_args=("$inner_mode")
+    [[ "$inner_mode" == "files" ]] && inner_args+=(".")
+    inner_args+=("$inner_root")
+
     if [[ "$json_mode" == "json" ]]; then
         set +e
-        output="$(AI_OUTPUT=json run_one "$inner_mode" "$inner_root" 2>&1)"
+        output="$(AI_OUTPUT=json run_one "${inner_args[@]}" 2>&1)"
         rc=$?
         set -e
 
@@ -141,7 +193,7 @@ emit_single_result_array() {
         return "$rc"
     fi
 
-    run_one "$inner_mode" "$inner_root"
+    run_one "${inner_args[@]}"
 }
 
 emit_legacy_result_array() {
@@ -178,7 +230,11 @@ if [[ "$mode_family" == "file-list" ]]; then
             root="${positionals[0]}"
             ;;
         *)
-            echo "[ERROR] mode '$mode' does not accept queries; pass only optional root" >&2
+            if [[ "$json_mode" == "json" ]]; then
+                emit_json_wrapper_error "mode '$mode' does not accept queries; pass only optional root"
+            else
+                echo "[ERROR] mode '$mode' does not accept queries; pass only optional root" >&2
+            fi
             exit 1
             ;;
     esac
@@ -215,7 +271,11 @@ if [[ "$mode_family" == "legacy-file-list" ]]; then
             root="${positionals[1]}"
             ;;
         *)
-            echo "[ERROR] too many positional arguments for legacy mode '$mode'" >&2
+            if [[ "$json_mode" == "json" ]]; then
+                emit_json_wrapper_error "too many positional arguments for legacy mode '$mode'"
+            else
+                echo "[ERROR] too many positional arguments for legacy mode '$mode'" >&2
+            fi
             exit 1
             ;;
     esac
@@ -238,7 +298,11 @@ if [[ "$mode_family" == "no-query-root" ]]; then
             root="${positionals[0]}"
             ;;
         *)
-            echo "[ERROR] mode '$mode' does not accept queries; pass only optional root" >&2
+            if [[ "$json_mode" == "json" ]]; then
+                emit_json_wrapper_error "mode '$mode' does not accept queries; pass only optional root"
+            else
+                echo "[ERROR] mode '$mode' does not accept queries; pass only optional root" >&2
+            fi
             exit 1
             ;;
     esac
@@ -266,13 +330,21 @@ if [[ ${#queries[@]} -gt 1 ]]; then
 fi
 
 if [[ ${#queries[@]} -eq 0 ]]; then
-    echo "[ERROR] at least one QUERY is required for mode '$mode'" >&2
-    usage >&2
+    if [[ "$json_mode" == "json" ]]; then
+        emit_json_wrapper_error "at least one QUERY is required for mode '$mode'"
+    else
+        echo "[ERROR] at least one QUERY is required for mode '$mode'" >&2
+        echo "[hint] run 'ai-search-multi --help' for usage" >&2
+    fi
     exit 1
 fi
 
-if [[ ${#queries[@]} -gt "$MAX_QUERIES" ]]; then
-    echo "[ERROR] too many queries (${#queries[@]} > $MAX_QUERIES); raise AI_SEARCH_MULTI_MAX to override" >&2
+if [[ ${#queries[@]} -gt "$max_queries" ]]; then
+    if [[ "$json_mode" == "json" ]]; then
+        emit_json_wrapper_error "too many queries (${#queries[@]} > $max_queries); raise AI_SEARCH_MULTI_MAX to override"
+    else
+        echo "[ERROR] too many queries (${#queries[@]} > $max_queries); raise AI_SEARCH_MULTI_MAX to override" >&2
+    fi
     exit 1
 fi
 

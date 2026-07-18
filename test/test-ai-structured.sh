@@ -39,7 +39,7 @@ run_test "missing mode exits with error" test_no_mode
 # json mode on a repo JSON file
 test_json() {
     local out
-    printf '{"name":"agent-kit"}\n' >"$TMP/probe.json"
+    printf '{"name":"restsift"}\n' >"$TMP/probe.json"
     out="$("$BASH_BIN" "$SCRIPT" json "$TMP/probe.json" '.name' 2>/dev/null)"
     [[ -n "$out" ]]
 }
@@ -52,12 +52,51 @@ test_validate_json_valid() {
 }
 run_test "validate-json passes for valid JSON" test_validate_json_valid
 
+# validate-json under AI_OUTPUT=json emits the ai.ai-structured/v1 envelope on
+# stdout with the expected schema/status/mode/valid/root_type keys.
+test_validate_json_envelope() {
+    printf '{"key":"value"}\n' >"$TMP/env.json"
+    local out
+    out="$(AI_OUTPUT=json "$BASH_BIN" "$SCRIPT" validate-json "$TMP/env.json" 2>/dev/null)"
+    [[ "$(jq -r '.schema' <<<"$out")" == "ai.ai-structured/v1" ]] &&
+        [[ "$(jq -r '.status' <<<"$out")" == "ok" ]] &&
+        [[ "$(jq -r '.tool' <<<"$out")" == "ai-structured" ]] &&
+        [[ "$(jq -r '.mode' <<<"$out")" == "validate-json" ]] &&
+        [[ "$(jq -r '.valid' <<<"$out")" == "true" ]] &&
+        [[ "$(jq -r '.root_type' <<<"$out")" == "object" ]]
+}
+run_test "validate-json AI_OUTPUT=json emits ai.ai-structured/v1 envelope" test_validate_json_envelope
+
+# Backward compat: the default (no AI_OUTPUT) validate-json path prints nothing
+# to stdout; the human [OK] line stays on stderr.
+test_validate_json_default_stdout_empty() {
+    printf '{"key":"value"}\n' >"$TMP/def.json"
+    local out
+    out="$("$BASH_BIN" "$SCRIPT" validate-json "$TMP/def.json" 2>/dev/null)"
+    [[ -z "$out" ]]
+}
+run_test "validate-json default mode keeps stdout empty" test_validate_json_default_stdout_empty
+
 # validate-json on invalid file
 test_validate_json_invalid() {
     echo '{invalid' >"$TMP/invalid.json"
     ! "$BASH_BIN" "$SCRIPT" validate-json "$TMP/invalid.json" 2>/dev/null
 }
 run_test "validate-json fails for invalid JSON" test_validate_json_invalid
+
+# validate-json rejects an empty or whitespace-only file (no JSON value is not
+# valid JSON; regression: empty file used to report "[OK] valid JSON").
+test_validate_json_empty() {
+    : >"$TMP/empty.json"
+    ! "$BASH_BIN" "$SCRIPT" validate-json "$TMP/empty.json" 2>/dev/null
+}
+run_test "validate-json fails for empty file" test_validate_json_empty
+
+test_validate_json_whitespace() {
+    printf '   \n' >"$TMP/ws.json"
+    ! "$BASH_BIN" "$SCRIPT" validate-json "$TMP/ws.json" 2>/dev/null
+}
+run_test "validate-json fails for whitespace-only file" test_validate_json_whitespace
 
 # yaml mode
 if command -v yq >/dev/null 2>&1; then
@@ -74,9 +113,23 @@ if command -v yq >/dev/null 2>&1; then
         "$BASH_BIN" "$SCRIPT" validate-yaml "$TMP/valid.yaml" 2>/dev/null
     }
     run_test "validate-yaml passes for valid YAML" test_validate_yaml_valid
+
+    # validate-yaml under AI_OUTPUT=json emits the ai.ai-structured/v1 envelope.
+    test_validate_yaml_envelope() {
+        echo "key: value" >"$TMP/env.yaml"
+        local out
+        out="$(AI_OUTPUT=json "$BASH_BIN" "$SCRIPT" validate-yaml "$TMP/env.yaml" 2>/dev/null)"
+        [[ "$(jq -r '.schema' <<<"$out")" == "ai.ai-structured/v1" ]] &&
+            [[ "$(jq -r '.status' <<<"$out")" == "ok" ]] &&
+            [[ "$(jq -r '.mode' <<<"$out")" == "validate-yaml" ]] &&
+            [[ "$(jq -r '.valid' <<<"$out")" == "true" ]] &&
+            [[ "$(jq -r '.root_type' <<<"$out")" == "object" ]]
+    }
+    run_test "validate-yaml AI_OUTPUT=json emits ai.ai-structured/v1 envelope" test_validate_yaml_envelope
 else
     skip_test "yaml mode queries YAML files" "yq not installed"
     skip_test "validate-yaml passes for valid YAML" "yq not installed"
+    skip_test "validate-yaml AI_OUTPUT=json emits ai.ai-structured/v1 envelope" "yq not installed"
 fi
 
 # csv mode
@@ -133,6 +186,17 @@ test_json_missing_query() {
     ! "$BASH_BIN" "$SCRIPT" json "$TMP/probe2.json" 2>/dev/null
 }
 run_test "json mode without query fails" test_json_missing_query
+
+# json mode with a missing file argument emits the script's own [ERROR]
+# format via die(), not a raw bash parameter-expansion trace (regression:
+# ${1:?file required} leaked "line NN: 1: file required").
+test_json_missing_file_arg_format() {
+    local out _rc=0
+    out="$("$BASH_BIN" "$SCRIPT" json 2>&1)" || _rc=$?
+    [[ "$_rc" -ne 0 && "$out" == *"[ERROR]"* && "$out" == *"file required"* \
+        && "$out" != *"line "* ]]
+}
+run_test "json without file arg fails via die() format" test_json_missing_file_arg_format
 
 # validate-json on a missing file hits "file not found".
 test_validate_json_missing_file() {
@@ -195,6 +259,18 @@ test_csv_head_missing_value() {
     ! "$BASH_BIN" "$SCRIPT" csv "$TMP/noval.csv" --head 2>/dev/null
 }
 run_test "csv --head without a value fails" test_csv_head_missing_value
+
+# csv --head with a non-numeric value is rejected by the script's own die()
+# validation, not left to leak a raw coreutils "head: invalid number" error
+# (regression: --head abc fell through to `head -n abc`).
+test_csv_head_non_numeric() {
+    printf 'a,b\n1,2\n' >"$TMP/nonnum.csv"
+    local out _rc=0
+    out="$("$BASH_BIN" "$SCRIPT" csv "$TMP/nonnum.csv" --head abc 2>&1)" || _rc=$?
+    [[ "$_rc" -ne 0 && "$out" == *"[ERROR]"* && "$out" == *"--head requires a numeric value"* \
+        && "$out" != *"invalid number of lines"* ]]
+}
+run_test "csv --head with non-numeric value fails" test_csv_head_non_numeric
 
 # csv on a missing file hits "file not found".
 test_csv_missing_file() {

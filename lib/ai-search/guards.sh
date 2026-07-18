@@ -47,12 +47,14 @@ check_tool_guards() {
         if mode_has_rg_fallback "$mode" && command_exists git; then
             :
         else
-            fail "error" "required tool 'rg' (ripgrep) not found on PATH; mode '$mode' unavailable"
+            fail "error" "required tool 'rg' (ripgrep) not found on PATH; mode '$mode' unavailable" 1 \
+                "tool_unavailable" "install ripgrep (rg), or use a mode that does not require it"
         fi
     fi
 
     if mode_needs_git "$mode" && ! command_exists git; then
-        fail "error" "required tool 'git' not found on PATH; mode '$mode' unavailable"
+        fail "error" "required tool 'git' not found on PATH; mode '$mode' unavailable" 1 \
+            "tool_unavailable" "install git, or use a non-git mode such as text/files"
     fi
     return 0
 }
@@ -62,8 +64,10 @@ require_git_root() {
     # "Not a directory" / "not a git repository" message. Catch it first so the
     # caller sees the real cause and the fix (scope a single file with --glob).
     if [[ -e "$root" && ! -d "$root" ]]; then
-        fail "error" "root must be a directory (got file): $root; scope a single file with --glob"
+        fail "error" "root must be a directory (got file): $root" 1 \
+            "root_not_a_directory" "scope a single file with --glob"
     fi
     git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
-        fail "error" "not a git repository: $root"
+        fail "error" "not a git repository: $root" 1 \
+            "not_a_git_repository" "run inside a git repository, or use a non-git mode (e.g. text) and scope with --glob"
 }

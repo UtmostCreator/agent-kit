@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Hidden aggregate command: emit the whole agent-kit command surface as one
+# Hidden aggregate command: emit the whole restsift command surface as one
 # JSON document, built from `sh-introspect --format=json` (never from parsing
 # `--help` text). Backs shell-completion generation (scripts/gen-completions.sh).
 #
 # Not registered as a public command — lives under libexec/internal/, which
-# bin/agent-kit's dispatcher never resolves and `agent-kit --list` never shows
+# bin/restsift's dispatcher never resolves and `restsift --list` never shows
 # (same convention as libexec/internal/repomix-context-tree).
 #
 # Usage:
@@ -22,8 +22,21 @@ set -euo pipefail
 
 SELF_DIR="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 LIBEXEC_DIR="$(cd -- "$SELF_DIR/.." && pwd)"
+ROOT_DIR="$(cd -- "$LIBEXEC_DIR/.." && pwd)"
 INTROSPECT="$LIBEXEC_DIR/sh-introspect"
+ALIASES_FILE="$ROOT_DIR/lib/command-aliases.txt"
 BASH_BIN="${BASH:-bash}"
+
+# aliases_for FRIENDLY_NAME -> newline-separated short aliases whose target
+# (from lib/command-aliases.txt, the single source shared with bin/restsift's
+# dispatcher) resolves to this command's libexec basename.
+aliases_for() {
+    local friendly="$1"
+    local target="ai-$friendly"
+    [[ -f "$LIBEXEC_DIR/$friendly" ]] && target="$friendly"
+    [[ -f "$ALIASES_FILE" ]] || return 0
+    awk -v t="$target" '$2 == t { print $1 }' "$ALIASES_FILE"
+}
 
 entries=()
 while IFS= read -r f; do
@@ -34,9 +47,10 @@ while IFS= read -r f; do
     friendly="${name#ai-}"
     json="$("$BASH_BIN" "$INTROSPECT" --format=json "$f" 2>/dev/null || true)"
     [[ -n "$json" ]] || continue
-    entries+=("$(printf '%s' "$json" | jq -c --arg name "$friendly" \
-        '{name: $name, description: .description, modes: .modes, flags: .flags}')")
+    aliases_json="$(aliases_for "$friendly" | jq -R . | jq -sc .)"
+    entries+=("$(printf '%s' "$json" | jq -c --arg name "$friendly" --argjson aliases "$aliases_json" \
+        '{name: $name, description: .description, modes: .modes, flags: .flags, aliases: $aliases}')")
 done < <(find "$LIBEXEC_DIR" -maxdepth 1 -type f | sort)
 
 printf '%s\n' "${entries[@]}" | jq -sc \
-    '{schema_version: 1, program: {name: "agent-kit", aliases: ["ak"]}, commands: .}'
+    '{schema_version: 1, program: {name: "restsift", aliases: ["res", "agent-kit", "ak"]}, commands: .}'

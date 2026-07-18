@@ -1,0 +1,185 @@
+#!/usr/bin/env bash
+# repomix-profile-lab — measure a target under several repomix "profiles" and
+# recommend the highest-fidelity profile that fits a token budget, using ONLY
+# repomix's own exact token counts (o200k_base) — never a bytes/4 heuristic.
+#
+# Profiles (each is a repomix option set):
+#   faithful          (no transforms)
+#   lean              remove-empty-lines
+#   lean-no-comments  remove-empty-lines + remove-comments
+#   compressed        compress + remove-empty-lines
+#   line-numbered     remove-empty-lines + output-show-line-numbers
+#   map-only          --no-files (metadata only; DIAGNOSTIC, never recommended)
+#
+# Usage:
+#   restsift repomix-profile-lab [TARGET] [--budget N] [--style STYLE] [--json]
+#   restsift repomix-profile-lab --help        # show this contract
+#   restsift repomix-profile-lab --introspect  # machine-readable JSON contract
+#
+# TARGET   path to pack (default: .)
+# --budget N       token budget the recommended profile must fit (default: 100000;
+#                  env REPOMIX_PROFILE_LAB_BUDGET)
+# --style STYLE    repomix output style: xml | markdown | plain (default: xml)
+# --json           print the raw ai.repomix-profile-lab/v1 JSON envelope
+#
+# Example:
+#   restsift repomix-profile-lab lib/repomix --budget 4000
+#   restsift repomix-profile-lab . --json | jq .recommended
+#
+# Requires: node, and the repomix library (resolved via require('repomix') or the
+#   on-PATH repomix install). HARD-FAILS (non-zero, actionable message) when node
+#   or repomix is unavailable — it never estimates.
+#
+# Exit codes: 0 on success; 2 on a usage error; non-zero (from the measurer) when
+#   node or the repomix library cannot be resolved or a pack fails. Temp packs are
+#   written under a mktemp dir and removed on exit; the target is never modified.
+
+set -euo pipefail
+
+# Early --introspect guard: emit this script's machine-readable JSON contract
+# (static parse via sh-introspect) and exit before running any logic.
+if [[ "${1:-}" == "--introspect" ]]; then
+    _ai_introspect_self="$0"
+    _ai_introspect_here="$(cd "$(dirname "$_ai_introspect_self")" && pwd)"
+    if [[ -x "$_ai_introspect_here/sh-introspect" ]]; then
+        exec env AI_OUTPUT=json bash "$_ai_introspect_here/sh-introspect" "$_ai_introspect_self"
+    fi
+    sed -n '2,43p' "$_ai_introspect_self" | sed 's/^# \{0,1\}//'
+    exit 0
+fi
+
+# Early --help/-h guard: emit this script's human-readable contract.
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    _ai_help_self="$0"
+    _ai_help_here="$(cd "$(dirname "$_ai_help_self")" && pwd)"
+    if [[ -x "$_ai_help_here/sh-introspect" ]]; then
+        exec bash "$_ai_help_here/sh-introspect" --format=help "$_ai_help_self"
+    fi
+    sed -n '2,43p' "$_ai_help_self" | sed 's/^# \{0,1\}//'
+    exit 0
+fi
+
+_self="$0"
+_here="$(cd "$(dirname "$_self")" && pwd)"
+_root="$(cd "$_here/.." && pwd)"
+MEASURE_JS="$_root/lib/repomix-profile-lab/measure.js"
+
+# Defaults (budget also honors an env override).
+target="."
+budget="${REPOMIX_PROFILE_LAB_BUDGET:-100000}"
+style="xml"
+json_mode=0
+[[ "${AI_OUTPUT:-}" == "json" ]] && json_mode=1
+target_set=0
+
+die_usage() {
+    printf 'repomix-profile-lab: %s\n' "$1" >&2
+    printf 'usage: restsift repomix-profile-lab [TARGET] [--budget N] [--style STYLE] [--json]\n' >&2
+    printf 'hint: run `restsift repomix-profile-lab --help` for details.\n' >&2
+    exit 2
+}
+
+# Arg parsing: an optional leading (or trailing) non-flag token is TARGET.
+while (($# > 0)); do
+    case "$1" in
+        --budget)
+            [[ $# -ge 2 ]] || die_usage "--budget needs a value"
+            budget="$2"
+            shift 2
+            ;;
+        --budget=*)
+            budget="${1#*=}"
+            shift
+            ;;
+        --style)
+            [[ $# -ge 2 ]] || die_usage "--style needs a value"
+            style="$2"
+            shift 2
+            ;;
+        --style=*)
+            style="${1#*=}"
+            shift
+            ;;
+        --json)
+            json_mode=1
+            shift
+            ;;
+        --help | -h | --introspect)
+            # handled above; ignore if it reappears later in the arg list
+            shift
+            ;;
+        --*)
+            die_usage "unknown option: $1"
+            ;;
+        *)
+            if ((target_set)); then
+                die_usage "unexpected extra argument: $1"
+            fi
+            target="$1"
+            target_set=1
+            shift
+            ;;
+    esac
+done
+
+# Validate inputs early with clear messages.
+[[ "$budget" =~ ^[0-9]+$ ]] || die_usage "--budget must be a non-negative integer (got '$budget')"
+case "$style" in
+    xml | markdown | plain) ;;
+    *) die_usage "--style must be xml, markdown, or plain (got '$style')" ;;
+esac
+[[ -e "$target" ]] || die_usage "target does not exist: $target"
+
+# HARD dependency checks with actionable messages (no silent fallback).
+if ! command -v node >/dev/null 2>&1; then
+    printf 'repomix-profile-lab: node is required but was not found on PATH.\n' >&2
+    printf '  Fix: install Node.js (https://nodejs.org) so `node` is runnable.\n' >&2
+    exit 3
+fi
+if [[ ! -f "$MEASURE_JS" ]]; then
+    printf 'repomix-profile-lab: measurer missing: %s\n' "$MEASURE_JS" >&2
+    exit 3
+fi
+
+# Temp dir for the throwaway packs; always cleaned up.
+tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/repomix-profile-lab.XXXXXX")"
+cleanup() { rm -rf -- "$tmp_dir"; }
+trap cleanup EXIT
+
+# Run the real measurer. On hard-fail it prints an actionable message to stderr
+# and returns non-zero; propagate that exact code (never approximate).
+result_json=""
+rc=0
+result_json="$(node "$MEASURE_JS" "$target" "$tmp_dir" "$budget" "$style")" || rc=$?
+if ((rc != 0)); then
+    exit "$rc"
+fi
+
+if ((json_mode)); then
+    printf '%s\n' "$result_json"
+    exit 0
+fi
+
+# Human table, rendered from the measurer's JSON. jq is a repo-wide dependency.
+if ! command -v jq >/dev/null 2>&1; then
+    # Degrade to raw JSON rather than inventing a parser; still real data.
+    printf 'repomix-profile-lab: jq not found; emitting raw JSON.\n' >&2
+    printf '%s\n' "$result_json"
+    exit 0
+fi
+
+printf '%s\n' "$result_json" | jq -r '
+    "repomix-profile-lab  (target: \(.target)  budget: \(.budget) tokens  style: \(.style)  encoding: \(.encoding)  repomix \(.repomix_version))",
+    "",
+    "  profile            tokens   files   fits   %redux-vs-faithful",
+    "  ----------------   ------   -----   ----   ------------------",
+    (.profiles[] |
+        "  \(.profile + (if .diagnostic then " (diag)" else "" end) | .[0:18] | . + (" " * (18 - length)))"
+      + " \(.totalTokens | tostring | (" " * (7 - length)) + .)"
+      + " \(.totalFiles  | tostring | (" " * (6 - length)) + .)"
+      + "  \(if .diagnostic then "  -  " elif .fits then " yes " else " NO  " end)"
+      + "   \(.reductionPct | tostring)%"),
+    "",
+    "  recommended: \(.recommended)\(if .recommended_fits then "" else "  (WARNING: does not fit budget)" end)",
+    "  generate:    \(.generation_command)"
+'

@@ -11,6 +11,18 @@
 # top-level ordering it had in the monolith (declared between run_step and
 # run_step_js).
 
+# Machine-readable step ledger for the optional JSON summary. run_step appends a
+# tab-delimited "rc<TAB>status<TAB>label" line here, but ONLY when the root
+# loader turned on JSON output ($_ai_verify_json_mode=1). In default/human mode
+# this stays empty and _verify_record_step is a no-op, so run_step's streaming
+# output, exit codes, and $failures tally are byte-for-byte unchanged. Consumed
+# by _ai_verify_emit_json_summary in libexec/ai-verify at process exit.
+_verify_step_records=""
+_verify_record_step() {
+    [[ "${_ai_verify_json_mode:-0}" == "1" ]] || return 0
+    _verify_step_records+="$1"$'\t'"$2"$'\t'"$3"$'\n'
+}
+
 run_step() {
     local label="$1"
     shift
@@ -33,8 +45,24 @@ run_step() {
     last_step_rc="$rc"
 
     if ((rc != 0)); then
+        # Some tools use a nonzero exit to signal a benign "nothing to do"
+        # condition rather than a real defect (e.g. osv-scanner exits 128 with
+        # "No package sources found" on a repo with no manifest/lockfile it
+        # recognizes). A caller may whitelist those via STEP_OK_CODES (a CSV of
+        # exit codes) so they are reported as a skip instead of a gate failure.
+        local ok_codes="${STEP_OK_CODES:-}" ok
+        for ok in ${ok_codes//,/ }; do
+            if ((rc == ok)); then
+                log_warn "$label: exit $rc is a non-failure condition (nothing to scan); skipping."
+                _verify_record_step "$rc" skip "$label"
+                return 0
+            fi
+        done
         echo "FAIL: $label failed (exit $rc)" >&2
         failures=$((failures + 1))
+        _verify_record_step "$rc" fail "$label"
+    else
+        _verify_record_step "$rc" pass "$label"
     fi
 }
 

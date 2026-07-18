@@ -157,7 +157,7 @@ test_heredoc_usage_fallback() {
 run_test "extract_usage_heredoc fallback picks up heredoc usage() body" test_heredoc_usage_fallback
 
 # Fixture with a `# Modes:` header — exercises the modes convention added for
-# shell-completion generation (agent-kit search/edit/context/... subcommands).
+# shell-completion generation (restsift search/edit/context/... subcommands).
 FIXTURE_MODES="$TMP/modes-fixture.sh"
 cat >"$FIXTURE_MODES" <<'EOF'
 #!/usr/bin/env bash
@@ -247,6 +247,111 @@ else
     skip_test "JSON contract exposes usage and examples" "jq not available"
     skip_test "missing path yields status=error, exit 2 (json)" "jq not available"
 fi
+
+# Self-introspection must read ONLY sh-introspect's leading doc-comment block.
+# Later per-function doc comments (which mention `Flags:`/`Modes:` and an
+# explanatory `command -v X`) must NOT leak into the declared sections, and the
+# `X` placeholder must NOT be inferred as a required binary.
+if command -v jq >/dev/null 2>&1; then
+    test_self_introspect_no_section_leak() {
+        local out
+        out="$("$BASH_BIN" "$SCRIPT" --format=json "$SCRIPT" 2>/dev/null || true)"
+        # modes/requires declare nothing of their own; flags fall back to the
+        # real `--foo)` case-label scan, so every flag is a genuine option token
+        # and none is a prose fragment (no backtick or pipe characters).
+        printf '%s' "$out" | jq -e '
+            (.modes == [])
+            and (.requires | index("X") == null)
+            and (.flags | length > 0)
+            and (.flags | all(test("^-{1,2}[A-Za-z]")))
+            and (.flags | map(select(test("[`|]"))) | length == 0)
+        ' >/dev/null
+    }
+    run_test "self-introspection reads only the leading doc-comment block (no prose leak)" test_self_introspect_no_section_leak
+else
+    skip_test "self-introspection reads only the leading doc-comment block (no prose leak)" "jq not available"
+fi
+
+# --- new opt-in JSON surfaces + sharper diagnostics ---------------------------
+
+test_unknown_flag_text() {
+    # A mistyped flag is diagnosed as an unknown flag, not a "no such file".
+    local out _rc=0
+    out="$("$BASH_BIN" "$SCRIPT" --bogus 2>&1)" || _rc=$?
+    [[ "$_rc" -eq 2 && "$out" == *"unknown flag: --bogus"* && "$out" != *"no such file"* ]]
+}
+run_test "unknown flag is diagnosed (not 'no such file'), exit 2" test_unknown_flag_text
+
+test_extra_positionals_warn() {
+    # Two FILE args: stdout still introspects the first; a warning hits stderr;
+    # exit stays 0 (backward-compatible single-file contract, surfaced).
+    local out err _rc=0
+    out="$("$BASH_BIN" "$SCRIPT" "$TARGET" "$TARGET" 2>"$TMP/warn.err")" || _rc=$?
+    err="$(cat "$TMP/warn.err")"
+    [[ "$_rc" -eq 0 && "$out" == *"ai-rollback"* && "$err" == *"warning"* ]]
+}
+run_test "multiple FILE args warn on stderr, still exit 0" test_extra_positionals_warn
+
+if command -v jq >/dev/null 2>&1; then
+    test_list_json_envelope() {
+        local out
+        out="$("$BASH_BIN" "$SCRIPT" --json --list libexec 2>/dev/null || true)"
+        printf '%s' "$out" | jq -e '
+            .schema == "ai.sh-introspect/v1" and .status == "ok"
+            and .tool == "sh-introspect"
+            and (.commands | type == "array") and (.commands | length) > 0
+            and (.commands[0] | has("name") and has("summary"))
+            and (.commands | map(.name) | index("ai-search") != null)
+        ' >/dev/null
+    }
+    run_test "--list JSON emits an ai.sh-introspect/v1 {name,summary} array" test_list_json_envelope
+
+    test_list_json_error_envelope() {
+        local out _rc=0
+        out="$(AI_OUTPUT=json "$BASH_BIN" "$SCRIPT" --list "$TMP/no-such-dir" 2>/dev/null)" || _rc=$?
+        [[ "$_rc" -eq 2 ]] && printf '%s' "$out" | jq -e \
+            '.status == "error" and (.error | test("not a directory"))' >/dev/null
+    }
+    run_test "--list dir error emits JSON error envelope under json output" test_list_json_error_envelope
+
+    test_unknown_flag_json() {
+        local out _rc=0
+        out="$(AI_OUTPUT=json "$BASH_BIN" "$SCRIPT" --bogus 2>/dev/null)" || _rc=$?
+        [[ "$_rc" -eq 2 ]] && printf '%s' "$out" | jq -e \
+            '.status == "error" and (.error | test("unknown flag")) and (.hint | length > 0)' >/dev/null
+    }
+    run_test "unknown flag emits JSON error envelope with a hint" test_unknown_flag_json
+
+    test_meta_exit_codes() {
+        local out
+        out="$("$BASH_BIN" "$SCRIPT" --format=json "$TARGET" 2>/dev/null || true)"
+        printf '%s' "$out" | jq -e '.meta.exit_codes == {"ok":0,"error":2}' >/dev/null
+    }
+    run_test "JSON contract embeds meta.exit_codes" test_meta_exit_codes
+
+    test_error_meta_and_hint() {
+        local out _rc=0
+        out="$(AI_OUTPUT=json "$BASH_BIN" "$SCRIPT" "no/such/file.sh" 2>/dev/null)" || _rc=$?
+        [[ "$_rc" -eq 2 ]] && printf '%s' "$out" | jq -e \
+            '.meta.exit_codes.error == 2 and (.hint | length > 0)' >/dev/null
+    }
+    run_test "JSON error envelope carries meta.exit_codes and hint" test_error_meta_and_hint
+else
+    skip_test "--list JSON emits an ai.sh-introspect/v1 {name,summary} array" "jq not available"
+    skip_test "--list dir error emits JSON error envelope under json output" "jq not available"
+    skip_test "unknown flag emits JSON error envelope with a hint" "jq not available"
+    skip_test "JSON contract embeds meta.exit_codes" "jq not available"
+    skip_test "JSON error envelope carries meta.exit_codes and hint" "jq not available"
+fi
+
+test_unknown_format_rejected() {
+    # An unsupported --format value is rejected (exit 2) instead of silently
+    # falling back to text with exit 0.
+    local out _rc=0
+    out="$("$BASH_BIN" "$SCRIPT" --format=xml "$TARGET" 2>&1)" || _rc=$?
+    [[ "$_rc" -eq 2 && "$out" == *"unknown format: xml"* ]]
+}
+run_test "unknown --format value is rejected with exit 2" test_unknown_format_rejected
 
 printf '\n=== Results ===\n'
 printf '  Passed: %d  Failed: %d  Skipped: %d\n' "$PASS" "$FAIL" "$SKIP"

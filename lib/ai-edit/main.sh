@@ -29,10 +29,6 @@ ai_edit_main() {
     esac
 
     mode="${1:-}"
-    [[ -n "$mode" ]] || {
-        usage
-        exit 2
-    }
     shift || true
 
     agent_session_init "ai-edit"
@@ -60,10 +56,23 @@ ai_edit_main() {
 
     trap on_error ERR
 
+    # Empty-mode guard runs after session setup so the failure can be reported
+    # through the ai.edit/v1 envelope (fail_status) under AI_OUTPUT=json instead
+    # of only printing usage to stdout. Keep usage on stdout for text mode; in
+    # JSON mode send it to stderr so stdout stays parseable JSON.
+    if [[ -z "$mode" ]]; then
+        if is_json_output; then
+            usage >&2
+        else
+            usage
+        fi
+        fail_status "error" "no mode given; see --help" 2
+    fi
+
     case "$mode" in
         ast-grep)
             [[ $# -ge 3 ]] || fail_status "error" "ast-grep requires LANG PATTERN REWRITE [root]" 2
-            ast_bin="$(resolve_ast_grep)"
+            resolve_ast_grep
             lang="$1"
             pattern="$2"
             rewrite="$3"
@@ -73,7 +82,7 @@ ai_edit_main() {
 
             if [[ "$apply" == "1" ]]; then
                 # shellcheck disable=SC2015  # intentional: warn-and-continue only when clean tree is NOT required
-                [[ "$require_clean_tree_flag" == "1" ]] && require_clean_tree || log_warn "dirty tree allowed"
+                [[ "$require_clean_tree_flag" == "1" ]] && require_clean_tree_guarded || log_warn "dirty tree allowed"
                 snapshot="$(snapshot_create pre-edit)"
                 "$ast_bin" run --lang "$lang" --pattern "$pattern" --rewrite "$rewrite" "$root" --update-all
             else
@@ -88,7 +97,11 @@ ai_edit_main() {
 
         comby)
             [[ $# -ge 2 ]] || fail_status "error" "comby requires MATCH REWRITE [root]" 2
-            require_bins comby
+            # Mirror resolve_ast_grep: a missing binary must honor the
+            # AI_OUTPUT=json contract (status:"unavailable", exit 127) rather
+            # than require_bins/die's raw non-JSON "[ERROR] ..." text + exit 1.
+            command -v comby >/dev/null 2>&1 ||
+                fail_status "unavailable" "required tool not found: comby" 127
             match="$1"
             rewrite="$2"
             shift 2
@@ -97,7 +110,7 @@ ai_edit_main() {
 
             if [[ "$apply" == "1" ]]; then
                 # shellcheck disable=SC2015  # intentional: warn-and-continue only when clean tree is NOT required
-                [[ "$require_clean_tree_flag" == "1" ]] && require_clean_tree || log_warn "dirty tree allowed"
+                [[ "$require_clean_tree_flag" == "1" ]] && require_clean_tree_guarded || log_warn "dirty tree allowed"
                 snapshot="$(snapshot_create pre-edit)"
                 comby "$match" "$rewrite" -matcher .generic -in-place "$root"
             else
@@ -119,8 +132,15 @@ ai_edit_main() {
 
             if sd_plan; then
                 if [[ "$apply" == "1" ]]; then
+                    # Mirror the comby guard: a missing sd must honor the
+                    # AI_OUTPUT=json contract (status:"unavailable", exit 127)
+                    # rather than require_bins/die's raw text + exit 1. Check
+                    # ahead of snapshot_create so no dangling pre-edit snapshot
+                    # is written when the tool is unavailable.
+                    command -v sd >/dev/null 2>&1 ||
+                        fail_status "unavailable" "required tool not found: sd" 127
                     # shellcheck disable=SC2015  # intentional: warn-and-continue only when clean tree is NOT required
-                    [[ "$require_clean_tree_flag" == "1" ]] && require_clean_tree || log_warn "dirty tree allowed"
+                    [[ "$require_clean_tree_flag" == "1" ]] && require_clean_tree_guarded || log_warn "dirty tree allowed"
                     snapshot="$(snapshot_create pre-edit)"
                     sd_apply
                 else
@@ -149,7 +169,7 @@ ai_edit_main() {
 
             if [[ "$apply" == "1" ]]; then
                 # shellcheck disable=SC2015  # intentional: warn-and-continue only when clean tree is NOT required
-                [[ "$require_clean_tree_flag" == "1" ]] && require_clean_tree || log_warn "dirty tree allowed"
+                [[ "$require_clean_tree_flag" == "1" ]] && require_clean_tree_guarded || log_warn "dirty tree allowed"
                 snapshot="$(snapshot_create pre-edit)"
                 patch_apply
             else
@@ -158,7 +178,13 @@ ai_edit_main() {
             ;;
 
         *)
-            usage
+            # Keep usage on stdout for text mode; in JSON mode send it to stderr
+            # so stdout stays a single parseable ai.edit/v1 envelope.
+            if is_json_output; then
+                usage >&2
+            else
+                usage
+            fi
             fail_status "error" "unknown mode: $mode" 2
             ;;
     esac

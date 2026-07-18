@@ -24,8 +24,10 @@ full evidence trail and exact commands used).
       GitHub's infra yet — only in this local sandbox._
 - [x] Run every test from a clean clone.
       _Verified: cloned this branch into an isolated tmp directory with `git
-      clone` and ran `./scripts/check.sh` there — 655 passed, 0 failed, across
-      27 test files, exit 0._
+      clone` and ran `./scripts/check.sh` there — at the time, 655 passed,
+      0 failed, across 27 test files, exit 0. The suite has since grown (see
+      the README badge for the current count); repeat the clean-clone run
+      before tagging._
 - [x] Run ShellCheck and resolve or explicitly justify findings.
       _Verified: `check.sh` runs `shellcheck --severity=warning` across every
       shipped script; 0 findings at warning-or-above severity in both the
@@ -37,17 +39,19 @@ full evidence trail and exact commands used).
 - [x] Review installation and uninstallation in isolated temporary HOME directories.
       _Verified: `install.sh` (global mode) and `install.sh --project` each
       installed cleanly into isolated temp `prefix`/`bindir`/`HOME`
-      directories, the installed `agent-kit` wrapper ran real commands
+      directories, the installed `restsift` wrapper ran real commands
       (`--list`, `search doctor`), and `uninstall.sh` removed every file it
       created, leaving both directories empty._
 - [x] Review release archive contents before upload.
-      _Verified: built `agent-kit-0.1.0.tar.gz` via `scripts/package-release.sh
-      v0.1.0` and inspected it file-by-file — ships exactly the intended
-      runtime+docs set, no dev-only material (`test/`, `scripts/`, `.github/`,
-      `Formula/`, `package.json`, `.git*`, `coverage*`,
-      `.repomix-context/`) leaked in. The `.zip` step couldn't be exercised
-      locally (no `zip` binary in this sandbox) but packs the same staged
-      directory as the tar step, and CI has `zip` installed._
+      _Verified at the time: built `restsift-0.1.0.tar.gz` via
+      `scripts/package-release.sh v0.1.0` and inspected it file-by-file —
+      shipped exactly the intended runtime+docs set, no dev-only material
+      (`test/`, `scripts/`, `.github/`, `Formula/`, `package.json`, `.git*`,
+      `coverage*`, `.repomix-context/`) leaked in. The `.zip` step couldn't be
+      exercised locally (no `zip` binary in this sandbox) but packs the same
+      staged directory as the tar step, and CI has `zip` installed. The
+      intended set has since grown — the archive now also ships
+      `completions/` — so re-inspect the contents before tagging._
 - [ ] Confirm Apache-2.0 compatibility for all included code and dependencies.
       _Not verified this session — needs a license/dependency audit, not a
       script._
@@ -58,7 +62,7 @@ full evidence trail and exact commands used).
 
 ## GitHub configuration
 
-Verified via `gh api repos/UtmostCreator/agent-kit` (and sub-paths):
+Verified via `gh api repos/UtmostCreator/restsift` (and sub-paths):
 
 - [x] Set the description and topics from `GITHUB_METADATA.md`.
       _Done: applied via `gh repo edit --description ... --add-topic ...`;
@@ -91,8 +95,8 @@ Verified via `gh api repos/UtmostCreator/agent-kit` (and sub-paths):
       _Done: `gh repo edit --delete-branch-on-merge`; confirmed live
       (`delete_branch_on_merge: true`)._
 
-Note: the repository itself is **already named `agent-kit`**
-(`UtmostCreator/agent-kit`, confirmed via `gh api`) — the one item this
+Note: the repository itself is **already named `restsift`**
+(`UtmostCreator/restsift`, confirmed via `gh api`) — the one item this
 checklist doesn't explicitly list but that RELEASING.md's step 0 used to
 treat as still-open.
 
@@ -119,15 +123,15 @@ treat as still-open.
 ## Distribution channels
 
 - [ ] **npm:** `npm publish --access public` (the package is scoped
-      `@utmostcreator/agent-kit`; scoped packages are private by default and the
+      `@utmostcreator/restsift`; scoped packages are private by default and the
       publish fails without `--access public`). The first version must be
       published with a token; only then can OIDC/Trusted Publishing be enabled.
       _Not done — nothing published to npm yet._
 - [ ] **Homebrew tap:** after the tag exists, add a stable `url`/`sha256`
-      block to `Formula/agent-kit.rb` (it currently only has a `head` block —
+      block to `Formula/restsift.rb` (it currently only has a `head` block —
       there is no placeholder `sha256` to replace, one needs to be added; see
-      RELEASING.md step 5), then verify `brew install agent-kit`.
+      RELEASING.md step 5), then verify `brew install restsift`.
       _Not done — no tagged release exists yet to build the formula against._
 - [ ] **curl | bash:** confirm `web-install.sh` clones the tag and installs the
-      `agent-kit` command on a clean machine.
+      `restsift` command on a clean machine.
       _Not done — no tag has been pushed yet for it to resolve._

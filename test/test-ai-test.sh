@@ -107,6 +107,18 @@ test_select_file_mode() {
 }
 run_test "select file mode returns JSON" test_select_file_mode
 
+# Regression (defect 3): `select file` with no PATH must emit a documented,
+# usage-style error — NOT a raw bash parameter-expansion message that leaks the
+# module path, an internal line number, and the positional-parameter name.
+test_select_file_missing_path_clean_error() {
+    local err rc=0
+    err="$("$BASH_BIN" "$SCRIPT" select file 2>&1 >/dev/null)" || rc=$?
+    ((rc != 0)) || return 1
+    [[ "$err" == *"restsift test select file"* ]] || return 1
+    [[ "$err" != *"line "* && "$err" != *"file required"* ]]
+}
+run_test "select file with missing PATH emits a clean usage error, not a raw bash message" test_select_file_missing_path_clean_error
+
 test_select_json_mode() {
     local out
     out="$(AI_LOG_DIR="$TMP/logs3" AI_EVENT_LOG="$TMP/logs3/ev.jsonl" "$BASH_BIN" "$SCRIPT" select json 2>/dev/null)"
@@ -131,10 +143,71 @@ test_select_symbol_zero_matches() {
 }
 run_test "select symbol with zero matches returns an empty candidate_tests array" test_select_symbol_zero_matches
 
+# Regression: `select symbol` with no SYMBOL must emit a documented, usage-style
+# error (exit 2) — NOT a raw bash parameter-expansion message that leaks the
+# module path, an internal line number, and the positional-parameter name.
+test_select_symbol_missing_arg_clean_error() {
+    local err rc=0
+    err="$("$BASH_BIN" "$SCRIPT" select symbol 2>&1 >/dev/null)" || rc=$?
+    ((rc == 2)) || return 1
+    [[ "$err" == *"restsift test select symbol"* ]] || return 1
+    [[ "$err" != *"line "* && "$err" != *"symbol required"* ]]
+}
+run_test "select symbol with missing SYMBOL emits a clean usage error, not a raw bash message" test_select_symbol_missing_arg_clean_error
+
 test_select_unknown_mode() {
     ! AI_LOG_DIR="$TMP/logs5" AI_EVENT_LOG="$TMP/logs5/ev.jsonl" "$BASH_BIN" "$SCRIPT" select nonexistent 2>/dev/null
 }
 run_test "select unknown mode fails" test_select_unknown_mode
+
+# An unknown `select` sub-mode must exit 2 (matching the top-level dispatcher
+# and the file/symbol missing-arg paths) with a clean ERROR line naming the
+# offending value — not exit 1 via die() with an unnamed value.
+test_select_unknown_mode_exits_2() {
+    local err rc=0
+    err="$(AI_LOG_DIR="$TMP/logs5b" AI_EVENT_LOG="$TMP/logs5b/ev.jsonl" "$BASH_BIN" "$SCRIPT" select bogus 2>&1 >/dev/null)" || rc=$?
+    ((rc == 2)) || return 1
+    [[ "$err" == *"unknown mode 'bogus'"* ]]
+}
+run_test "select unknown mode exits 2 with a clean ERROR naming the value" test_select_unknown_mode_exits_2
+
+# `select changed` outside a git worktree must emit one clean, parseable line
+# and exit 1 — NOT let `git diff` dump multi-line fatal/usage text while still
+# "succeeding" with an empty JSON body.
+test_select_changed_non_git_clean_error() (
+    local nongit err rc=0
+    nongit="$(mktemp -d)"
+    cd "$nongit" || return 1
+    err="$(AI_LOG_DIR="$nongit/logs" AI_EVENT_LOG="$nongit/logs/ev.jsonl" "$BASH_BIN" "$SCRIPT" select changed 2>&1 >/dev/null)" || rc=$?
+    rm -rf "$nongit"
+    ((rc == 1)) || return 1
+    [[ "$err" == *"must run inside a git worktree"* ]] || return 1
+    (($(printf '%s\n' "$err" | wc -l) <= 2))
+)
+run_test "select changed in a non-git dir emits one clean line and exits 1" test_select_changed_non_git_clean_error
+
+# Under AI_OUTPUT=json, when candidate_tests are found but no runner resolves
+# (empty recommended_commands), the envelope carries a `hint` so the empty
+# array is not misread as "nothing to run". Default output (no AI_OUTPUT) stays
+# byte-identical and carries no hint key.
+test_select_hint_when_json_and_no_runner() (
+    local repo out
+    repo="$(mktemp -d)"
+    cd "$repo" || return 1
+    git init -q . || return 1
+    mkdir -p src tests
+    : >src/Foo.php
+    : >tests/FooTest.php
+    git add -A || return 1
+    out="$(AI_OUTPUT=json AI_LOG_DIR="$repo/logs" AI_EVENT_LOG="$repo/logs/ev.jsonl" "$BASH_BIN" "$SCRIPT" select changed 2>/dev/null)"
+    echo "$out" | jq -e '(.candidate_tests | length) > 0' >/dev/null || { rm -rf "$repo"; return 1; }
+    echo "$out" | jq -e '(.recommended_commands | length) == 0' >/dev/null || { rm -rf "$repo"; return 1; }
+    echo "$out" | jq -e 'has("hint")' >/dev/null || { rm -rf "$repo"; return 1; }
+    out="$(AI_LOG_DIR="$repo/logs" AI_EVENT_LOG="$repo/logs/ev.jsonl" "$BASH_BIN" "$SCRIPT" select changed 2>/dev/null)"
+    rm -rf "$repo"
+    ! echo "$out" | jq -e 'has("hint")' >/dev/null
+)
+run_test "select adds a hint under AI_OUTPUT=json when tests found but no runner (none by default)" test_select_hint_when_json_and_no_runner
 
 # -----------------------------------------------------------------------
 # select — direct module unit tests. Sources lib/ai-test/select.sh directly
@@ -217,6 +290,28 @@ test_select_command_for_test_unmatched_extension() (
 )
 run_test "command_for_test returns nothing for an unmatched extension" test_select_command_for_test_unmatched_extension
 
+# Regression (defect 2): find_tests_for_stem must not treat a stem's OWN source
+# file as one of its tests. The bare-stem branch previously made the Test|Spec
+# suffix optional, so `render-adapters.php` (the source) matched itself. A real
+# `<stem>Test.php` outside a tests/ dir must still be selected.
+test_select_find_tests_for_stem_excludes_source_file() (
+    source "$REPO_ROOT/lib/ai-test/select.sh"
+    local dir out
+    dir="$(mktemp -d)"
+    cd "$dir" || return 1
+    git init -q . || return 1
+    mkdir -p tools lib
+    : >tools/render-adapters.php
+    : >lib/render-adaptersTest.php
+    git add -A || return 1
+    out="$(ai_test_select_find_tests_for_stem "render-adapters")"
+    # the stem's own source file must NOT be a candidate test...
+    ! grep -qx 'tools/render-adapters.php' <<<"$out" || return 1
+    # ...but a genuine *Test.php for the stem still must be.
+    grep -qx 'lib/render-adaptersTest.php' <<<"$out"
+)
+run_test "find_tests_for_stem excludes the stem's own source file but keeps real Test files" test_select_find_tests_for_stem_excludes_source_file
+
 # =============================================================================
 # run (fused from run-test-focused). Argument-parsing/error-path coverage
 # only — never invokes a real phpunit run in this test file.
@@ -225,7 +320,7 @@ run_test "command_for_test returns nothing for an unmatched extension" test_sele
 test_run_help() {
     local out
     out="$("$BASH_BIN" "$SCRIPT" run --help 2>&1)"
-    [[ "$out" == *"agent-kit test run"* ]]
+    [[ "$out" == *"restsift test run"* ]]
 }
 run_test "run --help prints usage" test_run_help
 
@@ -258,6 +353,37 @@ else
     run_test "run reports missing vendor/bin/phpunit" test_run_missing_phpunit
 fi
 
+# Regression (defect 1): `run` must execute phpunit against the CALLER's repo
+# root (its cwd), not the toolkit's own install dir (restsift, which the CLI
+# resolves via AI_TEST_LIBEXEC_DIR/.. and which has no vendor/bin/phpunit). A
+# stub php records whether it was launched inside the caller repo (identified by
+# a sentinel file); with the old ROOT it bailed on the toolkit's missing phpunit
+# before ever reaching the stub, so the marker stayed empty.
+test_run_uses_caller_repo_root() (
+    local fake_repo php_stub marker
+    fake_repo="$(mktemp -d)"
+    mkdir -p "$fake_repo/vendor/bin"
+    : >"$fake_repo/vendor/bin/phpunit"
+    chmod +x "$fake_repo/vendor/bin/phpunit"
+    : >"$fake_repo/phpunit.xml.dist"
+    : >"$fake_repo/CALLER_REPO_SENTINEL"
+
+    marker="$(mktemp)"
+    php_stub="$(mktemp)"
+    cat >"$php_stub" <<STUB
+#!/usr/bin/env bash
+[[ -e CALLER_REPO_SENTINEL ]] && printf 'ok\n' >>"$marker"
+exit 0
+STUB
+    chmod +x "$php_stub"
+
+    cd "$fake_repo" || return 1
+    PHP_BIN="$php_stub" TEST_TIMEOUT=10 "$BASH_BIN" "$SCRIPT" run --filter NoSuchTest >/dev/null 2>&1 || true
+
+    grep -q ok "$marker"
+)
+run_test "run executes phpunit against the caller's repo root, not the toolkit install dir" test_run_uses_caller_repo_root
+
 # =============================================================================
 # all (fused from run-repo-tests). Argument-parsing/error-path coverage
 # only — NEVER invokes the real whole-suite run here (heavy/slow); the
@@ -268,7 +394,7 @@ fi
 test_all_help() {
     local out
     out="$("$BASH_BIN" "$SCRIPT" all --help 2>&1)"
-    [[ "$out" == *"agent-kit test all"* ]]
+    [[ "$out" == *"restsift test all"* ]]
 }
 run_test "all --help prints usage" test_all_help
 
@@ -413,6 +539,7 @@ STUB
     export AI_TEST_LIBEXEC_DIR
     source "$REPO_ROOT/lib/ai-test/run-all.sh"
 
+    cd "$fake_root" || return 1
     (PARATEST_PROCS=999 MAX_PARATEST_PROCS=3 PHP_BIN="$php_stub" SUITE_TIMEOUT=5 ai_test_all_main >/dev/null 2>&1) || true
 
     grep -q -- '--processes=3' "$marker"
@@ -444,6 +571,7 @@ STUB
     unset PHP_BIN
     source "$REPO_ROOT/lib/ai-test/run-all.sh"
 
+    cd "$fake_root" || return 1
     (SUITE_TIMEOUT=5 ai_test_all_main >/dev/null 2>&1) || true
 
     grep -q '^php:' "$marker" && ! grep -q '^php\.exe:' "$marker"
@@ -471,6 +599,7 @@ STUB
     unset PHP_BIN
     source "$REPO_ROOT/lib/ai-test/run-all.sh"
 
+    cd "$fake_root" || return 1
     (SUITE_TIMEOUT=5 ai_test_all_main >/dev/null 2>&1) || true
 
     grep -q '^php\.exe:' "$marker"
@@ -494,6 +623,7 @@ test_all_bats_skip_when_missing_or_no_tests_dir() (
     export PHP_BIN
     source "$REPO_ROOT/lib/ai-test/run-all.sh"
 
+    cd "$fake_root" || return 1
     out="$(SUITE_TIMEOUT=5 ai_test_all_main 2>&1)" || true
     [[ "$out" == *"skip: bats-shell-tests (bats not installed or tests/shell missing)"* ]]
 )
@@ -511,6 +641,7 @@ test_all_bats_runs_real_trivial_test() (
     export PHP_BIN
     source "$REPO_ROOT/lib/ai-test/run-all.sh"
 
+    cd "$fake_root" || return 1
     out="$(SUITE_TIMEOUT=15 ai_test_all_main 2>&1)" || true
     [[ "$out" == *"start: bats-shell-tests"* && "$out" == *"pass: bats-shell-tests"* ]]
 )
@@ -532,10 +663,43 @@ test_all_php_paratest_package_skip_when_no_test_files() (
     export PHP_BIN
     source "$REPO_ROOT/lib/ai-test/run-all.sh"
 
+    cd "$fake_root" || return 1
     out="$(SUITE_TIMEOUT=5 ai_test_all_main 2>&1)" || true
     [[ "$out" == *"skip: php-paratest-package (no package Test.php files yet)"* ]]
 )
 run_test "all skips php-paratest-package when no *Test.php files exist yet" test_all_php_paratest_package_skip_when_no_test_files
+
+# Regression (defect 1): `all` must run the CALLER repo's suites (its cwd), not
+# the toolkit install dir derived from AI_TEST_LIBEXEC_DIR/... AI_TEST_LIBEXEC_DIR
+# points at an unrelated dir with NO tests/scripts/ai/run-all-tests.sh; only when
+# ROOT tracks the caller's cwd does the sentinel-writing script-tests stub run.
+test_all_uses_caller_repo_root() (
+    local fake_repo other marker
+    fake_repo="$(mktemp -d)"
+    mkdir -p "$fake_repo/tests/scripts/ai"
+    marker="$(mktemp)"
+    rm -f "$marker"
+    cat >"$fake_repo/tests/scripts/ai/run-all-tests.sh" <<STUB
+#!/usr/bin/env bash
+printf 'ran\n' >"$marker"
+exit 0
+STUB
+    chmod +x "$fake_repo/tests/scripts/ai/run-all-tests.sh"
+
+    other="$(mktemp -d)"
+    mkdir -p "$other/libexec"
+    AI_TEST_LIBEXEC_DIR="$other/libexec"
+    export AI_TEST_LIBEXEC_DIR
+    PHP_BIN="true"
+    export PHP_BIN
+    source "$REPO_ROOT/lib/ai-test/run-all.sh"
+
+    cd "$fake_repo" || return 1
+    (SUITE_TIMEOUT=15 ai_test_all_main >/dev/null 2>&1) || true
+
+    [[ -f "$marker" ]] && grep -q ran "$marker"
+)
+run_test "all runs the caller repo's suites, not the toolkit install dir" test_all_uses_caller_repo_root
 
 # =============================================================================
 # group-level dispatch
@@ -544,7 +708,7 @@ run_test "all skips php-paratest-package when no *Test.php files exist yet" test
 test_group_help() {
     local out
     out="$("$BASH_BIN" "$SCRIPT" --help 2>&1 || true)"
-    [[ "$out" == *"agent-kit test"* ]]
+    [[ "$out" == *"restsift test"* ]]
 }
 run_test "group --help prints usage" test_group_help
 

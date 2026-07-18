@@ -8,7 +8,11 @@
 # byte-for-byte identical to the previous monolithic ai-edit.sh.
 
 sd_plan() {
-    require_bins rg
+    # Honor the AI_OUTPUT=json contract on a missing planner tool
+    # (status:"unavailable", exit 127) rather than require_bins/die's raw
+    # non-JSON "[ERROR] ..." text + exit 1.
+    command -v rg >/dev/null 2>&1 ||
+        fail_status "unavailable" "required tool not found: rg" 127
     build_rg_args
 
     local counts_file line path count bytes file_count=0 replacement_count=0 skipped_for_bytes=0
@@ -22,8 +26,16 @@ sd_plan() {
     # every occurrence, so a line with three matches is three replacements; -c
     # would report one and let --max-replacements be silently undercounted. The
     # per-line output format stays `path:count`, so the parsing loop is unchanged.
+    #
+    # --with-filename is mandatory, not cosmetic: ripgrep OMITS the filename
+    # prefix when the search target is a single explicit FILE (it only prefixes
+    # by default when scanning a directory or multiple paths). Without it, a
+    # single-file root like `sd FROM TO README.md` yields bare `41` lines, so
+    # the parser below sets path=`41`, the `[[ -f "$path" ]]` guard fails, the
+    # file is skipped, and the plan wrongly reports no_matches. Forcing the
+    # prefix keeps `path:count` for both single-file and directory roots.
     local rc=0
-    rg --count-matches "${rg_args[@]}" "$from" "$root" >"$counts_file" || rc=$?
+    rg --count-matches --with-filename "${rg_args[@]}" "$from" "$root" >"$counts_file" || rc=$?
     if ((rc != 0)); then
         ((rc == 1)) && return 1
         fail_status "error" "rg failed while planning replacements" "$rc"
@@ -74,7 +86,8 @@ sd_plan() {
 }
 
 sd_apply() {
-    require_bins sd
+    command -v sd >/dev/null 2>&1 ||
+        fail_status "unavailable" "required tool not found: sd" 127
     local path
     while IFS= read -r path; do
         [[ -n "$path" ]] || continue

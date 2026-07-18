@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# bin/ak — DEPRECATED short-alias compatibility shim for `restsift` (`res`).
+#
+# The toolkit was renamed agent-kit → RestSift; the short alias `ak` becomes
+# `res`. This thin shim forwards every argument to the canonical `restsift`
+# dispatcher and prints a one-line deprecation notice to STDERR only (never
+# stdout, so piped or JSON output is never polluted). It will be removed once
+# the deprecation window closes.
+set -euo pipefail
+_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+printf '%s\n' "ak: deprecated alias — use 'res' (or 'restsift') instead (this alias will be removed)." >&2
+exec "${BASH:-bash}" "$_dir/restsift" "$@"

@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+# bin/restsift — dispatcher entrypoint for restsift.
+#
+# Resolves SUBCOMMAND to a script under libexec/ and execs it with the remaining
+# arguments, mirroring the git-<subcommand> / brew-<command> convention. The
+# leading `ai-` is optional, so `restsift search` runs libexec/ai-search and
+# `restsift repo-stats` runs libexec/repo-stats. Every libexec/* file is itself a
+# complete, directly-runnable script.
+#
+# Usage:
+#   restsift <command> [args...]     run a command (e.g. `restsift search text "TODO"`)
+#   restsift <command> --help        show a command's contract and a runnable example
+#   restsift <command> --introspect  machine-readable JSON contract for a command
+#   restsift --list                  list every command with a one-line summary
+#   restsift --help                  show this help
+#   restsift --version               print the RestSift version
+#   restsift --version --json        version as a machine-readable JSON envelope
+#
+# Example:
+#   restsift --list                       # discover the whole command surface
+#   restsift search text "TODO" .         # find every TODO comment in the tree
+#   restsift verify --help                # learn a command before you run it
+
+set -euo pipefail
+
+# The toolkit's modules use Bash >= 4.4 features (mapfile, associative arrays,
+# namerefs). This dispatcher is Bash-3.2 safe on purpose so it can bootstrap:
+# if launched under an older Bash (notably macOS's /bin/bash 3.2), re-exec under
+# a capable Bash, or fail with a clear message. Guarded against re-exec loops.
+if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); then
+    if [[ -z "${_AI_BASH_REEXEC:-}" ]]; then
+        for _cand in "${TOOL_BASH:-}" /opt/homebrew/bin/bash /usr/local/bin/bash \
+            "$(command -v bash 2>/dev/null || true)" /bin/bash; do
+            [[ -n "$_cand" && -x "$_cand" ]] || continue
+            _v="$("$_cand" -c 'echo $((BASH_VERSINFO[0]*100+BASH_VERSINFO[1]))' 2>/dev/null || true)"
+            if [[ "$_v" =~ ^[0-9]+$ ]] && ((_v >= 404)); then
+                exec env _AI_BASH_REEXEC=1 "$_cand" "${BASH_SOURCE[0]}" "$@"
+            fi
+        done
+    fi
+    echo "restsift: requires Bash >= 4.4 (running ${BASH_VERSION:-unknown})." >&2
+    echo "    Install a newer Bash (e.g. 'brew install bash') or set TOOL_BASH=/path/to/bash." >&2
+    exit 127
+fi
+
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SELF_DIR/.." && pwd)"
+LIBEXEC_DIR="$ROOT_DIR/libexec"
+
+print_list() {
+    echo "Available commands (run 'restsift <command> --help' for details):"
+    echo
+    if [[ -x "$LIBEXEC_DIR/sh-introspect" ]]; then
+        "${BASH:-bash}" "$LIBEXEC_DIR/sh-introspect" --list "$LIBEXEC_DIR"
+    else
+        find "$LIBEXEC_DIR" -maxdepth 1 -type f | sort | while IFS= read -r f; do
+            printf '  %s\n' "$(basename "$f")"
+        done
+    fi
+}
+
+case "${1:-}" in
+    "" | --list | list)
+        print_list
+        [[ "${1:-}" == "" ]] && exit 2
+        exit 0
+        ;;
+    -h | --help)
+        sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+        echo
+        print_list
+        exit 0
+        ;;
+    -V | --version | version)
+        # Version, in a human line by default or a machine-readable envelope with
+        # `--json` (or AI_OUTPUT=json). JSON is hand-built so this dispatcher stays
+        # bootstrap-safe (no jq dependency). `commit` is the short HEAD sha when run
+        # from a git checkout, or null for an installed package with no .git.
+        _version="unknown"
+        [[ -r "$ROOT_DIR/VERSION" ]] && _version="$(tr -d '[:space:]' <"$ROOT_DIR/VERSION")"
+        _json=""
+        [[ "${AI_OUTPUT:-}" == "json" ]] && _json=1
+        for _a in "$@"; do [[ "$_a" == "--json" ]] && _json=1; done
+        if [[ -n "$_json" ]]; then
+            _commit="$(git -C "$ROOT_DIR" rev-parse --short=12 HEAD 2>/dev/null || true)"
+            if [[ -n "$_commit" ]]; then _commit_json="\"$_commit\""; else _commit_json="null"; fi
+            printf '{"schema":"ai.version/v1","name":"restsift","version":"%s","commit":%s,"schema_version":"1"}\n' \
+                "$_version" "$_commit_json"
+        else
+            printf 'restsift %s\n' "$_version"
+        fi
+        exit 0
+        ;;
+esac
+
+cmd="$1"
+shift
+
+# A command is a single libexec token, never a path. Reject anything with a
+# slash or a leading dot so `restsift ../../etc/x` can never escape libexec/ and exec
+# an arbitrary file.
+if [[ ! "$cmd" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+    echo "restsift: invalid command name '$cmd' (see 'restsift --list')" >&2
+    exit 2
+fi
+
+# Resolve the command file: exact name first, then the `ai-` prefixed form,
+# then a short alias from lib/command-aliases.txt (the single source shared
+# with completion generation, see libexec/internal/completion-spec). Aliases
+# are checked last so they can never shadow a real command name.
+target=""
+if [[ -f "$LIBEXEC_DIR/$cmd" ]]; then
+    target="$LIBEXEC_DIR/$cmd"
+elif [[ -f "$LIBEXEC_DIR/ai-$cmd" ]]; then
+    target="$LIBEXEC_DIR/ai-$cmd"
+elif [[ -f "$ROOT_DIR/lib/command-aliases.txt" ]]; then
+    alias_target="$(awk -v c="$cmd" '$1 == c { print $2; exit }' "$ROOT_DIR/lib/command-aliases.txt")"
+    if [[ -n "$alias_target" && -f "$LIBEXEC_DIR/$alias_target" ]]; then
+        target="$LIBEXEC_DIR/$alias_target"
+    fi
+fi
+if [[ -z "$target" ]]; then
+    echo "restsift: unknown command '$cmd' (see 'restsift --list')" >&2
+    exit 2
+fi
+
+# Run the subcommand with the SAME bash that is running this dispatcher. The
+# installer wrappers (and the Homebrew formula) invoke bin/restsift under a Bash >= 4.4,
+# so "$BASH" propagates that interpreter to subcommands — important on macOS,
+# whose default /bin/bash is 3.2 and cannot run the toolkit's modules.
+exec "${BASH:-bash}" "$target" "$@"

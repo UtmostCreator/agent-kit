@@ -131,6 +131,19 @@ if need_sd_plan; then
     }
     run_test "sd dry-run plans exact change and does not modify" test_sd_dry_run_json_does_not_modify
 
+    # Regression: a single explicit FILE as the root must plan matches. ripgrep
+    # omits the filename prefix when the target is one file, which previously
+    # made sd_plan parse a bare count as the path, skip it, and wrongly report
+    # no_matches even though the file had matches. sd_plan forces --with-filename.
+    test_sd_single_file_root_plans_matches() {
+        local work="$TMP/single-file" out
+        make_repo "$work"
+        out="$(run_edit "$work" sd OldName NewName a.txt --format json)"
+        jq -e '.status=="dry_run" and (.plannedChanges|length)==1 and .plannedChanges[0].path=="a.txt" and .plannedChanges[0].replacements==1' <<<"$out" >/dev/null
+        grep -q 'OldName' "$work/a.txt"
+    }
+    run_test "sd single-file root plans matches (not no_matches)" test_sd_single_file_root_plans_matches
+
     test_sd_max_files_blocks() {
         local work="$TMP/max-files" out rc=0
         make_repo "$work"
@@ -212,9 +225,23 @@ if need_sd_plan; then
     }
     run_test "AI_OUTPUT=json emits JSON" test_ai_output_json_env
 
-    # "agent-kit edit apply MODE ARGS..." is a thin routing alias: the leading
+    # emit_result_json's additive nextStep hint: a dry_run envelope must carry
+    # an actionable, non-null re-run hint so an agent can self-correct without a
+    # human choosing the next flag. Success statuses (see applied test below)
+    # render nextStep as null.
+    test_dry_run_json_carries_next_step() {
+        local work="$TMP/next-step-dry-run" out
+        make_repo "$work"
+        out="$(run_edit "$work" sd OldName NewName . --format json)"
+        jq -e '.status=="dry_run"
+            and (.nextStep|type)=="string"
+            and (.nextStep|test("--apply"))' <<<"$out" >/dev/null
+    }
+    run_test "dry_run JSON envelope carries a non-null nextStep hint" test_dry_run_json_carries_next_step
+
+    # "restsift edit apply MODE ARGS..." is a thin routing alias: the leading
     # "apply" token is dropped and the rest flows into the same unchanged
-    # mode-dispatch logic as the bare "agent-kit edit MODE ARGS..." form.
+    # mode-dispatch logic as the bare "restsift edit MODE ARGS..." form.
     # Prove the two forms plan identically (status + plannedChanges) and that
     # neither mutates the working tree in dry-run.
     test_sd_apply_prefix_matches_bare_mode() {
@@ -249,7 +276,7 @@ else
     skip_test "edit apply sd behaves identically to bare sd (dry-run)" "requires rg, jq"
 fi
 
-# "agent-kit edit rollback ARGS..." execs straight into the sibling,
+# "restsift edit rollback ARGS..." execs straight into the sibling,
 # unmodified libexec/ai-rollback script (routing only, never logic fusion).
 # Prove the routed invocation produces byte-identical output to calling
 # ai-rollback directly, using a snapshot dir that does not exist so the
@@ -272,7 +299,18 @@ if need_sd_apply; then
         grep -q 'NewName' "$work/a.txt"
     }
     run_test "sd apply modifies file and returns applied JSON" test_sd_apply_json_modifies_file
+
+    # A terminal success status (applied) carries no next-step hint: nextStep
+    # is rendered as JSON null, not a string.
+    test_applied_json_next_step_null() {
+        local work="$TMP/next-step-applied" out
+        make_repo "$work"
+        out="$(run_edit "$work" sd OldName NewName . --apply --no-verify --format json)"
+        jq -e '.status=="applied" and .nextStep==null' <<<"$out" >/dev/null
+    }
+    run_test "applied JSON envelope reports nextStep as null" test_applied_json_next_step_null
 else
+    skip_test "applied JSON envelope reports nextStep as null" "requires rg, sd, jq"
     skip_test "sd apply modifies file and returns applied JSON" "requires rg, sd, jq"
 fi
 
@@ -741,6 +779,17 @@ if need_sd_plan; then
         [[ "$out" == *"error"* ]]
     }
     run_test "finish(): error non-JSON text output" test_finish_text_error
+
+    # finish() text-mode error branches now surface the accumulated diagnostic
+    # (errors_json), not only the bare status keyword: an unknown mode prints
+    # "unknown mode: <value>" alongside the "error" status word.
+    test_finish_text_error_shows_diagnostic() {
+        local work="$TMP/finish-error-diagnostic" out
+        make_repo "$work"
+        out="$(run_edit_stderr "$work" bogusmode .)" || true
+        [[ "$out" == *"unknown mode: bogusmode"* && "$out" == *"error"* ]]
+    }
+    run_test "finish(): error text output surfaces the diagnostic message, not just the status word" test_finish_text_error_shows_diagnostic
 else
     skip_test "finish(): dry_run non-JSON text output" "requires rg, jq"
     skip_test "finish(): no_matches non-JSON text output" "requires rg, jq"
@@ -831,17 +880,15 @@ test_resolve_ast_grep_not_found() {
             "$BASH_BIN" "$SCRIPT" ast-grep js 'var $A = $B' 'let $A = $B' . 2>/dev/null
     )" || rc=$?
     ((rc == 127)) || return 1
-    # NOTE: resolve_ast_grep's own fail_status/finish call only terminates the
-    # `ast_bin="$(resolve_ast_grep)"` command-substitution subshell it runs
-    # inside, not the whole script, so its intended status ("unavailable") and
-    # message ("required tool not found: ast-grep or sg") never reach the real
-    # output. What actually surfaces is the outer on_error ERR trap firing on
-    # the failed assignment: status=error with a generic "unexpected failure"
-    # message. The exit code (127) still propagates correctly. See the bug
-    # noted in the implementer handoff.
-    jq -e '.status=="error"' <<<"$out" >/dev/null
+    # resolve_ast_grep now sets the caller-visible `ast_bin` global and lets
+    # fail_status/finish run in the parent shell (not a command-substitution
+    # subshell), so the documented status:"unavailable" envelope and its exact
+    # diagnostic reach the real stdout instead of being swallowed by the generic
+    # on_error ERR trap ("unexpected failure"). Exit code stays 127.
+    jq -e '.status=="unavailable"
+        and (.errors|index("required tool not found: ast-grep or sg") != null)' <<<"$out" >/dev/null
 }
-run_test "resolve_ast_grep: not-found path exits 127 (status surfaces as error via on_error, not unavailable -- see handoff note)" test_resolve_ast_grep_not_found
+run_test "resolve_ast_grep: not-found path emits status:unavailable JSON with the exact diagnostic and exits 127" test_resolve_ast_grep_not_found
 
 # resolve_ast_grep's "ast-grep missing, sg present" fallback branch
 # (`printf 'sg\n'`) is otherwise never reached: the real system `sg` binary
@@ -870,6 +917,30 @@ EOF
     jq -e '.status=="dry_run"' <<<"$out" >/dev/null
 }
 run_test "resolve_ast_grep: falls back to sg when ast-grep is absent but sg is present" test_resolve_ast_grep_sg_fallback
+
+# comby mode's missing-binary check must honor the AI_OUTPUT=json contract the
+# same way resolve_ast_grep does: a missing comby binary emits the ai.edit/v1
+# envelope with status:"unavailable" and the exact diagnostic, exiting 127 --
+# NOT require_bins/die's raw non-JSON "[ERROR] required tools not found: comby"
+# text with exit 1 (which an agent parsing stdout as JSON cannot branch on).
+test_comby_missing_binary_json_unavailable() {
+    local work="$TMP/comby-missing" fakebin="$TMP/fakebin-no-comby" out rc=0
+    make_repo "$work"
+    build_path_without "$fakebin" comby
+    out="$(
+        cd "$work"
+        AI_LOG_DIR="$TMP/logs-comby-missing" \
+            AI_EVENT_LOG="$TMP/logs-comby-missing/events.jsonl" \
+            AI_OUTPUT=json \
+            PATH="$fakebin" \
+            "$BASH_BIN" "$SCRIPT" comby OldName NewName . --dry-run 2>/dev/null
+    )" || rc=$?
+    ((rc == 127)) || return 1
+    jq -e '.schema=="ai.edit/v1"
+        and .status=="unavailable"
+        and (.errors|index("required tool not found: comby") != null)' <<<"$out" >/dev/null
+}
+run_test "comby: missing binary emits status:unavailable JSON with the exact diagnostic and exits 127" test_comby_missing_binary_json_unavailable
 
 # --- lib/ai-edit/main.sh: ast-grep/comby modes, --verify, dirty-tree gate --
 
@@ -1002,6 +1073,20 @@ if need_patch; then
     }
     run_test "apply with a dirty tree is blocked by the default require-clean-tree gate" test_apply_dirty_tree_blocked_by_default
 
+    # Regression: a dirty-tree block under AI_OUTPUT=json must honor the
+    # ai.edit/v1 contract (parseable JSON on stdout, status:"blocked", exit 4)
+    # rather than the shared require_clean_tree die()'s raw text + exit 1.
+    test_apply_dirty_tree_blocked_emits_json_envelope() {
+        local work="$TMP/dirty-json" out rc=0
+        make_repo "$work"
+        make_patch "$work/change.patch" "$work"
+        printf 'dirty\n' >>"$work/a.txt"
+        out="$(run_edit "$work" patch change.patch . --apply --no-verify --format json 2>/dev/null)" || rc=$?
+        ((rc == 4)) || return 1
+        jq -e '.schema=="ai.edit/v1" and .status=="blocked"' <<<"$out" >/dev/null
+    }
+    run_test "apply on a dirty tree still emits a blocked ai.edit/v1 JSON envelope (exit 4)" test_apply_dirty_tree_blocked_emits_json_envelope
+
     test_apply_allow_dirty_tree_bypasses_gate() {
         local work="$TMP/dirty-allow" out
         make_repo "$work"
@@ -1029,6 +1114,7 @@ else
     skip_test "patch --verify succeeds against a clean change and returns verified status" "requires git, jq"
     skip_test "patch --verify fails a deliberately-broken check and returns verify_failed status" "requires git, jq"
     skip_test "apply with a dirty tree is blocked by the default require-clean-tree gate" "requires git, jq"
+    skip_test "apply on a dirty tree still emits a blocked ai.edit/v1 JSON envelope (exit 4)" "requires git, jq"
     skip_test "--allow-dirty-tree bypasses the require-clean-tree gate" "requires git, jq"
     skip_test "parse_tail: explicit --require-clean-tree flag still allows apply on a clean tree" "requires git, jq"
 fi

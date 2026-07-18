@@ -1,0 +1,37 @@
+# restsift short command aliases.
+#
+# One "alias canonical-libexec-basename" pair per line (whitespace-separated,
+# `#` starts a comment, blank lines ignored). This is the single source of
+# truth for short first-token shortcuts (e.g. `res rb` == `res rollback`) —
+# both bin/restsift (dispatch) and libexec/internal/completion-spec (shell
+# completion generation) read this same file, so a new alias only needs to be
+# added here once. After editing, regenerate completions/ with
+# `bash scripts/gen-completions.sh`.
+#
+# An alias must not collide with an existing libexec/* basename (stripped of
+# its "ai-" prefix) or with another alias in this file; bin/restsift's exact
+# and "ai-" prefixed resolution always take priority over an alias, so a
+# collision would silently make the alias unreachable rather than error.
+
+rb       ai-rollback
+ctx      ai-context
+e        ai-edit
+g        ai-git
+i        ai-inspect
+v        ai-verify
+t        ai-test
+w        watch-loop
+rg       rg-code
+fd       fd-files
+data     ai-structured
+tsk      ai-task
+fresh    ai-file-freshness
+refactor ai-refactor-scan
+stats    repo-stats
+tools    repo-tool-inventory
+peek     preview-file
+bundle   all-f-into-one
+comp     ai-completion
+sm       ai-search-multi
+si       ai-search-introspect
+ckpt     session-checkpoint

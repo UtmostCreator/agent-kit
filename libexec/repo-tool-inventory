@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # List every toolkit command with its one-line summary (a discoverable map).
+# Exits 0 on success and 2 on a usage error (unknown flag or unexpected argument).
 #
 # Enumerates the sibling libexec/ commands and prints each name with the first
 # line of its header comment, so humans and agents can survey the whole surface
@@ -11,8 +12,12 @@
 #   repo-tool-inventory --json     JSON array of {name, summary}
 #
 # Example:
-#   agent-kit repo-tool-inventory                 # see every command and what it does
-#   agent-kit repo-tool-inventory --json | jq .   # feed the catalog to an agent
+#   restsift repo-tool-inventory                 # see every command and what it does
+#   restsift repo-tool-inventory --json | jq .   # feed the catalog to an agent
+#
+# Modes: table json
+#
+# Flags: --json --introspect --help
 #
 # Requires: jq
 
@@ -28,9 +33,46 @@ if [[ "${1:-}" == "--introspect" ]]; then
     exec env AI_OUTPUT=json "${BASH:-bash}" "$INTROSPECT" "${BASH_SOURCE[0]}"
 fi
 
-if [[ "${1:-}" == "--json" || "${AI_OUTPUT:-}" == "json" ]]; then
+# JSON output is opt-in via the --json flag or the toolkit-wide AI_OUTPUT=json
+# signal; either selects the self-describing envelope on both success and error.
+json_requested=0
+[[ "${1:-}" == "--json" || "${AI_OUTPUT:-}" == "json" ]] && json_requested=1
+
+# This command takes no positional arguments and only the --json flag. Surface
+# any other token as a usage error, naming the offending value and whether it
+# looked like a flag or a stray positional so the caller gets a real next step
+# instead of a misleading "unknown flag" for a plain word.
+bad_arg=""
+if [[ "${1:-}" == "--json" ]]; then
+    bad_arg="${2:-}"
+elif [[ -n "${1:-}" ]]; then
+    bad_arg="${1}"
+fi
+
+if [[ -n "$bad_arg" ]]; then
+    if [[ "$bad_arg" == -* ]]; then
+        err_msg="unknown flag: $bad_arg"
+    else
+        err_msg="unexpected argument: $bad_arg (this command takes no positional arguments)"
+    fi
+    # When JSON output was requested, fail with a parseable error envelope that
+    # mirrors the success-path schema, so agents never have to scrape stderr.
+    if [[ "$json_requested" == 1 ]]; then
+        jq -n \
+            --arg schema "ai.repo-tool-inventory/v1" \
+            --arg tool "repo-tool-inventory" \
+            --arg error "$err_msg" \
+            '{schema:$schema, status:"error", tool:$tool, commands:[], error:$error}'
+        exit 2
+    fi
+    printf 'repo-tool-inventory: %s\n' "$err_msg" >&2
+    printf 'Try --help, --json, or no arguments.\n' >&2
+    exit 2
+fi
+
+if [[ "$json_requested" == 1 ]]; then
     find "$SELF_DIR" -maxdepth 1 -type f | sort | while IFS= read -r f; do
-        "${BASH:-bash}" "$INTROSPECT" --format=json "$f" | jq -c '{name, summary: (.description // "")}'
+        "${BASH:-bash}" "$INTROSPECT" --format=json "$f" | jq -c '{name, summary: ((.description // "") | split("\n")[0])}'
     done | jq -sc '{schema:"ai.repo-tool-inventory/v1", status:"ok", tool:"repo-tool-inventory", commands: .}'
     exit 0
 fi

@@ -164,7 +164,7 @@ You completed one item:
 
 ## What was done correctly
 
-- The canonical route is now `agent-kit search capabilities`.
+- The canonical route is now `restsift search capabilities`.
 - Existing implementation was reused rather than duplicated.
 - The split `lib/ai-search/*` parsing defect was fixed.
 - Both direct and dispatcher paths have regression coverage.
@@ -181,7 +181,7 @@ That is acceptable during a compatibility period. However, if this package has n
 
 ```text
 Public:
-  agent-kit search capabilities
+  restsift search capabilities
 
 Internal implementation:
   libexec/internal/ai-search-capabilities
@@ -222,19 +222,19 @@ Status: verified implementation of the bounded `ai-search capabilities` consolid
 This slice is complete, compatibility-preserving and publishable. It does not complete the broader command-surface consolidation plan; P0 removals and the remaining P1/P2 command merges are intentionally deferred pending explicit public-surface approval.
 ```
 
-The implementation itself appears sound from the evidence provided, but I could not independently inspect `/home/utmostcreator/Projects/agent-kit` because that local path is not mounted in this session.
+The implementation itself appears sound from the evidence provided, but I could not independently inspect `/home/utmostcreator/Projects/restsift` because that local path is not mounted in this session.
 
 ## Remaining public command-surface consolidation plan
 
-Status: the bounded `agent-kit search capabilities` slice is implemented and verified, but the broader public command-surface consolidation is unfinished. Treat this section as the implementation plan for the remaining work.
+Status: the bounded `restsift search capabilities` slice is implemented and verified, but the broader public command-surface consolidation is unfinished. Treat this section as the implementation plan for the remaining work.
 
 ### Compatibility and deletion policy
 
-AgentKit is pre-stable (`0.1.0`), so confusing duplicate public command names should be removed or de-publicized before the first stable release instead of preserved indefinitely.
+RestSift is pre-stable (`0.1.0`), so confusing duplicate public command names should be removed or de-publicized before the first stable release instead of preserved indefinitely.
 
 Rules:
 
-- Canonical public commands must be documented and tested through `agent-kit <domain> <mode>` forms.
+- Canonical public commands must be documented and tested through `restsift <domain> <mode>` forms.
 - Legacy top-level command names may remain only as short temporary aliases with an explicit removal window.
 - Tracked-file deletion requires explicit approval before implementation. If deletion is not approved, move implementation behind canonical commands under a non-dispatchable internal path, exclude legacy aliases from packaging, or keep temporary aliases with dated removal notes.
 - Before stable release, the public package/install surface should not expose: `ai-search-introspect`, `ai-search-multi`, `rg-code`, `fd-files`, `ai-file-freshness`, `ai-verify-html`, `ai-verify-js`, `ai-verify-php`, `ai-verify-ts`, or `ai-verify-vue`.
@@ -244,7 +244,7 @@ Rules:
 Goal: language-specific verification is invoked and promoted only as:
 
 ```bash
-agent-kit verify --language <lang>
+restsift verify --language <lang>
 ```
 
 Current evidence: `libexec/ai-verify` supports `--language`; the five `ai-verify-<lang>` files are already thin wrappers that exec `ai-verify --language <lang>`. Do not document `--lang` unless code is explicitly changed to support it.
@@ -253,40 +253,40 @@ Implementation steps:
 
 1. Keep `libexec/ai-verify` as the only canonical verification entrypoint.
 2. Replace docs/examples for `verify-html`, `verify-js`, `verify-php`, `verify-ts`, and `verify-vue` with canonical examples:
-   - `agent-kit verify --language html .`
-   - `agent-kit verify --language js .`
-   - `agent-kit verify --language php .`
-   - `agent-kit verify --language ts .`
-   - `agent-kit verify --language vue .`
-3. Add dispatcher tests proving `agent-kit verify --language html|js|php|ts|vue .` reaches language dispatch.
+   - `restsift verify --language html .`
+   - `restsift verify --language js .`
+   - `restsift verify --language php .`
+   - `restsift verify --language ts .`
+   - `restsift verify --language vue .`
+3. Add dispatcher tests proving `restsift verify --language html|js|php|ts|vue .` reaches language dispatch.
 4. Approval decision: remove the tracked wrapper files before stable release, or keep them only as temporary aliases excluded from public docs.
 
 Acceptance criteria:
 
-- `docs/EXAMPLES.md`, `docs/COMMANDS.md`, and README-facing surfaces no longer promote `agent-kit verify-<lang>`.
-- Tests cover `agent-kit verify --language html|js|php|ts|vue`.
-- No test requires users to call `agent-kit verify-html`, `verify-js`, `verify-php`, `verify-ts`, or `verify-vue`.
+- `docs/EXAMPLES.md`, `docs/COMMANDS.md`, and README-facing surfaces no longer promote `restsift verify-<lang>`.
+- Tests cover `restsift verify --language html|js|php|ts|vue`.
+- No test requires users to call `restsift verify-html`, `verify-js`, `verify-php`, `verify-ts`, or `verify-vue`.
 - If wrapper files remain, they are labelled temporary compatibility aliases only.
 
 Verification:
 
 ```bash
 bash test/test-ai-verify.sh
-bash test/test-bin-agent-kit.sh
+bash test/test-bin-restsift.sh
 ./scripts/check.sh
 ./scripts/check-publishable.sh
 ```
 
 ### Slice 2 — Search duplicate command de-publicization
 
-Goal: public search usage converges on `agent-kit search ...`.
+Goal: public search usage converges on `restsift search ...`.
 
 Canonical replacements:
 
-- `agent-kit search capabilities` replaces `agent-kit search-introspect`.
-- `agent-kit search text ...` replaces `rg-code`.
-- `agent-kit search files ...` replaces `fd-files`.
-- `agent-kit search --batch` or another approved `search` batch form replaces `search-multi`.
+- `restsift search capabilities` replaces `restsift search-introspect`.
+- `restsift search text ...` replaces `rg-code`.
+- `restsift search files ...` replaces `fd-files`.
+- `restsift search --batch` or another approved `search` batch form replaces `search-multi`.
 
 Implementation steps:
 
@@ -294,21 +294,21 @@ Implementation steps:
 2. Add or confirm canonical batch support before removing `ai-search-multi` from the public surface.
 3. Port any unique behavior from `rg-code`, `fd-files`, and `ai-search-multi` into `ai-search` modes or internal modules.
 4. Stop promoting duplicate search names in docs/examples.
-5. With explicit approval, remove or move duplicate top-level `libexec` commands so `agent-kit --list` no longer presents them as public commands.
+5. With explicit approval, remove or move duplicate top-level `libexec` commands so `restsift --list` no longer presents them as public commands.
 
 Acceptance criteria:
 
-- `agent-kit search capabilities` is the only promoted capability-map command.
-- `agent-kit search text` covers documented `rg-code` use cases.
-- `agent-kit search files` covers documented `fd-files` use cases.
+- `restsift search capabilities` is the only promoted capability-map command.
+- `restsift search text` covers documented `rg-code` use cases.
+- `restsift search files` covers documented `fd-files` use cases.
 - Batch search has one canonical documented command form.
-- Before stable release, `agent-kit --list` does not list duplicate search names unless a temporary compatibility window is explicitly approved.
+- Before stable release, `restsift --list` does not list duplicate search names unless a temporary compatibility window is explicitly approved.
 
 Verification:
 
 ```bash
 bash test/test-ai-search.sh
-bash test/test-bin-agent-kit.sh
+bash test/test-bin-restsift.sh
 bash test/test-rg-code.sh
 bash test/test-fd-files.sh
 ./scripts/check.sh
@@ -321,7 +321,7 @@ Goal: eliminate `ai-file-freshness` as a confusing public name.
 
 Implementation steps:
 
-1. Choose the canonical destination: `agent-kit search changed-files` for changed-file discovery, or `agent-kit repo status` if a repository-status namespace is introduced.
+1. Choose the canonical destination: `restsift search changed-files` for changed-file discovery, or `restsift repo status` if a repository-status namespace is introduced.
 2. Port useful behavior into the chosen canonical destination.
 3. Replace `test/test-misc-wrappers.sh` coverage so it proves the canonical replacement instead of the public wrapper.
 4. Removal of the tracked top-level file requires explicit approval.
@@ -336,7 +336,7 @@ Verification:
 
 ```bash
 bash test/test-misc-wrappers.sh
-bash test/test-bin-agent-kit.sh
+bash test/test-bin-restsift.sh
 ./scripts/check.sh
 ./scripts/check-publishable.sh
 ```
@@ -349,29 +349,29 @@ Surfaces to update or test:
 
 - `install.sh`
 - `scripts/package-release.sh`
-- `Formula/agent-kit.rb`
+- `Formula/restsift.rb`
 - `package.json`
 - `npm/cli.js`
-- `bin/agent-kit`
+- `bin/restsift`
 
 Implementation steps:
 
 1. Add a publishable/public-surface allowlist or denylist test for pre-stable duplicate names.
-2. Ensure internal implementations live somewhere `bin/agent-kit` cannot dispatch by command name.
+2. Ensure internal implementations live somewhere `bin/restsift` cannot dispatch by command name.
 3. Ensure packaging does not expose removed aliases as top-level executables.
 4. Add tests that inspect installed, staged, and package surfaces for absence of duplicate public command names.
 
 Acceptance criteria:
 
 - Install payload, release archive, Homebrew install, and npm package do not expose duplicate top-level commands.
-- `agent-kit --list` reflects the canonical public surface.
+- `restsift --list` reflects the canonical public surface.
 - `./scripts/check-publishable.sh` fails if duplicate public command names reappear.
 
 Verification:
 
 ```bash
 bash test/test-install.sh
-bash test/test-bin-agent-kit.sh
+bash test/test-bin-restsift.sh
 ./scripts/check-publishable.sh
 ```
 
@@ -384,4 +384,4 @@ Acceptance criteria:
 - This TODO distinguishes the completed `search capabilities` slice from unfinished consolidation.
 - Each completed duplicate-name removal is marked with the canonical replacement and verification evidence.
 - Deletion approvals are recorded next to any tracked-file removals.
-- Public docs show canonical commands only, especially `agent-kit verify --language <lang>` for per-language verification.
+- Public docs show canonical commands only, especially `restsift verify --language <lang>` for per-language verification.

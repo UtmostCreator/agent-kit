@@ -1,20 +1,25 @@
 #!/usr/bin/env bash
 # Canonical agent-session command group (thin router).
 #
-# Routes `agent-kit session <mode> ...` to the underlying session-support
+# Routes `restsift session <mode> ...` to the underlying session-support
 # engine for that mode. Every engine stays a complete, directly-runnable
 # script under libexec/; this router only removes the need to remember which
 # top-level name saves a recoverable snapshot vs. re-runs a command on change.
 #
 # Usage:
-#   agent-kit session checkpoint [label]                 (session-checkpoint)
-#   agent-kit session watch <command> [extensions]        (watch-loop)
+#   restsift session checkpoint [label]                 (session-checkpoint)
+#   restsift session watch <command> [extensions]        (watch-loop)
 #
 # Modes: checkpoint watch
 #
 # Example:
-#   agent-kit session checkpoint before-refactor        # save a labelled snapshot you can find later
-#   agent-kit session watch "agent-kit verify"          # re-run verify whenever files change (Ctrl-C to stop)
+#   restsift session checkpoint before-refactor        # save a labelled snapshot you can find later
+#   restsift session watch "restsift verify"          # re-run verify whenever files change (Ctrl-C to stop)
+#
+# Exit codes:
+#   0  help shown, or the routed engine (checkpoint/watch) succeeded
+#   1  the routed engine failed (e.g. not a git repo, no file watcher installed)
+#   2  unknown mode (expected checkpoint|watch)
 
 set -euo pipefail
 
@@ -35,12 +40,15 @@ case "${1:-}" in
         shift
         _sess_route watch-loop "$@"
         ;;
+    --introspect)
+        exec env AI_OUTPUT=json "${BASH:-bash}" "$_sess_here/sh-introspect" "${BASH_SOURCE[0]}"
+        ;;
     --help | -h | "")
-        sed -n '2,15p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+        sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
         exit 0
         ;;
     *)
-        echo "agent-kit session: unknown mode '$1' (expected checkpoint|watch)" >&2
+        echo "restsift session: unknown mode '$1' (expected checkpoint|watch)" >&2
         exit 2
         ;;
 esac

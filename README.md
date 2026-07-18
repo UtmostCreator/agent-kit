@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🧰 AgentKit
+# 🧰 RestSift
 
 **Safety-first repository operations for AI coding agents — and the humans who review them.**
 
@@ -10,12 +10,12 @@
   <img alt="Platform" src="https://img.shields.io/badge/Linux%20%7C%20macOS-333?style=for-the-badge&logo=linux&logoColor=white"/>
   <img alt="No telemetry" src="https://img.shields.io/badge/telemetry-none-success?style=for-the-badge"/>
   <br/>
-  <a href="https://github.com/UtmostCreator/agent-kit/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/UtmostCreator/agent-kit/ci.yml?style=for-the-badge&label=CI&logo=github"/></a>
-  <img alt="Tests" src="https://img.shields.io/badge/tests-855%20passing-2ea44f?style=for-the-badge&logo=checkmarx&logoColor=white"/>
+  <a href="https://github.com/UtmostCreator/restsift/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/UtmostCreator/restsift/ci.yml?style=for-the-badge&label=CI&logo=github"/></a>
+  <img alt="Tests" src="https://img.shields.io/badge/tests-888%20passing-2ea44f?style=for-the-badge&logo=checkmarx&logoColor=white"/>
   <img alt="Command coverage" src="https://img.shields.io/badge/command%20coverage-100%25-2ea44f?style=for-the-badge"/>
-  <img alt="Line coverage" src="https://img.shields.io/badge/line%20coverage-69.85%25-4c9?style=for-the-badge"/>
-  <a href="https://www.npmjs.com/package/@utmostcreator/agent-kit"><img alt="npm" src="https://img.shields.io/npm/v/@utmostcreator/agent-kit?style=for-the-badge&logo=npm&color=cb3837"/></a>
-  <a href="https://github.com/UtmostCreator/agent-kit/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/UtmostCreator/agent-kit?style=for-the-badge&color=ffcc00"/></a>
+  <img alt="Line coverage" src="https://img.shields.io/badge/line%20coverage-69.32%25-4c9?style=for-the-badge"/>
+  <a href="https://www.npmjs.com/package/@utmostcreator/restsift"><img alt="npm" src="https://img.shields.io/npm/v/@utmostcreator/restsift?style=for-the-badge&logo=npm&color=cb3837"/></a>
+  <a href="https://github.com/UtmostCreator/restsift/stargazers"><img alt="Stars" src="https://img.shields.io/github/stars/UtmostCreator/restsift?style=for-the-badge&color=ffcc00"/></a>
   <br/>
   <img alt="Reproducible build" src="https://img.shields.io/badge/reproducible%20build-verified-2ea44f?style=for-the-badge"/>
   <a href="SECURITY.md"><img alt="Security policy" src="https://img.shields.io/badge/security-policy-2ea44f?style=for-the-badge"/></a>
@@ -23,10 +23,20 @@
 
 A curated collection of dependency-light **Bash** scripts for working inside a repository —
 scoped search, context packing, guarded edits, rollback, test selection, and
-evidence-based verification. One agent-agnostic `agent-kit` command; every script
+evidence-based verification. One agent-agnostic `restsift` command; every script
 is **self-documenting** via `--help` / `--introspect` and runs **100% on your machine**.
 
 `Context · Search · Edit · Rollback · Test · Verify`
+
+<p align="center">
+  <a href="#-quick-start">Quick start</a> ·
+  <a href="#-why-restsift-vs-running-rg--git--grep-yourself">Why RestSift</a> ·
+  <a href="#-install">Install</a> ·
+  <a href="#-use">Use</a> ·
+  <a href="#-for-coding-agents">For agents</a> ·
+  <a href="#-safety--privacy">Safety</a> ·
+  <a href="#-development">Development</a>
+</p>
 
 </div>
 
@@ -35,25 +45,25 @@ is **self-documenting** via `--help` / `--introspect` and runs **100% on your ma
 ## ⚡ Quick start
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/UtmostCreator/agent-kit/main/web-install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/UtmostCreator/restsift/main/web-install.sh | bash
 
-ak --list        # discover every command   (ak = the installed short alias)
-ak s TODO        # your first search — default text mode, repo root auto-detected
+res --list        # discover every command   (res = the installed short alias)
+res s TODO        # your first search — default text mode, repo root auto-detected
 ```
 
-> `ak` is the short alias installed alongside the canonical `agent-kit`; every
-> example below uses it. `ak s QUERY` is sugar for `agent-kit search text QUERY`
+> `res` is the short alias installed alongside the canonical `restsift`; every
+> example below uses it. `res s QUERY` is sugar for `restsift search text QUERY`
 > — no mode word and no trailing `.` needed.
 
-## 🤔 Why AgentKit? (vs. running `rg` / `git` / `grep` yourself)
+## 🤔 Why RestSift? (vs. running `rg` / `git` / `grep` yourself)
 
-|                         | Raw shell tools               | 🧰 AgentKit                                                      |
+|                         | Raw shell tools               | 🧰 RestSift                                                      |
 | ----------------------- | ----------------------------- | ---------------------------------------------------------------- |
 | **Structured output**   | text you parse by hand        | JSON envelopes (`--introspect`, `AI_OUTPUT=json`)                |
-| **One interface**       | remember each tool's flags    | `agent-kit search` over ripgrep + git-grep + ast-grep            |
+| **One interface**       | remember each tool's flags    | `restsift search` over ripgrep + git-grep + ast-grep            |
 | **Guarded edits**       | none — a bad `sed` is forever | plan-first edits with scope checks, snapshots, and rollback      |
-| **Test selection**      | manual                        | `agent-kit test-select changed`                                  |
-| **Proof of completion** | manual                        | `agent-kit verify` — an evidence gate before you say "done"      |
+| **Test selection**      | manual                        | `restsift test-select changed`                                  |
+| **Proof of completion** | manual                        | `restsift verify` — an evidence gate before you say "done"      |
 | **Self-documenting**    | man pages vary wildly         | every command: `--help` + a runnable example, `--introspect`     |
 | **Agent-agnostic**      | —                             | one surface for Claude Code, Copilot, OpenCode, or a human       |
 | **Runtime**             | —                             | Bash + Git + `rg` + `jq`. No PHP, no Node required, no telemetry |
@@ -67,14 +77,17 @@ ak s TODO        # your first search — default text mode, repo root auto-detec
 - 🧪 **Test selection** — `test-select` picks the tests relevant to your changes.
 - ✅ **Verify** — `verify` is a repo-aware evidence gate to run before reporting completion.
 - 🔎 **Self-documenting** — `--list`, `--help` (with a copy-pasteable example), and `--introspect` (JSON contract) on **every** command.
+- 📤 **Machine-readable** — set `AI_OUTPUT=json` (or pass `--json`) for a stable `ai.<tool>/v1` envelope with a `status` field, now across the toolkit's commands; default human output stays byte-identical, so JSON is opt-in and never breaks a pipe. (`--introspect` returns a JSON contract on **every** command.)
 - 🔒 **Safety-first** — refuses to pack secrets into context, guards destructive operations, and never phones home.
 
 <details>
 <summary><b>See every command</b></summary>
 
-Run `agent-kit --list` for the live list with one-line summaries, browse a
+Run `restsift --list` for the live list with one-line summaries, browse a
 runnable example per command in [docs/EXAMPLES.md](docs/EXAMPLES.md), or read the
-[command map](docs/COMMANDS.md). Groups: search & discovery (`search`,
+[command map](docs/COMMANDS.md). For a full-surface audit of every command —
+defects fixed, output-quality improvements, and open follow-ups — see
+[docs/ai/audit-findings.md](docs/ai/audit-findings.md). Groups: search & discovery (`search`,
 `search-multi`, `search-introspect`, `rg-code`, `fd-files`, `preview-file`) ·
 context (`diff-context`, `pack-context`, `run-repomix-*`, `repomix-*`) · edits &
 safety (`edit`, `rollback`, `session-checkpoint`) · testing & verification
@@ -86,30 +99,30 @@ safety (`edit`, `rollback`, `session-checkpoint`) · testing & verification
 
 ## 🚀 Install
 
-Pick whichever fits your setup — all install the same `agent-kit` command **and
-the short `ak` alias**:
+Pick whichever fits your setup — all install the same `restsift` command **and
+the short `res` alias**:
 
 ```bash
 # One-line network install (stable: newest release tag)
-curl -fsSL https://raw.githubusercontent.com/UtmostCreator/agent-kit/main/web-install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/UtmostCreator/restsift/main/web-install.sh | bash
 
 # Homebrew (this repo is its own tap; --HEAD until the first tagged release)
-brew tap utmostcreator/agent-kit https://github.com/UtmostCreator/agent-kit
-brew install --HEAD agent-kit
+brew tap utmostcreator/restsift https://github.com/UtmostCreator/restsift
+brew install --HEAD restsift
 
-# npm (for Node-based agents; installs the `agent-kit` command)
-npm install -g @utmostcreator/agent-kit
+# npm (for Node-based agents; installs the `restsift` command)
+npm install -g @utmostcreator/restsift
 
 # From a clone (review before installing)
-git clone https://github.com/UtmostCreator/agent-kit.git
-cd agent-kit && ./install.sh
+git clone https://github.com/UtmostCreator/restsift.git
+cd restsift && ./install.sh
 ```
 
 Ensure `~/.local/bin` is in `PATH`. See **[INSTALL.md](INSTALL.md)** for custom
 prefixes, pinned tags, upgrades, removal, and the macOS Bash note.
 
-> 💡 **Two commands, one tool.** `agent-kit` is canonical; `ak` is the short
-> alias installed with it (`ak s TODO` = `agent-kit search text TODO`). Scripts
+> 💡 **Two commands, one tool.** `restsift` is canonical; `res` is the short
+> alias installed with it (`res s TODO` = `restsift search text TODO`). Scripts
 > can keep the readable long form; interactive use gets the short one.
 
 ### ⌨️ Shell completion
@@ -118,32 +131,34 @@ Tab-completion for commands, subcommand modes, and flags — generated from the
 command surface itself, so it never drifts from what `--help` reports:
 
 ```bash
-source <(agent-kit completion bash)   # current Bash session
-source <(agent-kit completion zsh)    # current Zsh session (after compinit)
-agent-kit completion fish > ~/.config/fish/completions/agent-kit.fish
+source <(restsift completion bash)   # current Bash session
+source <(restsift completion zsh)    # current Zsh session (after compinit)
+restsift completion fish > ~/.config/fish/completions/restsift.fish
 ```
 
-`agent-kit completion auto` detects your running shell. Both `agent-kit` and
-`ak` complete identically. Homebrew installs wire this up automatically.
+`restsift completion auto` detects your running shell. Both `restsift` and
+`res` complete identically. Homebrew installs wire this up automatically;
+`./install.sh` does too for Fish (and Bash, if `bash-completion` is set up) —
+Zsh always needs the `source` line above in `~/.zshrc`.
 
 ## 🎯 Use
 
 ```bash
-ak s TODO                       # find every TODO in the tree (repo root auto-detected)
-ak s export --changed           # search only the files you changed
-ak s emit_json libexec          # scope a search to a subdirectory
-ak diff-context unstaged        # build a context bundle around your changes
-ak test-select changed          # pick the tests relevant to changed files
-ak verify .                     # run repository-aware verification
-ak doctor                       # check your install + tool environment
+res s TODO                       # find every TODO in the tree (repo root auto-detected)
+res s export --changed           # search only the files you changed
+res s emit_json libexec          # scope a search to a subdirectory
+res diff-context unstaged        # build a context bundle around your changes
+res test-select changed          # pick the tests relevant to changed files
+res verify .                     # run repository-aware verification
+res doctor                       # check your install + tool environment
 ```
 
 Every command explains itself, so you never have to guess:
 
 ```bash
-ak --list                  # every command with a one-line summary
-ak <command> --help        # description, usage, and a copy-pasteable example
-ak <command> --introspect  # the same contract as machine-readable JSON
+res --list                  # every command with a one-line summary
+res <command> --help        # description, usage, and a copy-pasteable example
+res <command> --introspect  # the same contract as machine-readable JSON
 ```
 
 ### 🧩 Use it à la carte (no install required)
@@ -153,29 +168,29 @@ them without a global install — handy for trying one out or wiring one into yo
 own tooling:
 
 ```bash
-git clone https://github.com/UtmostCreator/agent-kit.git && cd agent-kit
-bash bin/agent-kit --list          # discover everything, with summaries
-bash bin/agent-kit s TODO          # run any command via the dispatcher (s = short search)
+git clone https://github.com/UtmostCreator/restsift.git && cd restsift
+bash bin/restsift --list          # discover everything, with summaries
+bash bin/restsift s TODO          # run any command via the dispatcher (s = short search)
 bash libexec/ai-search doctor      # …or invoke a script file directly
 ```
 
-(The `ak` alias is created by the installers; without an install, drive the
-dispatcher directly with `bash bin/agent-kit <command>`.)
+(The `res` alias is created by the installers; without an install, drive the
+dispatcher directly with `bash bin/restsift <command>`.)
 
 Scripts that source `lib/` need the repo layout intact — run them through
-`bin/agent-kit` or from a clone rather than copying a single file in isolation.
+`bin/restsift` or from a clone rather than copying a single file in isolation.
 
 ## 🤖 For coding agents
 
 Read **[AGENTS.md](AGENTS.md)** and **[docs/AI_USAGE.md](docs/AI_USAGE.md)**, then use
-`agent-kit` as the preferred repository-operations interface: respect command
+`restsift` as the preferred repository-operations interface: respect command
 scopes and guardrails, prefer structured (`AI_OUTPUT=json`) output, and run
-`agent-kit verify` before claiming a task is complete.
+`restsift verify` before claiming a task is complete.
 
 ## 🔒 Safety & privacy
 
 - **Runs entirely on your machine** — no telemetry, no analytics, no cloud sync. Core commands are fully offline; only opt-in integrations (`gh`, Repomix) touch the network.
-- **Guardrails, not a sandbox** — AgentKit reduces accidental repository damage, but it is _not_ an OS sandbox. Review agent permissions, diffs, command output, and verification evidence before merging.
+- **Guardrails, not a sandbox** — RestSift reduces accidental repository damage, but it is _not_ an OS sandbox. Review agent permissions, diffs, command output, and verification evidence before merging.
 - **Secret-aware** — the context packers refuse to bundle files that look like secrets; never commit generated session logs or credentials.
 - **Workflow files are themselves audited** — `actionlint` and `zizmor` statically check `.github/workflows/*.yml` for syntax errors, injection patterns, and permission drift on every push and pull request.
 
@@ -203,16 +218,31 @@ command uses, why, and a real captured example.
 ```bash
 ./scripts/check.sh              # shellcheck + full test suite (the CI gate)
 ./scripts/check-publishable.sh  # secret / hygiene boundary checks
-bash scripts/gen-examples.sh > docs/EXAMPLES.md   # regenerate the examples doc
+bash scripts/gen-examples.sh    # regenerate docs/EXAMPLES.md + docs/examples/*
 ```
 
-**Test coverage:** the suite runs **855 passing test cases** across 30 test
-files, exercising **all 28 public commands (100% command coverage)**. This
+**Running tests for correctness (serial):** `./scripts/check.sh` runs the test
+files **serially** (one `test/test-*.sh` at a time, in order) so a failure is
+attributable to a single file; only the ShellCheck lint is sharded across cores
+for speed. When you want fully deterministic, isolated output — no interleaved
+parallel warnings while chasing one problem — serialize the lint too:
+
+```bash
+CHECK_SHELLCHECK_JOBS=1 ./scripts/check.sh   # lint + tests both fully serial
+bash test/test-<command>.sh                  # run exactly one suite in isolation
+```
+
+**Test coverage:** the suite runs **~890 test cases** across **35 test files**,
+exercising **all 28 public commands (100% command coverage)** plus a
+cross-command behavioral-contract suite (`test/test-contract.sh`). The exact
+pass count is environment-dependent — optional-tool suites `skip` when the tool
+is absent (a minimal sandbox measures **888 passing · 8 skipped · 0 failed**).
+This
 figure is _command coverage_ — the share of shipped commands with a dedicated
 test — not statement coverage. For real line coverage, run
-`./scripts/coverage.sh` — as of this writing it measures **69.85% line
-coverage (5830/8347 executable lines)** across `bin/`, `lib/`, and `libexec/`,
-up from an initial 44.79% baseline (see `TODO/coverage-todo.md` for the
+`./scripts/coverage.sh` — as of this writing it measures **69.32% line
+coverage (6488/9359 executable lines across 115 files)** in `bin/`, `lib/`, and
+`libexec/`, up from an initial 44.79% baseline (see `TODO/coverage-todo.md` for the
 phased plan behind that climb — safety-critical guarded-mutation/rollback
 paths, the canonical `ai-verify` and `ai-search` engines, the repomix
 internal engines, `ai-diff-context`/`ai-context`, `ai-git`, the `ai-test`
@@ -244,8 +274,8 @@ GitHub Security Advisories — see **[SECURITY.md](SECURITY.md)**.
 
 ## 📣 Support
 
-- **Questions / usage** — [GitHub Discussions](https://github.com/UtmostCreator/agent-kit/discussions)
-- **Bugs** — [GitHub Issues](https://github.com/UtmostCreator/agent-kit/issues)
+- **Questions / usage** — [GitHub Discussions](https://github.com/UtmostCreator/restsift/discussions)
+- **Bugs** — [GitHub Issues](https://github.com/UtmostCreator/restsift/issues)
 - **Security** — [SECURITY.md](SECURITY.md)
 
 ## ⚖️ License

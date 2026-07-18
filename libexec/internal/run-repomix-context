@@ -2,11 +2,11 @@
 # Generate repository context tree through the safer shared wrapper path.
 #
 # Usage:
-#   agent-kit run-repomix-context [root] [options passed to repomix-context-tree]
+#   restsift run-repomix-context [root] [options passed to repomix-context-tree]
 #
 # Example:
-#   agent-kit run-repomix-context .                     # pack the whole current repo into an LLM-ready context bundle
-#   agent-kit run-repomix-context . --depth 2 --top 0   # same, but tune folder depth and pack all ranked routes
+#   restsift run-repomix-context .                     # pack the whole current repo into an LLM-ready context bundle
+#   restsift run-repomix-context . --depth 2 --top 0   # same, but tune folder depth and pack all ranked routes
 
 set -euo pipefail
 
@@ -106,7 +106,7 @@ if (( total_tokens > usable_budget )); then
     log_warn "Bundle size ($total_tokens tokens) exceeds usable budget ($usable_budget tokens)"
     log_info "  Excess: $(( total_tokens - usable_budget )) tokens ($(( (total_tokens * 100) / usable_budget ))% over budget)"
     log_info "  Recommendation: Use --top 2 to --top 5 for safe packing"
-    log_info "  Try: ak context tree all . --top 5"
+    log_info "  Try: res context tree all . --top 5"
 fi
 
 bundle_count="$(find "$BUNDLES_DIR" -type f 2>/dev/null | wc -l | tr -d ' ')"

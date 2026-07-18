@@ -397,14 +397,20 @@ ai_verify_run() {
             run_step 'semgrep scan --config auto .' semgrep scan --config auto .
         fi
         if command -v osv-scanner >/dev/null 2>&1; then
-            run_step 'osv-scanner scan source -r .' osv-scanner scan source -r .
+            # exit 128 == "No package sources found": a "nothing to scan"
+            # condition on repos without a recognized manifest/lockfile, not a
+            # vulnerability or tool crash, so it must not fail the gate.
+            STEP_OK_CODES=128 run_step 'osv-scanner scan source -r .' osv-scanner scan source -r .
         fi
     else
         if command -v semgrep >/dev/null 2>&1; then
             run_step 'semgrep scan --config auto .' semgrep scan --config auto .
         fi
         if command -v osv-scanner >/dev/null 2>&1; then
-            run_step 'osv-scanner scan source -r .' osv-scanner scan source -r .
+            # exit 128 == "No package sources found": a "nothing to scan"
+            # condition on repos without a recognized manifest/lockfile, not a
+            # vulnerability or tool crash, so it must not fail the gate.
+            STEP_OK_CODES=128 run_step 'osv-scanner scan source -r .' osv-scanner scan source -r .
         fi
     fi
 

@@ -1,25 +1,28 @@
 #!/usr/bin/env bash
 # Canonical repository-metadata command group (thin router).
 #
-# Routes `agent-kit repo <mode> ...` to the underlying repository-inspection
+# Routes `restsift repo <mode> ...` to the underlying repository-inspection
 # engine for that mode. Every engine stays a complete, directly-runnable
 # script under libexec/; this router only removes the need to remember which
 # top-level name reports which kind of repository metadata (defined tasks vs.
 # tracked-file counts vs. the whole command catalog vs. uncommitted doc drift).
 #
+# Invoked either as `restsift repo <mode>` or, equivalently, by its libexec
+# name `ai-repo <mode>`; both entry points route identically.
+#
 # Usage:
-#   agent-kit repo tasks [list|verify|test|lint|typecheck|json]  (ai-task)
-#   agent-kit repo stats                                         (repo-stats)
-#   agent-kit repo tools [--json]                                (repo-tool-inventory)
-#   agent-kit repo status                                        (ai-file-freshness)
+#   restsift repo tasks [list|verify|test|lint|typecheck|json]  (ai-task)
+#   restsift repo stats                                         (repo-stats)
+#   restsift repo tools [--json]                                (repo-tool-inventory)
+#   restsift repo status                                        (ai-file-freshness)
 #
 # Modes: tasks stats tools status
 #
 # Example:
-#   agent-kit repo tasks list    # list every task this project already defines
-#   agent-kit repo stats         # count files Git currently tracks
-#   agent-kit repo tools         # see every command and what it does
-#   agent-kit repo status        # list uncommitted changes under docs/, .github/, AGENTS.md
+#   restsift repo tasks list    # list every task this project already defines
+#   restsift repo stats         # count files Git currently tracks
+#   restsift repo tools         # see every command and what it does
+#   restsift repo status        # list uncommitted changes under docs/, .github/, AGENTS.md
 
 set -euo pipefail
 
@@ -48,12 +51,16 @@ case "${1:-}" in
         shift
         _repo_route ai-file-freshness "$@"
         ;;
+    --introspect)
+        exec env AI_OUTPUT=json "${BASH:-bash}" "$_repo_here/sh-introspect" "${BASH_SOURCE[0]}"
+        ;;
     --help | -h | "")
-        sed -n '2,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+        sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
         exit 0
         ;;
     *)
-        echo "agent-kit repo: unknown mode '$1' (expected tasks|stats|tools|status)" >&2
+        echo "restsift repo: unknown mode '$1' (expected tasks|stats|tools|status)" >&2
+        echo "Run 'restsift repo --help' for usage and examples." >&2
         exit 2
         ;;
 esac

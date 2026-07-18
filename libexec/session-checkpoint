@@ -1,12 +1,21 @@
 #!/usr/bin/env bash
 # Create a repository-local checkpoint using the shared snapshot system.
+# Exit codes: 0 = checkpoint created; 1 = not a git repository, the repository
+#   has no commits yet, or the snapshot manifest could not be written.
 #
 # Usage:
-#   session-checkpoint [label]
+#   session-checkpoint [--json] [label]
+#
+# Flags: --json
+#
+# Environment:
+#   AI_OUTPUT=json  emit the machine-readable ai.session-checkpoint/v1 envelope
+#                   on stdout (equivalent to passing --json)
 #
 # Example:
-#   agent-kit session-checkpoint                 # save a snapshot into .ai-logs/snapshots/
-#   agent-kit session-checkpoint before-refactor # save a labelled snapshot you can find later
+#   restsift session-checkpoint                 # save a snapshot into .ai-logs/snapshots/
+#   restsift session-checkpoint before-refactor # save a labelled snapshot you can find later
+#   AI_OUTPUT=json restsift session-checkpoint  # machine-readable envelope for agents
 
 set -euo pipefail
 
@@ -14,34 +23,112 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/ai/common.sh
 source "$SCRIPT_DIR/../lib/common.sh"
 
-usage() {
-    cat <<'EOF'
-Usage:
-  session-checkpoint.sh [label]
+# Note: --help/-h and --introspect are handled by common.sh's universal guards
+# (which exec libexec/sh-introspect and exit) BEFORE control ever returns here,
+# but only when they are the FIRST argument. This script therefore carries no
+# local usage()/case dispatch for those — it would be dead, unreachable code and
+# a second, drift-prone source of help text.
 
-Creates a manifest-based snapshot in .ai-logs/snapshots/.
+# Additive, default-off JSON output. `--json` (or AI_OUTPUT=json) makes stdout a
+# single ai.session-checkpoint/v1 envelope; the human/default mode is unchanged
+# (byte-identical "checkpoint created: <path>" on stdout). Split flags from
+# positionals so the label parsing below is unaffected by the new flag.
+json_mode=0
+[[ "${AI_OUTPUT:-}" == "json" ]] && json_mode=1
+positional=()
+warnings=()
+for arg in "$@"; do
+    case "$arg" in
+        --json)
+            json_mode=1
+            ;;
+        *)
+            positional+=("$arg")
+            ;;
+    esac
+done
 
-Examples:
-  scripts/ai/session-checkpoint.sh
-  scripts/ai/session-checkpoint.sh before-refactor
-EOF
-}
+label="${positional[0]:-checkpoint}"
 
-case "${1:-}" in
-    --help | -h)
-        usage
-        exit 0
-        ;;
-esac
+# This command takes at most one positional (the label). Extra positionals are
+# silently dropped by the snapshot filename builder, so a caller expecting
+# multi-word or multiple labels would lose them — warn instead of failing (the
+# extra args stay ignored; behavior is unchanged, only surfaced).
+if ((${#positional[@]} > 1)); then
+    warnings+=("ignoring extra argument(s) after label: ${positional[*]:1}")
+fi
 
-label="${1:-checkpoint}"
+# A leading-dash token is not a recognized flag (only --json/--help/-h/--introspect
+# exist), so it is being adopted verbatim as the snapshot label — almost always a
+# mistyped flag. Warn, but keep the no-flags contract (still used as the label).
+if [[ "$label" == -* ]]; then
+    warnings+=("label '$label' looks like a flag; using it as the snapshot label (only --json is recognized)")
+fi
+
+# Strip path separators from the label. snapshot_create() builds the snapshot
+# filename by raw string-concatenating the label into a path, so a '/' (or
+# '../') would create a bogus nested directory that no mkdir ever creates,
+# silently breaking snapshot creation. Collapse separators to '-' so a valid
+# snapshot is always produced.
+label="${label//\//-}"
+label="${label//\\/-}"
+
+# In human mode, surface warnings on stderr as they are known (stdout stays
+# reserved for the success line). In JSON mode they are carried in the envelope
+# instead, so stdout is a single clean JSON object.
+if ((json_mode == 0)); then
+    for _w in ${warnings[@]+"${warnings[@]}"}; do
+        log_warn "session-checkpoint: $_w"
+    done
+fi
 
 agent_session_init "session-checkpoint"
 require_bins jq git
 
 snapshot="$(snapshot_create "$label")"
 
-printf 'checkpoint created: %s\n' "$snapshot"
+# snapshot_create() runs inside command substitution, where set -e does not
+# propagate (bash inherit_errexit is off), so a failure there can return a
+# manifest path that was never written. Verify the file exists before
+# reporting success, otherwise fail loudly instead of exiting 0 on a no-op.
+if [[ -z "$snapshot" || ! -f "$snapshot" ]]; then
+    die "checkpoint failed: snapshot manifest was not created${snapshot:+ ($snapshot)}"
+fi
+
+restore_command="restsift ai-rollback apply $snapshot"
+
+if ((json_mode == 1)); then
+    # Machine-readable envelope, mirroring the ai.<tool>/v1 convention used by
+    # sibling commands (ai-doctor, repo-tool-inventory). base_ref and
+    # has_untracked_archive are read back from the manifest snapshot_create just
+    # wrote, so the envelope never re-derives repo state independently.
+    warnings_json="$(printf '%s\n' ${warnings[@]+"${warnings[@]}"} | jq -R . | jq -sc 'map(select(length > 0))')"
+    jq -cn \
+        --arg schema "ai.session-checkpoint/v1" \
+        --arg tool "session-checkpoint" \
+        --arg manifest "$snapshot" \
+        --arg label_arg "$label" \
+        --arg restore "$restore_command" \
+        --argjson warnings "$warnings_json" \
+        --slurpfile m "$snapshot" \
+        '{
+          schema: $schema,
+          status: "ok",
+          tool: $tool,
+          manifest: $manifest,
+          label: $label_arg,
+          base_ref: ($m[0].base_ref // null),
+          has_untracked_archive: ($m[0].has_untracked_archive // false),
+          restore_command: $restore,
+          warnings: $warnings
+        }'
+else
+    printf 'checkpoint created: %s\n' "$snapshot"
+    # Actionable next step: a checkpoint is only useful if the caller can find
+    # the paired restore command. Keep it on stderr so stdout stays byte-identical
+    # for existing scripts that parse the "checkpoint created:" line.
+    printf 'restore with: %s\n' "$restore_command" >&2
+fi
 
 # $label_arg, not $label — "label" is a jq grammar keyword and jq < 1.7
 # (e.g. Ubuntu 22.04's apt jq 1.6) rejects it as a variable identifier.

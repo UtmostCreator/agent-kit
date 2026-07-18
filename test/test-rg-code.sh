@@ -254,6 +254,14 @@ test_mode_tracked_no_match_exit() {
 }
 run_test "mode tracked propagates git grep's non-zero exit on no match" test_mode_tracked_no_match_exit
 
+# Regression: tracked mode fails fast when combined with output selectors it
+# cannot honor, instead of silently returning plain git-grep text.
+test_mode_tracked_rejects_json() {
+    git -C "$TMP" init -q 2>/dev/null || true
+    ! "$BASH_BIN" "$SCRIPT" "login" "$TMP" --mode tracked --json >/dev/null 2>&1
+}
+run_test "mode tracked rejects unsupported output selector" test_mode_tracked_rejects_json
+
 # Mode: blade
 test_mode_blade() {
     mkdir -p "$TMP/resources/views"
@@ -273,6 +281,98 @@ test_mode_kotlin() {
     [[ "$out" == *".kt"* ]]
 }
 run_test "mode kotlin filters to .kt/.kts files" test_mode_kotlin
+
+# Regression: --json must not launder a hard rg failure (invalid regex, exit >=2)
+# into a well-formed '[]' that a structured-output consumer reads as zero matches.
+test_json_hard_failure_no_empty_array() {
+    local out rc=0
+    out="$("$BASH_BIN" "$SCRIPT" "(" "$TMP/src" --json 2>/dev/null)" || rc=$?
+    ((rc >= 2)) && [[ -z "$out" ]]
+}
+run_test "--json hard rg failure does not emit '[]'" test_json_hard_failure_no_empty_array
+
+# Regression: non-numeric --context fails with a clean die() validation message,
+# not a raw bash 'unbound variable' arithmetic leak.
+test_context_non_numeric_validation() {
+    local out rc=0
+    out="$("$BASH_BIN" "$SCRIPT" "login" "$TMP/src" -C abc 2>&1)" || rc=$?
+    ((rc != 0)) && [[ "$out" == *"invalid --context"* ]] && [[ "$out" != *"unbound variable"* ]]
+}
+run_test "--context non-numeric value fails with clean validation" test_context_non_numeric_validation
+
+# AI_OUTPUT=json envelope: self-describing schema/status around a match.
+test_ai_envelope_ok() {
+    local out
+    out="$(AI_OUTPUT=json "$BASH_BIN" "$SCRIPT" "login" "$TMP/src")"
+    [[ "$(echo "$out" | jq -r '.schema')" == "ai.rg-code/v1" ]] &&
+        [[ "$(echo "$out" | jq -r '.status')" == "ok" ]] &&
+        [[ "$(echo "$out" | jq -r '.tool')" == "rg-code" ]] &&
+        echo "$out" | jq -e '.count >= 1' >/dev/null &&
+        echo "$out" | jq -e '.exit_code == 0' >/dev/null &&
+        echo "$out" | jq -e '.matches[0].file' >/dev/null &&
+        echo "$out" | jq -e '.files[0]' >/dev/null
+}
+run_test "AI_OUTPUT=json emits ai.rg-code/v1 envelope with status ok" test_ai_envelope_ok
+
+# Envelope no-match: status no_match, count 0, exit_code 1.
+test_ai_envelope_no_match() {
+    local out rc=0
+    out="$(AI_OUTPUT=json "$BASH_BIN" "$SCRIPT" "definitely_no_match_xyz_$$" "$TMP/src")" || rc=$?
+    ((rc == 1)) &&
+        [[ "$(echo "$out" | jq -r '.status')" == "no_match" ]] &&
+        echo "$out" | jq -e '.count == 0' >/dev/null &&
+        echo "$out" | jq -e '.exit_code == 1' >/dev/null
+}
+run_test "AI_OUTPUT=json no-match envelope has status no_match" test_ai_envelope_no_match
+
+# Envelope hard failure: invalid regex -> status error, exit_code >=2 (not '[]').
+test_ai_envelope_hard_error() {
+    local out rc=0
+    out="$(AI_OUTPUT=json "$BASH_BIN" "$SCRIPT" "(" "$TMP/src" 2>/dev/null)" || rc=$?
+    ((rc >= 2)) &&
+        [[ "$(echo "$out" | jq -r '.status')" == "error" ]] &&
+        echo "$out" | jq -e '.error' >/dev/null
+}
+run_test "AI_OUTPUT=json hard rg failure emits error envelope" test_ai_envelope_hard_error
+
+# Legacy --json still emits the bare array (not the envelope) for backward compat.
+test_legacy_json_stays_bare_array() {
+    local out
+    out="$("$BASH_BIN" "$SCRIPT" "login" "$TMP/src" --json)"
+    echo "$out" | jq -e 'type == "array"' >/dev/null &&
+        echo "$out" | jq -e '.[0].file' >/dev/null
+}
+run_test "legacy --json stays a bare array (no envelope)" test_legacy_json_stays_bare_array
+
+# Envelope rejects tracked mode with an error envelope (git grep can't structure).
+test_ai_envelope_tracked_rejected() {
+    git -C "$TMP" init -q 2>/dev/null || true
+    local out rc=0
+    out="$(AI_OUTPUT=json "$BASH_BIN" "$SCRIPT" "login" "$TMP" --mode tracked 2>/dev/null)" || rc=$?
+    ((rc != 0)) && [[ "$(echo "$out" | jq -r '.status')" == "error" ]]
+}
+run_test "AI_OUTPUT=json rejects --mode tracked with error envelope" test_ai_envelope_tracked_rejected
+
+# tracked mode on a non-git root reports an actionable die(), not raw git text.
+test_tracked_non_git_actionable() {
+    local out rc=0 nogit
+    nogit="$(mktemp -d)"
+    echo "login here" >"$nogit/f.txt"
+    out="$("$BASH_BIN" "$SCRIPT" "login" "$nogit" --mode tracked 2>&1)" || rc=$?
+    rm -rf "$nogit"
+    ((rc != 0)) && [[ "$out" == *"not inside one"* ]] && [[ "$out" != *"fatal: not a git repository"* ]]
+}
+run_test "tracked mode on non-git root gives actionable error" test_tracked_non_git_actionable
+
+# --introspect exposes the mode enum programmatically.
+test_introspect_modes_populated() {
+    local out
+    out="$(AI_OUTPUT=json "$BASH_BIN" "$REPO_ROOT/libexec/sh-introspect" "$SCRIPT")"
+    echo "$out" | jq -e '.modes | index("tracked")' >/dev/null &&
+        echo "$out" | jq -e '.modes | index("config")' >/dev/null &&
+        echo "$out" | jq -e '(.modes | length) == 8' >/dev/null
+}
+run_test "--introspect modes[] enumerates the 8 modes" test_introspect_modes_populated
 
 printf '\n=== Results ===\n'
 printf '  Passed: %d  Failed: %d  Skipped: %d\n' "$PASS" "$FAIL" "$SKIP"

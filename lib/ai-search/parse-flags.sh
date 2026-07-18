@@ -142,7 +142,8 @@ parse_flags() {
                 exit 0
                 ;;
             --*)
-                fail "error" "unknown flag: $1"
+                fail "error" "unknown flag: $1" 1 \
+                    "unknown_flag" "run 'restsift search --help' or '--introspect' to list valid flags"
                 ;;
             *)
                 positionals+=("$1")

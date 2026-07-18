@@ -102,7 +102,7 @@ printf 'ai-git\n'
 test_origin_help() {
     local out
     out="$("$BASH_BIN" "$SCRIPT" origin --help 2>&1 || true)"
-    [[ "$out" == *"agent-kit git origin"* && "$out" == *"--field"* ]]
+    [[ "$out" == *"restsift git origin"* && "$out" == *"--field"* ]]
 }
 run_test "origin --help prints usage" test_origin_help
 
@@ -298,6 +298,39 @@ test_blame_json() {
 }
 run_test "blame --json has mode and output fields" test_blame_json
 
+# Regression (defect 1): --json must not swallow the underlying command's
+# failure. A blame on a nonexistent file exits non-zero in plain mode; the
+# --json envelope must both exit non-zero AND carry a status/error a caller can
+# branch on, instead of stuffing the error text into `output` and exiting 0.
+test_blame_json_propagates_failure() {
+    local out rc=0
+    out="$("$BASH_BIN" "$SCRIPT" blame "1,10" NOPE_FILE_DOES_NOT_EXIST.md --json 2>/dev/null)" || rc=$?
+    ((rc != 0)) || return 1
+    jq -e '.status != 0 and .error != null' <<<"$out" >/dev/null
+}
+run_test "blame --json propagates underlying failure" test_blame_json_propagates_failure
+
+# Regression (defect 2): an out-of-range LINES spec on a tracked file must not
+# fall through to the sed fallback (which returns empty output and exit 0);
+# git's invalid-range error must surface as a non-zero exit.
+test_blame_out_of_range_fails() {
+    local rc=0
+    "$BASH_BIN" "$SCRIPT" blame "999999,1000000" lib/common.sh >/dev/null 2>&1 || rc=$?
+    ((rc != 0))
+}
+run_test "blame out-of-range on tracked file surfaces error" test_blame_out_of_range_fails
+
+# A bad LINES spec on a tracked file must surface an actionable ai-git `hint`
+# in the --json envelope (wrapping git's raw usage/fatal text), while still
+# carrying a non-zero status and exiting non-zero.
+test_blame_json_hint() {
+    local out rc=0
+    out="$("$BASH_BIN" "$SCRIPT" blame "notaline" lib/common.sh --json 2>/dev/null)" || rc=$?
+    ((rc != 0)) || return 1
+    jq -e '.hint != null and (.hint | contains("blame LINES")) and .status != 0' <<<"$out" >/dev/null
+}
+run_test "blame bad line spec --json carries an actionable hint" test_blame_json_hint
+
 test_history_unknown_mode() {
     ! "$BASH_BIN" "$SCRIPT" history X "query" 2>/dev/null
 }
@@ -361,6 +394,20 @@ else
             and .diff == null' <<<"$out" >/dev/null
     }
     run_test "pr-context --json emits a valid envelope" test_pr_context_json
+
+    # The --json output must carry the stable ai-git envelope header
+    # (schema/status/tool + warnings/errors arrays) shared with `origin --json`,
+    # so an agent can parse any mode's output the same way.
+    test_pr_context_json_envelope() {
+        local out
+        out="$(PATH="$PR_GH_BIN:$PATH" AI_SESSION_DURABLE_LOG=0 "$BASH_BIN" "$SCRIPT" pr-context 1 --json 2>/dev/null)"
+        jq -e '.schema == 1
+            and .status == "ok"
+            and .tool == "gh-pr-context"
+            and (.warnings | type) == "array"
+            and (.errors | type) == "array"' <<<"$out" >/dev/null
+    }
+    run_test "pr-context --json carries the shared schema/status/tool envelope" test_pr_context_json_envelope
 
     test_pr_context_checks_plain() {
         local out
@@ -450,13 +497,217 @@ else
 fi
 
 # =============================================================================
+# files mode — status selector
+# =============================================================================
+
+# A repo exercising the porcelain codes: M (staged mod), A (staged add),
+# ?? (untracked), D (unstaged delete), and a worktree-only modification.
+make_status_fixture() {
+    local dir="$1"
+    mkdir -p "$dir"
+    (
+        cd "$dir" && git init -q &&
+            git config user.email t@t && git config user.name t &&
+            printf 'x\n' >stagemod.php && printf 'x\n' >wtmod.php && printf 'x\n' >del.php &&
+            git add -A && git commit -qm init &&
+            printf 'x\ny\n' >stagemod.php && git add stagemod.php &&
+            printf 'x\nz\n' >wtmod.php &&
+            printf 'new\n' >added.php && git add added.php &&
+            printf 'u\n' >untracked.php &&
+            rm del.php
+    ) >/dev/null 2>&1
+}
+
+# A repo left in a real UU merge conflict on shared.php.
+make_conflict_fixture() {
+    local dir="$1"
+    mkdir -p "$dir"
+    (
+        cd "$dir" && git init -q &&
+            git config user.email t@t && git config user.name t &&
+            git symbolic-ref HEAD refs/heads/main &&
+            printf 'shared\n' >shared.php && git add -A && git commit -qm init &&
+            git checkout -q -b feature && printf 'feat\n' >shared.php && git commit -qam feat &&
+            git checkout -q main && printf 'main\n' >shared.php && git commit -qam main &&
+            { git merge feature >/dev/null 2>&1 || true; }
+    ) >/dev/null 2>&1
+}
+
+if command -v jq >/dev/null 2>&1; then
+    SFIX="$TMP/statusfix"
+    make_status_fixture "$SFIX"
+
+    # count_sel SELECTOR... -> the .count from a --json run in the fixture.
+    files_json() { (cd "$SFIX" && "$BASH_BIN" "$SCRIPT" files "$@" --json); }
+
+    test_files_all_count() {
+        [[ "$(files_json --all | jq -r '.count')" == "5" ]]
+    }
+    run_test "files --all lists every changed path" test_files_all_count
+
+    test_files_staged() {
+        # A staged add + a staged modification, and NOT the worktree-only file.
+        files_json --staged | jq -e '
+            (.count == 2) and
+            ([.files[].path] | (index("added.php") != null) and (index("stagemod.php") != null)
+                and (index("wtmod.php") == null))' >/dev/null
+    }
+    run_test "files --staged selects index-side changes" test_files_staged
+
+    test_files_untracked() {
+        files_json --untracked | jq -e '.count==1 and .files[0].path=="untracked.php"' >/dev/null
+    }
+    run_test "files --untracked selects ?? paths" test_files_untracked
+
+    test_files_deleted() {
+        files_json --deleted | jq -e '.count==1 and .files[0].path=="del.php"' >/dev/null
+    }
+    run_test "files --deleted selects D paths" test_files_deleted
+
+    test_files_added() {
+        files_json --added | jq -e '.count==1 and .files[0].path=="added.php"' >/dev/null
+    }
+    run_test "files --added selects staged adds" test_files_added
+
+    test_files_new_union() {
+        # --new is the union of added (A) and untracked (??).
+        files_json --new | jq -e '
+            (.count==2) and ([.files[].path] | sort == ["added.php","untracked.php"])' >/dev/null
+    }
+    run_test "files --new unions added and untracked" test_files_new_union
+
+    test_files_modified() {
+        files_json --modified | jq -e '
+            [.files[].path] | sort == ["stagemod.php","wtmod.php"]' >/dev/null
+    }
+    run_test "files --modified selects M in either column" test_files_modified
+
+    test_files_tracked_excludes_untracked() {
+        files_json --tracked | jq -e '[.files[].path] | index("untracked.php") == null' >/dev/null
+    }
+    run_test "files --tracked excludes untracked paths" test_files_tracked_excludes_untracked
+
+    test_files_union_of_selectors() {
+        # Multiple selectors union: --added + --deleted -> both files.
+        files_json --added --deleted | jq -e '
+            [.files[].path] | sort == ["added.php","del.php"]' >/dev/null
+    }
+    run_test "multiple selectors union their results" test_files_union_of_selectors
+
+    test_files_categories() {
+        files_json --staged | jq -e '
+            .files[] | select(.path=="added.php")
+            | (.categories | (index("added") and index("new") and index("staged")))' >/dev/null
+    }
+    run_test "files --json reports per-path categories" test_files_categories
+
+    test_files_name_only_bare() {
+        # --name-only prints bare paths (no XY prefix / no tab).
+        local out
+        out="$(cd "$SFIX" && "$BASH_BIN" "$SCRIPT" files --untracked --name-only 2>/dev/null)"
+        [[ "$out" == "untracked.php" ]]
+    }
+    run_test "files --name-only prints bare paths" test_files_name_only_bare
+
+    test_files_null_sep() {
+        # -0 NUL-separates; converting NUL->newline yields the path.
+        local out
+        out="$(cd "$SFIX" && "$BASH_BIN" "$SCRIPT" files --untracked --name-only -0 2>/dev/null | tr '\0' '\n')"
+        [[ "$out" == "untracked.php" ]]
+    }
+    run_test "files --name-only -0 NUL-separates paths" test_files_null_sep
+
+    test_files_conflicted_category() {
+        local cfix="$TMP/uufix"
+        make_conflict_fixture "$cfix"
+        (cd "$cfix" && "$BASH_BIN" "$SCRIPT" files --conflicted --json) | jq -e '
+            .count==1 and .files[0].path=="shared.php"
+            and (.files[0].categories | index("conflicted") != null)' >/dev/null
+    }
+    run_test "files --conflicted selects unmerged (UU) paths" test_files_conflicted_category
+else
+    skip_test "files mode (jq)" "jq not installed"
+fi
+
+test_files_not_a_repo() {
+    local rc=0
+    (cd "$TMP" && "$BASH_BIN" "$SCRIPT" files >/dev/null 2>&1) || rc=$?
+    ((rc == 1))
+}
+run_test "files outside a git repo fails (exit 1)" test_files_not_a_repo
+
+test_files_unknown_option() {
+    local rc=0
+    "$BASH_BIN" "$SCRIPT" files --nonesuch >/dev/null 2>&1 || rc=$?
+    ((rc == 1))
+}
+run_test "files rejects an unknown option" test_files_unknown_option
+
+# =============================================================================
+# conflicts mode — marker scanner
+# =============================================================================
+if command -v jq >/dev/null 2>&1 && command -v rg >/dev/null 2>&1; then
+    CFIX="$TMP/conflictfix"
+    make_conflict_fixture "$CFIX"
+
+    test_conflicts_finds_markers() {
+        (cd "$CFIX" && "$BASH_BIN" "$SCRIPT" conflicts --json) | jq -e '
+            (.count >= 3) and
+            ([.markers[].marker] | (index("begin") and index("sep") and index("end")))' >/dev/null
+    }
+    run_test "conflicts detects begin/sep/end markers" test_conflicts_finds_markers
+
+    test_conflicts_line_numbers() {
+        # The begin marker sits on shared.php line 1 (file opens with <<<<<<<).
+        (cd "$CFIX" && "$BASH_BIN" "$SCRIPT" conflicts --json) | jq -e '
+            .markers | any(.marker=="begin" and (.path|test("shared.php$")) and .line==1)' >/dev/null
+    }
+    run_test "conflicts reports the marker line number" test_conflicts_line_numbers
+
+    test_conflicts_unmerged_files() {
+        (cd "$CFIX" && "$BASH_BIN" "$SCRIPT" conflicts --json) |
+            jq -e '.unmerged_files | index("shared.php") != null' >/dev/null
+    }
+    run_test "conflicts lists git-reported unmerged files" test_conflicts_unmerged_files
+
+    test_conflicts_fail_on_findings() {
+        local rc=0
+        (cd "$CFIX" && "$BASH_BIN" "$SCRIPT" conflicts --fail-on-findings >/dev/null 2>&1) || rc=$?
+        ((rc == 3))
+    }
+    run_test "conflicts --fail-on-findings exits 3 when markers exist" test_conflicts_fail_on_findings
+
+    test_conflicts_clean_is_zero() {
+        # A repo with no markers: zero findings, and exit 0 even with the gate.
+        local clean="$TMP/clean-conflicts"
+        make_git_fixture "$clean" main
+        (cd "$clean" && "$BASH_BIN" "$SCRIPT" conflicts --fail-on-findings --json) |
+            jq -e '.count==0 and .status=="ok"' >/dev/null
+    }
+    run_test "conflicts on a clean tree finds nothing and exits 0" test_conflicts_clean_is_zero
+
+    test_conflicts_ignores_dot_equals() {
+        # A lone "=======" separator is a marker, but a marker scan must not fire
+        # on a shorter run of equals (e.g. a 4-char divider).
+        local d="$TMP/eqfix"
+        mkdir -p "$d"
+        (cd "$d" && git init -q && git config user.email t@t && git config user.name t)
+        printf 'title\n====\nbody\n' >"$d/doc.md"
+        (cd "$d" && "$BASH_BIN" "$SCRIPT" conflicts --json) | jq -e '.count==0' >/dev/null
+    }
+    run_test "conflicts does not fire on a short equals divider" test_conflicts_ignores_dot_equals
+else
+    skip_test "conflicts mode (jq/rg)" "jq or ripgrep not installed"
+fi
+
+# =============================================================================
 # group-level dispatch
 # =============================================================================
 
 test_group_help() {
     local out
     out="$("$BASH_BIN" "$SCRIPT" --help 2>&1 || true)"
-    [[ "$out" == *"agent-kit git"* ]]
+    [[ "$out" == *"restsift git"* ]]
 }
 run_test "group --help prints usage" test_group_help
 

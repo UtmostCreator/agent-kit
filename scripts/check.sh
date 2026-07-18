@@ -39,8 +39,12 @@ if command -v shellcheck >/dev/null 2>&1; then
         # per-file shards surfaced 5 such false positives that vanished the
         # moment -x was added, matching the single-invocation baseline
         # (0 warnings) exactly.
+        # Parallel by default for speed; set CHECK_SHELLCHECK_JOBS=1 to lint
+        # serially when you want deterministic, isolated output for correctness
+        # debugging (a single failing file, no interleaved parallel warnings).
+        shellcheck_jobs="${CHECK_SHELLCHECK_JOBS:-$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}"
         printf '%s\0' "${shell_files[@]}" |
-            xargs -0 -P"$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)" -n5 \
+            xargs -0 -P"$shellcheck_jobs" -n5 \
                 shellcheck -x --severity=warning --
     fi
 else

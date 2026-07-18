@@ -35,6 +35,15 @@ flag). The envelope is: {schema,status,tool,query,mode,matches[],results[],
 warnings[],errors[],limits,meta[,summary,symbols]}. Status is one of:
 ok | no_matches | error | unavailable | dry_run | blocked.
 
+Exit codes:
+    0   ok | no_matches | dry_run | blocked | unavailable
+    1   error (unknown flag/mode, missing required tool, not a git repository,
+        invalid regex)
+A search that finds nothing exits 0 with status=no_matches, which is NOT
+distinguishable from status=ok by exit code alone. Branch on the envelope
+`status` field (AI_OUTPUT=json), not the exit code, to tell an empty result set
+from a successful one.
+
 Content-search modes (QUERY required; structured results[] via rg):
     text                    search a root (rg)
     tracked                 git-grep over tracked files (requires git root)
@@ -111,10 +120,12 @@ Flags:
     --context N | -C N      N lines before+after
     --before-context N | -B N   N lines before match
     --after-context N | -A N    N lines after match
-  Output shape:
+  Output shape (JSON-only: these flags shape AI_OUTPUT=json results[]/summary{};
+  in plain terminal output they are ignored and a stderr note is printed):
     --files-with-matches | -l   results[] of {path} only + summary{}
     --count                 results[] of {path,count} + summary{}
-    --count-matches         summary{} match totals only
+    --count-matches         per-file {path,count} results[] + summary{} totals
+                            (same results[] as --count; both carry summary{})
   Bounds:
     --max-results N         cap returned matches; default 100; sets meta.truncated
     --max-bytes N           drop context payload past N bytes; sets meta.truncated

@@ -6,18 +6,31 @@
 # here in load order; each mode is dispatched to its module's *_main function.
 #
 # Usage:
-#   agent-kit git origin [--json] [--field name|base|count|all]
-#   agent-kit git history MODE TARGET [file] [--json]   (MODE: S|G|L)
-#   agent-kit git blame LINES FILE [--json]
-#   agent-kit git pr-context NUMBER [--diff] [--checks] [--reviews] [--pack] [--json]
+#   restsift git origin [--json] [--field name|base|count|all]
+#   restsift git history MODE TARGET [file] [--json]   (MODE: S|G|L)
+#   restsift git blame LINES FILE [--json]
+#   restsift git pr-context NUMBER [--diff] [--checks] [--reviews] [--pack] [--json]
+#   restsift git files [SELECTOR...] [PATHSPEC] [--name-only] [--json] [-0]
+#   restsift git conflicts [FOLDER] [--json] [--fail-on-findings]
 #
-# Modes: origin history blame pr-context
+# Modes: origin history blame pr-context files conflicts
 #
 # Example:
-#   agent-kit git origin                          # print the branch your branch was created from
-#   agent-kit git history S "TODO" README.md      # find commits that added/removed "TODO"
-#   agent-kit git blame 1,20 README.md            # annotate who last changed lines 1-20
-#   agent-kit git pr-context 123 --checks         # show PR #123 metadata plus CI check status
+#   restsift git origin                          # print the branch your branch was created from
+#   restsift git history S "TODO" README.md      # find commits that added/removed "TODO"
+#   restsift git blame 1,20 README.md            # annotate who last changed lines 1-20
+#   restsift git pr-context 123 --checks         # show PR #123 metadata plus CI check status
+#   restsift git files --staged --name-only      # list staged paths, one per line
+#   restsift git conflicts --fail-on-findings     # scan for <<<<<<< / ======= / >>>>>>> markers
+#
+# Exit codes:
+#   0    success
+#   1    usage/validation error (bad flag or --field, missing argument)
+#   2    unknown mode
+#   3    conflicts --fail-on-findings found markers
+#   128  git passthrough failure (e.g. blame LINES out of range)
+#   129  git usage error (e.g. malformed blame LINES spec)
+#   5    gh/network passthrough error (pr-context)
 
 set -euo pipefail
 
@@ -35,9 +48,11 @@ source "$_ai_git_dir/origin.sh"
 source "$_ai_git_dir/forensics.sh"
 # shellcheck source=lib/ai-git/pr-context.sh
 source "$_ai_git_dir/pr-context.sh"
+# shellcheck source=lib/ai-git/status.sh
+source "$_ai_git_dir/status.sh"
 
 ai_git_usage() {
-    sed -n '2,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '2,28p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 case "${1:-}" in
@@ -57,12 +72,20 @@ case "${1:-}" in
         shift
         ai_git_pr_context_main "$@"
         ;;
+    files)
+        shift
+        ai_git_files_main "$@"
+        ;;
+    conflicts)
+        shift
+        ai_git_conflicts_main "$@"
+        ;;
     --help | -h | "")
         ai_git_usage
         exit 0
         ;;
     *)
-        echo "agent-kit git: unknown mode '$1' (expected origin|history|blame|pr-context)" >&2
+        echo "restsift git: unknown mode '$1' (expected origin|history|blame|pr-context|files|conflicts)" >&2
         exit 2
         ;;
 esac

@@ -7,16 +7,23 @@
 # monolithic version.
 #
 # Usage:
-#   agent-kit verify [ROOT] [--language LANG]    verify changes under ROOT (default: cwd)
-#   agent-kit verify docs [all|markdownlint|links|drift] [paths...]
+#   restsift verify [ROOT] [--language LANG]    verify changes under ROOT (default: cwd)
+#   restsift verify [ROOT] --json               same, plus a machine-readable JSON
+#                                                 summary envelope (schema ai.verify/v1) on stdout
+#   AI_OUTPUT=json restsift verify [ROOT]        JSON summary envelope (env form)
+#   restsift verify docs [all|markdownlint|links|drift] [paths...]
 #                                                 verify documentation quality (lint/links/drift)
-#   agent-kit verify refs [path] [flags]         find tracked files nothing else references
+#   restsift verify refs [path] [flags]         find tracked files nothing else references
+#   Scope: AI_VERIFY_SCOPE=ai|changed|branch|all (default ai = changed/dirty-only)
+#   Exit: 0 = all verification steps passed; 1 = a step failed, or the scope was
+#         invalid, or ROOT is not a git work tree
 #
 # Example:
-#   agent-kit verify --help                      # see accepted args before running (safe)
-#   agent-kit verify .                           # verify the change in the current project
-#   agent-kit verify docs links README.md        # check links in one doc file (read-only)
-#   agent-kit verify refs docs --ext md           # find orphaned markdown docs under docs/
+#   restsift verify --help                      # see accepted args before running (safe)
+#   restsift verify .                           # verify the change in the current project
+#   restsift verify . --json | jq .status       # parse the gate result (pass/fail) in CI
+#   restsift verify docs links README.md        # check links in one doc file (read-only)
+#   restsift verify refs docs --ext md           # find orphaned markdown docs under docs/
 #
 # Modes: docs refs
 #
@@ -34,7 +41,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 # same file). Absolute resolution makes the path cwd-independent.
 _ai_verify_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Sibling subcommand dispatch: `agent-kit verify docs ...` / `agent-kit verify
+# Sibling subcommand dispatch: `restsift verify docs ...` / `restsift verify
 # refs ...`. Handled here, before the main --language/scope pipeline below is
 # loaded, mirroring the early subcommand blocks in libexec/ai-search
 # ("capabilities"/"batch": a small `if [[ "${1:-}" == "..." ]]` check that
@@ -75,14 +82,26 @@ fi
 # unchanged.
 root=""
 AI_VERIFY_LANGUAGE=""
+# Opt-in machine-readable summary. Off by default: default/human output is
+# byte-for-byte unchanged. Enabled by AI_OUTPUT=json (env form, matching the
+# `doctor`/`version` sibling convention) or the additive `--json` flag below.
+json_mode=""
+[[ "${AI_OUTPUT:-}" == "json" ]] && json_mode=1
 _ai_verify_args=("$@")
 _ai_verify_idx=0
 while ((_ai_verify_idx < ${#_ai_verify_args[@]})); do
     _ai_verify_arg="${_ai_verify_args[$_ai_verify_idx]}"
     case "$_ai_verify_arg" in
+        --json)
+            json_mode=1
+            ;;
         --language)
             _ai_verify_idx=$((_ai_verify_idx + 1))
-            AI_VERIFY_LANGUAGE="${_ai_verify_args[$_ai_verify_idx]:-}"
+            _ai_verify_lang_val="${_ai_verify_args[$_ai_verify_idx]:-}"
+            if ((_ai_verify_idx >= ${#_ai_verify_args[@]})) || [[ -z "$_ai_verify_lang_val" || "$_ai_verify_lang_val" == -* ]]; then
+                die "--language requires a value (php|js|ts|vue|html)"
+            fi
+            AI_VERIFY_LANGUAGE="$_ai_verify_lang_val"
             ;;
         *)
             [[ -z "$root" ]] && root="$_ai_verify_arg"
@@ -91,12 +110,21 @@ while ((_ai_verify_idx < ${#_ai_verify_args[@]})); do
     _ai_verify_idx=$((_ai_verify_idx + 1))
 done
 root="${root:-.}"
-unset _ai_verify_args _ai_verify_idx _ai_verify_arg
+unset _ai_verify_args _ai_verify_idx _ai_verify_arg _ai_verify_lang_val
 
 VERIFY_FULL="${VERIFY_FULL:-0}"
 VERIFY_TIMEOUT="${VERIFY_TIMEOUT:-180}"
 SHELLCHECK_ARGS="${SHELLCHECK_ARGS:--x -e SC1091}"
 AI_VERIFY_SCOPE="${AI_VERIFY_SCOPE:-ai}"
+# Validate the scope once, up front. The scope helpers (lib/ai-verify/scope.sh)
+# also die on an unknown value, but they run inside process substitutions
+# (e.g. `done < <(tracked_existing_shell_files)`), so their die() only kills a
+# subshell and the parent pipeline would otherwise proceed to exit 0 on a
+# misconfigured gate. Guarding here fails fast with a clean nonzero exit.
+case "$AI_VERIFY_SCOPE" in
+    ai | changed | branch | all) ;;
+    *) die "unknown AI_VERIFY_SCOPE: $AI_VERIFY_SCOPE (expected ai|changed|branch|all)" ;;
+esac
 VERIFY_SECRETS="${VERIFY_SECRETS:-${SECRETS_SCAN:-1}}"
 # Base ref used by the "branch" scope to diff the current branch against its
 # divergence point. Override when your trunk is not origin/main.
@@ -137,7 +165,17 @@ VERIFY_PLAN_STATUS="${VERIFY_PLAN_STATUS:-1}"
 
 failures=0
 
-cd "$root"
+# Guard the root before entering it, so a nonexistent/typo'd path surfaces a
+# formatted [ERROR] via die() instead of a raw `cd: No such file or directory`.
+[[ -d "$root" ]] || die "ai-verify: '$root' is not a directory (Requires: git)"
+cd "$root" || die "ai-verify: cannot enter directory '$root'"
+
+# Honest "Requires: git" contract: every scope helper and the reporting flow
+# below assume a git work tree (git diff/ls-files, gitleaks, line-count/plan
+# scoping). Outside one they dump git's own usage text and still report success,
+# so fail fast with a clear message instead.
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
+    die "ai-verify: '$root' is not inside a git repository (Requires: git)"
 
 # Load-ordered modules. Sourced AFTER common.sh so they may use its helpers, and
 # AFTER cd "$root" so cwd-relative checks behave exactly as before. Order matters:
@@ -164,6 +202,51 @@ source "$_ai_verify_dir/../lib/ai-verify/reporting.sh"
 source "$_ai_verify_dir/../lib/ai-verify/run.sh"
 # shellcheck source=lib/ai-verify/language-dispatch.sh
 source "$_ai_verify_dir/../lib/ai-verify/language-dispatch.sh"
+
+# Machine-readable run summary (schema ai.verify/v1), emitted once at process
+# exit when json_mode is on. Reads the globals the pipeline already maintains:
+# $failures (the gate tally), $AI_VERIFY_SCOPE, and $_verify_step_records (the
+# tab-delimited "rc<TAB>status<TAB>label" lines that run_step appends, and ONLY
+# appends, when json mode is active — see lib/ai-verify/step-runner.sh). The
+# status mirrors the process exit code so a consumer never has to reconcile the
+# two: exit 0 => "pass", any nonzero => "fail".
+_ai_verify_emit_json_summary() {
+    local exit_code="${1:-0}" status="pass" steps_json="[]"
+    ((exit_code != 0)) && status="fail"
+    if command -v jq >/dev/null 2>&1; then
+        steps_json="$(printf '%s' "${_verify_step_records:-}" | jq -R -s '
+            split("\n") | map(select(length > 0)) | map(
+              split("\t") as $p | {label: $p[2], status: $p[1], exit: ($p[0] | tonumber)}
+            )' 2>/dev/null || printf '[]')"
+        jq -cn \
+            --arg status "$status" \
+            --arg scope "$AI_VERIFY_SCOPE" \
+            --argjson failures "$failures" \
+            --argjson steps "$steps_json" \
+            '{schema: "ai.verify/v1", status: $status, tool: "restsift",
+              scope: $scope, failures: $failures,
+              steps_run: ($steps | length), steps: $steps}'
+    else
+        printf '{"schema":"ai.verify/v1","status":"%s","tool":"restsift","scope":"%s","failures":%d,"steps_run":0,"steps":[]}\n' \
+            "$status" "$AI_VERIFY_SCOPE" "$failures"
+    fi
+}
+
+# When JSON output is requested, route the human step stream to stderr and emit
+# a single ai.verify/v1 envelope to the real stdout at exit, so an agent/CI can
+# parse the gate result without scraping tool output. Set up AFTER the up-front
+# scope/dir/git guards above so their die() paths keep their existing human
+# [ERROR] + nonzero-exit behavior unchanged. The EXIT trap captures the true
+# exit code first, then re-exits with it so the gate's exit contract is intact.
+if [[ -n "$json_mode" ]]; then
+    _ai_verify_json_mode=1
+    exec 3>&1
+    # _ai_verify_exit_rc is assigned at the head of this same trap string before
+    # it is read; shellcheck cannot see that intra-string assignment (SC2154).
+    # shellcheck disable=SC2154
+    trap '_ai_verify_exit_rc=$?; _ai_verify_emit_json_summary "$_ai_verify_exit_rc" >&3 || true; exit "$_ai_verify_exit_rc"' EXIT
+    exec 1>&2
+fi
 
 if [[ -n "$AI_VERIFY_LANGUAGE" ]]; then
     ai_verify_language "$AI_VERIFY_LANGUAGE"

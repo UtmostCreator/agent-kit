@@ -4,13 +4,42 @@
 # Usage:
 #   ai-task list|json                 inventory of package/composer/make/just tasks
 #   ai-task verify|test|lint|typecheck   recommend the right command for this repo
+#   ai-task todos [PATH]              scan Markdown checkboxes ([ ]/[x]) with per-file stats
+#   ai-task <mode> --json             wrap the result in an ai.task/v1 JSON envelope
+#   AI_OUTPUT=json ai-task <mode>     same envelope, selected via the environment
 #
 # Example:
-#   agent-kit task list             # list every task this project already defines
-#   agent-kit task test             # print the command to run this repo's tests
-#   agent-kit task verify           # print the recommended "verify" command to run
+#   restsift task list             # list every task this project already defines
+#   restsift task test             # print the command to run this repo's tests
+#   restsift task verify           # print the recommended "verify" command to run
+#   restsift task test --json      # {"schema":"ai.task/v1",...,"data":{"command":...}}
+#   restsift task todos            # checkbox progress table for every .md under cwd
+#   restsift task todos docs/      # scope the scan to one directory
+#   restsift task todos PLAN.md    # scan a single file
+#   restsift task todos --pending  # also list every unchecked item as PATH:LINE: text
+#   restsift task todos --json     # per-file + totals as an ai.task/v1 envelope
 #
-# Modes: list verify test lint typecheck json
+# todos mode: a Markdown task line is `- [ ] ...`, `* [x] ...`, or `1. [ ] ...`
+# (list bullet, then a single-char `[state]`). ` ` = pending, `x`/`X` = done,
+# any other char (e.g. `-`, `~`, `/`) is counted as "other" (in-progress /
+# cancelled conventions). PATH defaults to `.` and scans *.md and *.markdown
+# recursively, skipping .git, node_modules, vendor, and .ai-logs. A directory
+# is scanned recursively; a single file is scanned alone. Files with zero
+# checkboxes are omitted from the table.
+#
+# Modes: list verify test lint typecheck json todos
+# Flags: --json --pending -p
+#
+# Exit codes:
+#   0  success (inventory built or a command recommended)
+#   2  unknown mode (the first positional argument is not one of the modes above)
+#
+# The default output of every mode is unchanged; a JSON envelope is emitted ONLY
+# under --json or AI_OUTPUT=json. --json is the only recognized flag and must
+# follow the mode; any other flag-shaped first argument is treated as an unknown
+# mode (exit 2), and extra positional arguments after the mode are ignored.
+# Side effect: every non-help invocation initializes a session directory under
+# .ai-logs/sessions (the shared session-logging behavior; otherwise read-only).
 
 set -euo pipefail
 
@@ -18,25 +47,58 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/ai/common.sh
 source "$SCRIPT_DIR/../lib/common.sh"
 
-usage() {
-    cat <<'EOF'
-Usage:
-  ai-task.sh list
-  ai-task.sh verify
-  ai-task.sh test
-  ai-task.sh lint
-  ai-task.sh typecheck
-  ai-task.sh json
-
-Purpose:
-  Discover project-defined commands before guessing raw commands.
-EOF
-}
-
 mode="${1:-list}"
 shift || true
 
+# Opt-in structured output. Default (human/raw) output is unchanged; the
+# ai.task/v1 envelope is emitted only when AI_OUTPUT=json or a trailing --json
+# flag is present. Any other flag-shaped argument is left untouched (extra
+# positional args are ignored, matching the prior contract).
+json_mode=""
+[[ "${AI_OUTPUT:-}" == "json" ]] && json_mode=1
+# todos-mode options: a single optional PATH positional (default ".") and the
+# --pending/-p flag. Parsed here alongside --json so the loop stays the single
+# place that reads the remaining arguments; other modes ignore both.
+todos_path="."
+todos_pending=""
+_todos_path_set=""
+for _arg in "$@"; do
+    case "$_arg" in
+        --json) json_mode=1 ;;
+        --pending | -p) todos_pending=1 ;;
+        -*) ;; # unknown flags stay ignored, matching the prior contract
+        *)
+            if [[ -z "$_todos_path_set" ]]; then
+                todos_path="$_arg"
+                _todos_path_set=1
+            fi
+            ;;
+    esac
+done
+
 agent_session_init "ai-task"
+
+# emit_task_envelope STATUS MODE DATA_JSON — wrap a result in the ai.task/v1
+# envelope, mirroring the sibling ai.doctor/v1 shape (schema/status/tool + a
+# mode-specific data object) so agents can version-gate the contract and tell a
+# healthy result from a degraded one. Falls back to a jq-free degraded envelope
+# if jq is unavailable (the raw inventory itself needs jq, so this is the honest
+# signal that structured data could not be built).
+emit_task_envelope() {
+    local status="${1:?status required}" env_mode="${2:?mode required}" data="${3:-}"
+    [[ -n "$data" ]] || data='{}'
+    if command -v jq >/dev/null 2>&1; then
+        jq -cn \
+            --arg schema "ai.task/v1" \
+            --arg status "$status" \
+            --arg tool "restsift" \
+            --arg mode "$env_mode" \
+            --argjson data "$data" \
+            '{schema:$schema,status:$status,tool:$tool,mode:$mode,data:$data}'
+    else
+        printf '{"schema":"ai.task/v1","status":"degraded","tool":"restsift","mode":"%s","data":{}}\n' "$env_mode"
+    fi
+}
 
 has_package_script() {
     local name="${1:?script name required}"
@@ -47,7 +109,7 @@ has_package_script() {
 
 package_manager() {
     if [[ -f package.json ]] && command -v jq >/dev/null 2>&1; then
-        declared="$(jq -r '.packageManager // empty' package.json)"
+        declared="$(jq -r '.packageManager // empty' package.json 2>/dev/null)"
         if [[ -n "$declared" ]]; then
             printf '%s\n' "${declared%%@*}"
             return 0
@@ -77,7 +139,7 @@ composer_scripts_json() {
 
 package_scripts_json() {
     if [[ -f package.json ]] && command -v jq >/dev/null 2>&1; then
-        jq '.scripts // {}' package.json
+        jq '.scripts // {}' package.json 2>/dev/null || printf '{}\n'
     else
         printf '{}\n'
     fi
@@ -127,6 +189,15 @@ build_inventory() {
         }'
 }
 
+# recommend_command INTENT — resolve the recommended command for INTENT and
+# populate three globals: rec_cmd (the exact command line, unchanged from the
+# original contract), rec_source (provenance, e.g. package.json#scripts.test),
+# and rec_fallback (true when this is the generic ai-verify fallback rather than
+# a real project task). Callers print rec_cmd verbatim in text mode; JSON mode
+# surfaces all three so agents need not re-derive the detection logic.
+rec_cmd=""
+rec_source=""
+rec_fallback="false"
 recommend_command() {
     local intent="${1:?intent required}"
     local pm
@@ -134,55 +205,83 @@ recommend_command() {
     if [[ "$pm" == "unknown" ]]; then
         pm=""
     fi
+    rec_cmd=""
+    rec_source=""
+    rec_fallback="false"
 
     case "$intent" in
         verify)
             if command -v just >/dev/null 2>&1 && just --summary 2>/dev/null | grep -qw verify; then
-                printf 'just verify\n'
+                rec_cmd="just verify"
+                rec_source="justfile#verify"
             elif has_package_script verify; then
                 if [[ -n "$pm" ]]; then
-                    printf '%s run verify\n' "$pm"
+                    printf -v rec_cmd '%s run verify' "$pm"
+                    rec_source="package.json#scripts.verify"
                 else
-                    printf 'scripts/ai/ai-verify.sh .\n'
+                    rec_cmd="scripts/ai/ai-verify.sh ."
+                    rec_source="generic"
+                    rec_fallback="true"
                 fi
             elif [[ -f composer.json ]] && jq -e '.scripts.verify // empty' composer.json >/dev/null 2>&1; then
-                printf 'composer run-script verify\n'
+                rec_cmd="composer run-script verify"
+                rec_source="composer.json#scripts.verify"
             else
-                printf 'scripts/ai/ai-verify.sh .\n'
+                rec_cmd="scripts/ai/ai-verify.sh ."
+                rec_source="generic"
+                rec_fallback="true"
             fi
             ;;
 
         test)
             if has_package_script test; then
-                printf '%s test\n' "$pm"
+                printf -v rec_cmd '%s test' "$pm"
+                rec_source="package.json#scripts.test"
             elif [[ -f composer.json ]] && [[ -x vendor/bin/phpunit ]]; then
-                printf 'vendor/bin/phpunit\n'
+                rec_cmd="vendor/bin/phpunit"
+                rec_source="composer.json#vendor/bin/phpunit"
             elif [[ -f composer.json ]] && [[ -x vendor/bin/pest ]]; then
-                printf 'vendor/bin/pest\n'
+                rec_cmd="vendor/bin/pest"
+                rec_source="composer.json#vendor/bin/pest"
             else
-                printf 'scripts/ai/ai-verify.sh .\n'
+                rec_cmd="scripts/ai/ai-verify.sh ."
+                rec_source="generic"
+                rec_fallback="true"
             fi
             ;;
 
         lint)
             if has_package_script lint; then
-                printf '%s run lint\n' "$pm"
+                printf -v rec_cmd '%s run lint' "$pm"
+                rec_source="package.json#scripts.lint"
             elif [[ -f composer.json ]] && [[ -x vendor/bin/pint ]]; then
-                printf 'vendor/bin/pint --test\n'
+                rec_cmd="vendor/bin/pint --test"
+                rec_source="composer.json#vendor/bin/pint"
             else
-                printf 'scripts/ai/ai-verify.sh .\n'
+                rec_cmd="scripts/ai/ai-verify.sh ."
+                rec_source="generic"
+                rec_fallback="true"
             fi
             ;;
 
         typecheck)
             if has_package_script typecheck; then
-                printf '%s run typecheck\n' "$pm"
+                printf -v rec_cmd '%s run typecheck' "$pm"
+                rec_source="package.json#scripts.typecheck"
             elif [[ -f tsconfig.json ]]; then
-                printf '%s exec tsc --noEmit\n' "$pm"
+                if [[ -n "$pm" ]]; then
+                    printf -v rec_cmd '%s exec tsc --noEmit' "$pm"
+                else
+                    rec_cmd="npx tsc --noEmit"
+                fi
+                rec_source="tsconfig.json"
             elif [[ -f composer.json ]] && [[ -x vendor/bin/phpstan ]]; then
-                printf 'vendor/bin/phpstan analyse\n'
+                rec_cmd="vendor/bin/phpstan analyse"
+                rec_source="composer.json#vendor/bin/phpstan"
             else
-                printf 'scripts/ai/ai-verify.sh .\n'
+                rec_cmd="scripts/ai/ai-verify.sh ."
+                rec_source="generic"
+                rec_fallback="true"
             fi
             ;;
 
@@ -192,26 +291,243 @@ recommend_command() {
     esac
 }
 
+# --- todos mode ---------------------------------------------------------------
+# Scan Markdown task-list checkboxes and report per-file completion stats. This
+# is deliberately separate from the build-task inventory above: "task" here means
+# a `- [ ]` / `- [x]` checklist item, the unit agents track in plan/ticket docs.
+
+# todos_files PATH — print the NUL-separated list of Markdown files to scan.
+# A single file scans alone; a directory scans *.md/*.markdown recursively while
+# skipping the usual noise dirs; anything else is a hard error.
+todos_files() {
+    local path="${1:?path required}"
+    if [[ -f "$path" ]]; then
+        printf '%s\0' "$path"
+    elif [[ -d "$path" ]]; then
+        find "$path" \
+            \( -path '*/.git' -o -path '*/node_modules' -o -path '*/vendor' -o -path '*/.ai-logs' \) -prune -o \
+            -type f \( -name '*.md' -o -name '*.markdown' \) -print0 |
+            LC_ALL=C sort -z
+    else
+        die "no such file or directory: $path"
+    fi
+}
+
+# todos_tally FILE... — emit one TSV row per file that contains at least one
+# checkbox: "<path>\t<done>\t<pending>\t<other>\t<total>", in the input file
+# order. A single awk pass keeps this O(lines) regardless of file count.
+todos_tally() {
+    (($#)) || return 0
+    awk '
+        FNR == 1 { order[++n] = FILENAME }
+        {
+            if (match($0, /^[ \t]*([-*+]|[0-9]+[.)])[ \t]+\[.\]([ \t]|$)/)) {
+                seg = substr($0, RSTART, RLENGTH)
+                b = index(seg, "[")
+                c = substr(seg, b + 1, 1)
+                if (c == " ")                 pending[FILENAME]++
+                else if (c == "x" || c == "X") done[FILENAME]++
+                else                           other[FILENAME]++
+            }
+        }
+        END {
+            for (i = 1; i <= n; i++) {
+                f = order[i]
+                d = done[f] + 0; p = pending[f] + 0; o = other[f] + 0
+                tot = d + p + o
+                if (tot > 0) printf "%s\t%d\t%d\t%d\t%d\n", f, d, p, o, tot
+            }
+        }
+    ' "$@"
+}
+
+# todos_pending_items FILE... — emit "<path>:<line>:<text>" for every unchecked
+# ([ ]) item, used by --pending to show WHAT is still open, not just how many.
+todos_pending_items() {
+    (($#)) || return 0
+    awk '
+        match($0, /^[ \t]*([-*+]|[0-9]+[.)])[ \t]+\[ \]([ \t]|$)/) {
+            seg = substr($0, RSTART + RLENGTH)
+            sub(/^[ \t]+/, "", seg)
+            printf "%s:%d:%s\n", FILENAME, FNR, seg
+        }
+    ' "$@"
+}
+
+# todos_bar DONE TOTAL — a 10-cell ASCII progress bar like [####------].
+todos_bar() {
+    local completed="$1" total="$2" width=10 filled i bar=""
+    ((total > 0)) && filled=$((completed * width / total)) || filled=0
+    for ((i = 0; i < width; i++)); do
+        ((i < filled)) && bar+="#" || bar+="-"
+    done
+    printf '[%s]' "$bar"
+}
+
+# todos_report PATH — human table (default) or ai.task/v1 envelope (json_mode).
+# Sets no globals; prints the full report and returns 0. Reads todos_pending
+# (1 => also print the unchecked-item list, text mode only).
+todos_report() {
+    local path="$1"
+    # Validate before the process substitution below: a die() inside <(...) only
+    # exits that subshell, so an invalid path would otherwise fall through to an
+    # empty (exit-0) report instead of failing loudly.
+    [[ -e "$path" ]] || die "no such file or directory: $path"
+    local -a files=()
+    local f
+    while IFS= read -r -d '' f; do files+=("$f"); done < <(todos_files "$path")
+
+    local tsv=""
+    ((${#files[@]})) && tsv="$(todos_tally "${files[@]}")"
+
+    # Aggregate rows in the shell so both output formats share one source of truth.
+    local t_files=0 t_done=0 t_pending=0 t_other=0 t_total=0 complete_files=0 unstarted_files=0
+    # `completed` (not `done`) avoids shadowing the Bash loop keyword.
+    local rows_json="[]" rel completed pending other total
+    if [[ -n "$tsv" ]]; then
+        local rows_acc="["
+        local first=1
+        while IFS=$'\t' read -r rel completed pending other total; do
+            [[ -n "$rel" ]] || continue
+            t_files=$((t_files + 1))
+            t_done=$((t_done + completed))
+            t_pending=$((t_pending + pending))
+            t_other=$((t_other + other))
+            t_total=$((t_total + total))
+            ((pending == 0 && other == 0)) && complete_files=$((complete_files + 1))
+            ((completed == 0 && other == 0)) && unstarted_files=$((unstarted_files + 1))
+            if [[ -n "$json_mode" ]] && command -v jq >/dev/null 2>&1; then
+                local pct=0
+                ((total > 0)) && pct=$((completed * 100 / total))
+                local obj
+                obj="$(jq -cn \
+                    --arg file "$rel" \
+                    --argjson completed "$completed" --argjson pending "$pending" \
+                    --argjson other "$other" --argjson total "$total" \
+                    --argjson percent_complete "$pct" \
+                    '{file:$file,done:$completed,pending:$pending,other:$other,total:$total,percent_complete:$percent_complete}')"
+                [[ $first == 1 ]] && rows_acc+="$obj" || rows_acc+=",$obj"
+                first=0
+            fi
+        done <<<"$tsv"
+        rows_acc+="]"
+        [[ -n "$json_mode" ]] && command -v jq >/dev/null 2>&1 && rows_json="$rows_acc"
+    fi
+
+    local pct_done=0 pct_left=0
+    if ((t_total > 0)); then
+        pct_done=$((t_done * 100 / t_total))
+        pct_left=$((100 - pct_done))
+    fi
+
+    if [[ -n "$json_mode" ]]; then
+        local data
+        if command -v jq >/dev/null 2>&1; then
+            data="$(jq -cn \
+                --arg path "$path" \
+                --argjson files "$rows_json" \
+                --argjson files_with_tasks "$t_files" \
+                --argjson complete_files "$complete_files" \
+                --argjson unstarted_files "$unstarted_files" \
+                --argjson completed "$t_done" \
+                --argjson pending "$t_pending" \
+                --argjson other "$t_other" \
+                --argjson total "$t_total" \
+                --argjson percent_complete "$pct_done" \
+                --argjson percent_remaining "$pct_left" \
+                '{path:$path,files:$files,totals:{files_with_tasks:$files_with_tasks,complete_files:$complete_files,unstarted_files:$unstarted_files,done:$completed,pending:$pending,other:$other,total:$total,percent_complete:$percent_complete,percent_remaining:$percent_remaining}}')"
+            emit_task_envelope "ok" "todos" "$data"
+        else
+            emit_task_envelope "degraded" "todos" "{}"
+        fi
+        return 0
+    fi
+
+    # --- Human table ---
+    if ((t_total == 0)); then
+        printf 'No Markdown checkboxes found under %s\n' "$path"
+        return 0
+    fi
+
+    # Column width for the file path, capped so the table stays readable.
+    local width=4 name_w
+    while IFS=$'\t' read -r rel _; do
+        [[ -n "$rel" ]] || continue
+        name_w=${#rel}
+        ((name_w > width)) && width=$name_w
+    done <<<"$tsv"
+    ((width > 60)) && width=60
+
+    printf '%-*s  %8s  %8s  %6s  %6s  %6s  %s\n' \
+        "$width" "File" "Done" "Pending" "Total" "%Done" "%Left" "Progress"
+    while IFS=$'\t' read -r rel completed pending other total; do
+        [[ -n "$rel" ]] || continue
+        local pct=0 left=0
+        ((total > 0)) && pct=$((completed * 100 / total)) && left=$((100 - pct))
+        local mark=""
+        ((other > 0)) && mark=" (+${other})"
+        printf '%-*s  %8s  %8s  %6s  %5s%%  %5s%%  %s%s\n' \
+            "$width" "$rel" "$completed/$total" "$pending/$total" "$total" \
+            "$pct" "$left" "$(todos_bar "$completed" "$total")" "$mark"
+    done <<<"$tsv"
+
+    printf '%-*s  %8s  %8s  %6s  %5s%%  %5s%%  %s\n' \
+        "$width" "TOTAL" "$t_done/$t_total" "$t_pending/$t_total" "$t_total" \
+        "$pct_done" "$pct_left" "$(todos_bar "$t_done" "$t_total")"
+
+    printf '\n%d file(s) with tasks · %d complete · %d not started · %d done / %d pending · %d%% complete\n' \
+        "$t_files" "$complete_files" "$unstarted_files" "$t_done" "$t_pending" "$pct_done"
+    ((t_other > 0)) && printf '%d item(s) in a non-standard state (counted as "other", shown as +N above)\n' "$t_other"
+
+    if [[ -n "$todos_pending" ]]; then
+        printf '\nPending items:\n'
+        todos_pending_items "${files[@]}"
+    fi
+    return 0
+}
+
 case "$mode" in
-    list)
-        build_inventory
+    list | json)
+        if [[ -n "$json_mode" ]]; then
+            emit_task_envelope "ok" "$mode" "$(build_inventory)"
+        else
+            build_inventory
+        fi
         ;;
 
-    json)
-        build_inventory
+    todos)
+        todos_report "$todos_path"
         ;;
 
     verify | test | lint | typecheck)
         recommend_command "$mode"
-        ;;
-
-    --help | -h)
-        usage
+        if [[ -n "$json_mode" ]]; then
+            if command -v jq >/dev/null 2>&1; then
+                emit_task_envelope "ok" "$mode" "$(
+                    jq -cn \
+                        --arg intent "$mode" \
+                        --arg command "$rec_cmd" \
+                        --arg source "$rec_source" \
+                        --argjson fallback "$rec_fallback" \
+                        '{intent:$intent,command:$command,source:$source,fallback:$fallback}'
+                )"
+            else
+                emit_task_envelope "degraded" "$mode" "{}"
+            fi
+        else
+            printf '%s\n' "$rec_cmd"
+        fi
         ;;
 
     *)
-        usage
-        die "unknown mode: $mode"
+        # --help/-h/--introspect never reach here: lib/common.sh's universal
+        # guard intercepts them as the first argument before this script's
+        # own logic runs. Matches the unknown-mode convention used by the
+        # sibling group routers (ai-repo/ai-inspect/ai-session): a single
+        # stderr line with the expected modes, exit 2 -- not the generic
+        # die() helper (always exit 1, no expected-list hint).
+        echo "restsift task: unknown mode '$mode' (expected list|verify|test|lint|typecheck|json|todos)" >&2
+        exit 2
         ;;
 esac
 

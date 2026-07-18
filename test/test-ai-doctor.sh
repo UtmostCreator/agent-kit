@@ -29,7 +29,7 @@ printf 'libexec/ai-doctor\n'
 test_text() {
     local out
     out="$("$BASH_BIN" "$DOCTOR" 2>/dev/null)" || return 1
-    printf '%s' "$out" | grep -q 'agent-kit doctor' &&
+    printf '%s' "$out" | grep -q 'restsift doctor' &&
         printf '%s' "$out" | grep -q 'status:'
 }
 run_test "text mode prints a health summary" test_text
@@ -41,7 +41,7 @@ test_json_envelope() {
     printf '%s' "$out" | jq -e '
         .schema=="ai.doctor/v1"
         and (.status|type=="string")
-        and .tool=="agent-kit"
+        and .tool=="restsift"
         and (.bash.ok|type=="boolean")
         and (.install.on_path|type=="boolean")
         and (.tools.required|type=="array")
@@ -87,6 +87,30 @@ test_introspect() {
     "$BASH_BIN" "$DOCTOR" --introspect 2>/dev/null | jq -e '.name=="ai-doctor"' >/dev/null 2>&1
 }
 run_test "--introspect emits the JSON contract" test_introspect
+
+# --introspect advertises --json (and the static flags) so JSON mode is
+# machine-discoverable instead of requiring a scrape of the human usage text.
+test_introspect_flags() {
+    "$BASH_BIN" "$DOCTOR" --introspect 2>/dev/null | jq -e '
+        (.flags | index("--json")) != null
+        and (.flags | index("--help")) != null
+    ' >/dev/null 2>&1
+}
+run_test "--introspect lists --json and --help in flags" test_introspect_flags
+
+# JSON envelope carries a count summary and a machine-readable hints array, and
+# marks the repo signal as informational, so consumers need not re-derive them.
+test_json_summary_hints() {
+    local out
+    out="$("$BASH_BIN" "$DOCTOR" --json 2>/dev/null)" || return 1
+    printf '%s' "$out" | jq -e '
+        (.summary.missing_required | type=="number")
+        and (.summary.missing_optional | type=="number")
+        and (.hints | type=="array")
+        and (.repo.note | type=="string")
+    ' >/dev/null 2>&1
+}
+run_test "--json includes summary counts, hints[], and repo.note" test_json_summary_hints
 
 # A required tool missing (PATH holds only what the doctor's JSON path needs,
 # minus jq and rg) -> status "error", exit 1.

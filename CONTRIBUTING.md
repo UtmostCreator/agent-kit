@@ -13,10 +13,14 @@
 ./scripts/check-publishable.sh
 ```
 
-Run focused tests during development:
+`check.sh` runs the test files **serially** (one at a time, in order) so a
+failure points at a single file; only ShellCheck is sharded across cores for
+speed. To verify correctness with fully deterministic, non-interleaved output,
+serialize the lint too, or run a single suite in isolation:
 
 ```bash
-bash test/test-<command>.sh
+CHECK_SHELLCHECK_JOBS=1 ./scripts/check.sh   # lint + tests both fully serial
+bash test/test-<command>.sh                  # run exactly one suite in isolation
 ```
 
 ## Pull-request requirements

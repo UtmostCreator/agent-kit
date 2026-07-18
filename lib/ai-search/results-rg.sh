@@ -105,15 +105,18 @@ _rg_json_jq_prelude='
           ($p | as_string) as $s
           | if ($root != "" and ($s | startswith($root + "/"))) then $s[($root|length + 1):]
             else $s end;
-        [ splits("\n") | select(length > 0) | (fromjson? // empty) ]
-        | map(select(.type == "match"))
+        # Input is slurped natively (jq -s, not -R): rg --json emits one JSON
+        # object per line, which jq parses as a value stream. The former
+        # -R + `splits("\n")` regex-split was catastrophically slow (O(n^2)) and
+        # hung on ordinary result sizes; native parsing is linear.
+        map(select(.type == "match"))
 '
 
 # rg_json_to_results — parse an `rg --json` stream into structured result
 # objects with accurate 1-based column from submatch byte offsets.
 rg_json_to_results() {
     local source_tool="$1" root_abs="$2"
-    jq -s -R \
+    jq -s \
         --arg mode "$g_mode" \
         --arg source_tool "$source_tool" \
         --arg root "$root_abs" \
@@ -142,7 +145,7 @@ rg_json_to_results() {
 # rg_json_to_matches — legacy "path:line:text" string array from an rg --json
 # stream (paths come from the JSON, so colon-in-filename is safe).
 rg_json_to_matches() {
-    jq -s -R "$_rg_json_jq_prelude"'
+    jq -s "$_rg_json_jq_prelude"'
         | map(
             (.data.path.text)
             + ":" + (.data.line_number | tostring)

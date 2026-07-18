@@ -1,32 +1,45 @@
 #!/usr/bin/env bash
 # Canonical read-only inspection command group (thin router).
 #
-# Routes `agent-kit inspect <mode> ...` to the underlying inspection engine
+# Routes `restsift inspect <mode> ...` to the underlying inspection engine
 # for that mode. Every engine stays a complete, directly-runnable script under
 # libexec/; this router only removes the need to remember which top-level name
 # previews raw file content vs. queries structured data vs. statically parses
 # a shell script's contract.
 #
 # Usage:
-#   agent-kit inspect file PATH [options]           (preview-file)
-#   agent-kit inspect data json FILE QUERY           (ai-structured json)
-#   agent-kit inspect data yaml FILE QUERY           (ai-structured yaml)
-#   agent-kit inspect data validate-json FILE        (ai-structured validate-json)
-#   agent-kit inspect data validate-yaml FILE        (ai-structured validate-yaml)
-#   agent-kit inspect data csv FILE [--head N]       (ai-structured csv)
-#   agent-kit inspect data xml FILE [XPATH]          (ai-structured xml)
-#   agent-kit inspect shell SCRIPT                   (sh-introspect)
+#   restsift inspect file PATH [options]           (preview-file)
+#   restsift inspect data json FILE QUERY           (ai-structured json)
+#   restsift inspect data yaml FILE QUERY           (ai-structured yaml)
+#   restsift inspect data validate-json FILE        (ai-structured validate-json)
+#   restsift inspect data validate-yaml FILE        (ai-structured validate-yaml)
+#   restsift inspect data csv FILE [--head N]       (ai-structured csv)
+#   restsift inspect data xml FILE [XPATH]          (ai-structured xml)
+#   restsift inspect shell SCRIPT                   (sh-introspect)
 #
 # Modes: file data shell
 #
 # Example:
-#   agent-kit inspect file README.md --range 1:40         # show only lines 1-40 of a file
-#   agent-kit inspect data json package.json '.scripts'   # print the "scripts" section with jq
-#   agent-kit inspect shell libexec/ai-search             # see what a script accepts, safely
+#   restsift inspect file README.md --range 1:40         # show only lines 1-40 of a file
+#   restsift inspect data json package.json '.scripts'   # print the "scripts" section with jq
+#   restsift inspect shell libexec/ai-search             # see what a script accepts, safely
+#
+# Exit codes:
+#   0    success
+#   2    unknown mode
+#   *    passthrough from the routed engine (preview-file, ai-structured, sh-introspect)
 
 set -euo pipefail
 
 _insp_here="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+# Universal --introspect guard. This router never sources lib/common.sh, so it
+# does not inherit the common `--introspect` surface its peers expose; provide
+# the same self-contract here by statically introspecting this script (never
+# executed) and emitting its ai.sh-introspect/v1 JSON envelope.
+if [[ "${1:-}" == "--introspect" ]]; then
+    exec env AI_OUTPUT=json "${BASH:-bash}" "$_insp_here/sh-introspect" "${BASH_SOURCE[0]}"
+fi
 
 _insp_route() {
     local target="$1"
@@ -48,11 +61,20 @@ case "${1:-}" in
         _insp_route sh-introspect "$@"
         ;;
     --help | -h | "")
-        sed -n '2,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+        sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
         exit 0
         ;;
     *)
-        echo "agent-kit inspect: unknown mode '$1' (expected file|data|shell)" >&2
+        if [[ "${AI_OUTPUT:-}" == "json" ]] && command -v jq >/dev/null 2>&1; then
+            jq -cn --arg mode "${1:-}" \
+                '{schema:"ai.inspect/v1", status:"error", tool:"inspect",
+                  error:("unknown mode: " + $mode),
+                  expected:["file","data","shell"],
+                  hint:"run '\''restsift inspect --help'\'' to see valid modes"}' >&2
+        else
+            echo "restsift inspect: unknown mode '$1' (expected file|data|shell)" >&2
+            echo "  run 'restsift inspect --help' to see valid modes" >&2
+        fi
         exit 2
         ;;
 esac

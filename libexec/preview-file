@@ -1,16 +1,25 @@
 #!/usr/bin/env bash
-set -euo pipefail
-
 # preview-file.sh — safely preview a slice of a text file with guardrails
 # (size/byte gate, binary + .git blocking, column truncation).
 #
+# Usage:
+#   preview-file FILE [--plain] [--lines N] [--range A:B] [--around L --context N]
+#                     [--dry-run] [--force] [--max-bytes N] [--max-columns N]
+#   Exit codes: 0 ok (or --dry-run previewable) - 1 gate blocked / file not found - 2 usage error
+#   AI_OUTPUT=json emits a {"schema":"1","status":...,"tool":"preview-file",...} envelope on stdout.
+#
+# Modes: range around lines dry-run
+#
+# Example:
+#   restsift preview-file README.md                # show the first 200 lines, safely
+#   restsift preview-file README.md --range 1:40   # show only lines 1-40 of the file
+#   restsift preview-file README.md --dry-run      # check a file is previewable (no content)
+
+set -euo pipefail
+
 # shellcheck source=scripts/ai/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
-# Example:
-#   agent-kit preview-file README.md                # show the first 200 lines, safely
-#   agent-kit preview-file README.md --range 1:40   # show only lines 1-40 of the file
-#   agent-kit preview-file README.md --dry-run      # check a file is previewable (no content)
 usage() {
     cat <<'EOF'
 Usage:
@@ -22,6 +31,15 @@ Notes:
                  for a known-large file. --range does not bypass this gate.
   --force        Exceptional bypass of the safety/binary gates. Use only when the file
                  must be inspected despite the gate, and state why in your report.
+
+Exit codes:
+  0  preview shown, or --dry-run reports the file is previewable
+  1  a safety gate blocked the file (size/binary/.git), or the file was not found
+  2  usage error (missing value for a flag, unknown flag, or missing FILE)
+
+Under AI_OUTPUT=json every result (success and error alike) is a single-line JSON
+envelope on stdout: {"schema":"1","status":...,"tool":"preview-file",...}. Error
+envelopes carry the reason in .errors[]; dry-run adds "previewable": true.
 EOF
 }
 
@@ -61,6 +79,10 @@ emit_json() {
         }'
 }
 
+# Build a one-element JSON array for an error message that may contain quotes
+# or other JSON-significant characters (jq handles the escaping).
+err_arr() { jq -cn --arg m "$1" '[$m]'; }
+
 parse_size() {
     local raw="${1:-0}"
     raw="${raw// /}"
@@ -77,6 +99,18 @@ parse_size() {
 }
 
 json_mode="${AI_OUTPUT:-}"
+
+# Clean, JSON-aware error for a value-taking flag given without its value.
+# Guards the `shift 2` below, which would otherwise fail under set -e and abort
+# the script with no message when only the flag (and no value) remains.
+missing_value() {
+    if [[ "$json_mode" == "json" ]]; then
+        emit_json "error" "$file" "" "[\"missing value for $1\"]"
+    else
+        echo "[ERROR] missing value for $1" >&2
+    fi
+    exit 2
+}
 
 file=""
 plain=0
@@ -108,6 +142,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --lines)
+            [[ $# -ge 2 ]] || missing_value "$1"
             lines="${2:-}"
             shift 2
             ;;
@@ -116,6 +151,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --range)
+            [[ $# -ge 2 ]] || missing_value "$1"
             range="${2:-}"
             shift 2
             ;;
@@ -124,6 +160,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --around)
+            [[ $# -ge 2 ]] || missing_value "$1"
             around="${2:-}"
             shift 2
             ;;
@@ -132,6 +169,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --context)
+            [[ $# -ge 2 ]] || missing_value "$1"
             context="${2:-3}"
             shift 2
             ;;
@@ -140,6 +178,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --max-bytes)
+            [[ $# -ge 2 ]] || missing_value "$1"
             max_bytes_raw="${2:-65536}"
             shift 2
             ;;
@@ -148,6 +187,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --max-columns)
+            [[ $# -ge 2 ]] || missing_value "$1"
             max_columns="${2:-200}"
             shift 2
             ;;
@@ -166,6 +206,9 @@ while [[ $# -gt 0 ]]; do
             if [[ -z "$file" ]]; then
                 file="$1"
                 shift
+            elif [[ "$json_mode" == "json" ]]; then
+                emit_json "error" "$file" "" "[\"unexpected arg: $1\"]"
+                exit 1
             else die "unexpected arg: $1"; fi
             ;;
     esac
@@ -174,6 +217,10 @@ done
 max_bytes="$(parse_size "$max_bytes_raw")"
 
 if [[ -z "$file" ]]; then
+    if [[ "$json_mode" == "json" ]]; then
+        emit_json "error" "" "" '["missing FILE argument"]'
+        exit 2
+    fi
     usage
     exit 2
 fi
@@ -198,21 +245,16 @@ if [[ "$file" == *"/.git/"* || "$file" == .git/* ]]; then
     fi
 fi
 
-if [[ "$dry_run" == "1" ]]; then
-    if [[ "$json_mode" == "json" ]]; then
-        emit_json "dry_run" "$file" ""
-    else
-        echo "dry-run"
-    fi
-    exit 0
-fi
-
 size="$(wc -c <"$file" | tr -d ' ')"
 if ((size > max_bytes)) && [[ "$force" != "1" ]]; then
     if [[ "$json_mode" == "json" ]]; then
-        emit_json "error" "$file" "" '["max-bytes exceeded"]'
+        # Populate the known size and byte limit so a caller can decide whether
+        # to retry with a higher --max-bytes instead of guessing.
+        emit_json "error" "$file" "" \
+            "$(err_arr "max-bytes exceeded: file is ${size} bytes, limit is ${max_bytes} (raise with --max-bytes or use --force)")" \
+            '[]' "" "" 0 false "$size" "$max_bytes" "$max_columns"
     else
-        echo "[ERROR] max-bytes exceeded" >&2
+        echo "[ERROR] max-bytes exceeded: file is ${size} bytes, limit is ${max_bytes} (raise with --max-bytes or use --force)" >&2
     fi
     exit 1
 fi
@@ -221,18 +263,38 @@ fi
 nul_count="$(LC_ALL=C tr -cd '\000' <"$file" | wc -c | tr -d ' ')"
 if ((nul_count > 0)) && [[ "$force" != "1" ]]; then
     if [[ "$json_mode" == "json" ]]; then
-        emit_json "error" "$file" "" '["binary file blocked"]'
+        # Size is known here; surface it so callers see the file exists but was
+        # gated as binary rather than assuming a zero-byte file.
+        emit_json "error" "$file" "" '["binary file blocked (contains NUL bytes; use --force to override)"]' \
+            '[]' "" "" 0 false "$size" "$max_bytes" "$max_columns"
     else
-        echo "[ERROR] binary file blocked" >&2
+        echo "[ERROR] binary file blocked (contains NUL bytes; use --force to override)" >&2
     fi
     exit 1
 fi
 
+# Dry-run reports previewability only after the size and binary gates above, so
+# a binary/oversize file that the real preview rejects is not falsely reported
+# as previewable.
+if [[ "$dry_run" == "1" ]]; then
+    if [[ "$json_mode" == "json" ]]; then
+        # Reaching here means the file cleared every previewability gate
+        # (size + binary + .git), so a caller can trust "previewable": true.
+        # Blocked files exit above with status "error" and the reason in
+        # .errors[]. Include the known size/limits so the pre-flight is useful.
+        emit_json "dry_run" "$file" "" '[]' '[]' "" "" 0 false \
+            "$size" "$max_bytes" "$max_columns" | jq -c '. + {previewable: true}'
+    else
+        echo "dry-run"
+    fi
+    exit 0
+fi
+
 if [[ -n "$lines" ]] && ! [[ "$lines" =~ ^[0-9]+$ ]]; then
     if [[ "$json_mode" == "json" ]]; then
-        emit_json "error" "$file" "" '["invalid --lines"]'
+        emit_json "error" "$file" "" "$(err_arr "invalid --lines \"$lines\" (expected a non-negative integer)")"
     else
-        echo "[ERROR] invalid --lines" >&2
+        echo "[ERROR] invalid --lines \"$lines\" (expected a non-negative integer)" >&2
     fi
     exit 1
 fi
@@ -242,9 +304,9 @@ total_lines="$(wc -l <"$file" | tr -d ' ')"
 if [[ -n "$range" ]]; then
     if ! [[ "$range" =~ ^([0-9]+):([0-9]+)$ ]]; then
         if [[ "$json_mode" == "json" ]]; then
-            emit_json "error" "$file" "" '["invalid --range"]'
+            emit_json "error" "$file" "" "$(err_arr "invalid --range \"$range\" (expected A:B with non-negative integers)")"
         else
-            echo "[ERROR] invalid --range" >&2
+            echo "[ERROR] invalid --range \"$range\" (expected A:B with non-negative integers)" >&2
         fi
         exit 1
     fi
@@ -252,9 +314,9 @@ if [[ -n "$range" ]]; then
     end="${BASH_REMATCH[2]}"
     if ((start > end)); then
         if [[ "$json_mode" == "json" ]]; then
-            emit_json "error" "$file" "" '["invalid --range"]'
+            emit_json "error" "$file" "" "$(err_arr "invalid --range \"$range\" (start must be <= end)")"
         else
-            echo "[ERROR] invalid --range" >&2
+            echo "[ERROR] invalid --range \"$range\" (start must be <= end)" >&2
         fi
         exit 1
     fi
@@ -262,17 +324,17 @@ if [[ -n "$range" ]]; then
 elif [[ -n "$around" ]]; then
     if ! [[ "$around" =~ ^[0-9]+$ ]]; then
         if [[ "$json_mode" == "json" ]]; then
-            emit_json "error" "$file" "" '["invalid --around"]'
+            emit_json "error" "$file" "" "$(err_arr "invalid --around \"$around\" (expected a non-negative integer)")"
         else
-            echo "[ERROR] invalid --around" >&2
+            echo "[ERROR] invalid --around \"$around\" (expected a non-negative integer)" >&2
         fi
         exit 1
     fi
     if ! [[ "$context" =~ ^[0-9]+$ ]]; then
         if [[ "$json_mode" == "json" ]]; then
-            emit_json "error" "$file" "" '["invalid --context"]'
+            emit_json "error" "$file" "" "$(err_arr "invalid --context \"$context\" (expected a non-negative integer)")"
         else
-            echo "[ERROR] invalid --context" >&2
+            echo "[ERROR] invalid --context \"$context\" (expected a non-negative integer)" >&2
         fi
         exit 1
     fi
@@ -283,7 +345,12 @@ elif [[ -n "$around" ]]; then
 elif [[ -n "$lines" ]]; then
     start=1
     end="$lines"
-    content="$(sed -n "1,${lines}p" "$file")"
+    # `sed -n '1,0p'` prints line 1, so requesting 0 lines must yield no output.
+    if ((lines == 0)); then
+        content=""
+    else
+        content="$(sed -n "1,${lines}p" "$file")"
+    fi
 else
     start=1
     end=200

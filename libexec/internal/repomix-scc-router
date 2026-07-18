@@ -2,11 +2,11 @@
 # Rank a repository's folders by scc code metrics and pack them into Repomix bundles.
 #
 # Usage:
-#   agent-kit repomix-scc-router <stats|plan|pack|all|clean|purge> [root] [options]
+#   restsift repomix-scc-router <stats|plan|pack|all|clean|purge> [root] [options]
 #
 # Example:
-#   agent-kit repomix-scc-router stats .   # run scc analysis and write per-file and per-folder code metrics
-#   agent-kit repomix-scc-router all .     # run stats, build a ranked bundle plan, then pack the bundles
+#   restsift repomix-scc-router stats .   # run scc analysis and write per-file and per-folder code metrics
+#   restsift repomix-scc-router all .     # run stats, build a ranked bundle plan, then pack the bundles
 set -euo pipefail
 
 COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

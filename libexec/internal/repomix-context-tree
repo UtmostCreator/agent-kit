@@ -3,11 +3,11 @@
 # Plan and pack a repository into ranked Repomix context bundles, grouped by folder tree.
 #
 # Usage:
-#   agent-kit repomix-context-tree <analyze|plan|pack|all|clean|purge> [root] [options]
+#   restsift repomix-context-tree <analyze|plan|pack|all|clean|purge> [root] [options]
 #
 # Example:
-#   agent-kit repomix-context-tree analyze .   # analyze the repo and write a bundle plan without packing anything
-#   agent-kit repomix-context-tree all .       # analyze, then pack every route the plan marks for packing
+#   restsift repomix-context-tree analyze .   # analyze the repo and write a bundle plan without packing anything
+#   restsift repomix-context-tree all .       # analyze, then pack every route the plan marks for packing
 set -euo pipefail
 
 COMMON_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

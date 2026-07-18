@@ -1,9 +1,22 @@
 #!/usr/bin/env bash
 # Repo-aware file discovery wrapper.
+# Finds files whose BASENAME contains QUERY as a literal substring (not a regex),
+# under an optional search root (default: the current directory), always skipping
+# vendor/, node_modules/, dist/, .git/, and .repomix-context/. The fd backend and
+# the ripgrep fallback present one identical contract. Exit code is 0 whenever the
+# search ran -- INCLUDING when zero files matched; a nonzero exit means bad usage
+# or a bad search root (e.g. it does not exist), never "no results".
+#
+# Usage:
+#   fd-files QUERY [root] [--json] [--hidden] [--type EXT[,EXT]]
+#   fd-files QUERY [root] --json          # JSON array of paths (legacy, stable)
+#   AI_OUTPUT=json fd-files QUERY [root]  # JSON envelope: schema/status/root/query/count/files
 #
 # Example:
-#   agent-kit fd-files README .              # find files whose name contains "README"
-#   agent-kit fd-files config docs --type md # find markdown files under docs/ matching "config"
+#   restsift fd-files README .              # find files whose name contains "README"
+#   restsift fd-files config docs --type md # find markdown files under docs/ matching "config"
+#
+# Requires: jq
 
 set -euo pipefail
 
@@ -15,7 +28,11 @@ require_bins jq
 usage() {
     cat <<'EOF'
 Usage:
-  fd-files.sh QUERY [root] [--json] [--hidden] [--type EXT[,EXT]]
+  fd-files QUERY [root] [--json] [--hidden] [--type EXT[,EXT]]
+
+QUERY is matched as a literal substring of each file's basename (not a regex).
+Exit 0 = search ran (including zero matches); nonzero = bad usage / bad root.
+Set AI_OUTPUT=json for a self-describing JSON envelope; --json emits a bare array.
 EOF
 }
 
@@ -38,9 +55,22 @@ if [[ $# -gt 0 ]] && [[ "${1:-}" != --* ]]; then
     shift || true
 fi
 
-OUTPUT_FORMAT="plain"
-INCLUDE_HIDDEN=0
-EXTRA_TYPES=()
+# Honor the env-configurable inputs advertised by --introspect; CLI flags below
+# still win by overwriting these after the env-seeded defaults.
+OUTPUT_FORMAT="${OUTPUT_FORMAT:-plain}"
+INCLUDE_HIDDEN="${INCLUDE_HIDDEN:-0}"
+
+# AI_OUTPUT=json is the toolkit-wide "give me machine JSON" signal (same one
+# `restsift --version --json` honors). It selects the self-describing envelope.
+# The legacy --json flag and OUTPUT_FORMAT=json keep emitting the bare array for
+# backward compatibility, so this is purely additive and default-off.
+AI_ENVELOPE=0
+[[ "${AI_OUTPUT:-}" == "json" ]] && AI_ENVELOPE=1
+if [[ -n "${EXTRA_TYPES:-}" ]]; then
+    IFS=',' read -ra EXTRA_TYPES <<<"${EXTRA_TYPES}"
+else
+    EXTRA_TYPES=()
+fi
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -53,6 +83,7 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --type)
+            [[ $# -ge 2 ]] || die "--type requires a value naming one or more extensions, e.g. --type md or --type ts,tsx"
             IFS=',' read -ra EXTRA_TYPES <<<"$2"
             shift 2
             ;;
@@ -68,7 +99,27 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Validate the search root up front so both backends agree: fd exits nonzero on
+# a nonexistent/non-directory root, but the rg fallback below would otherwise
+# report success (exit 0, empty result) on the same bad path. Name the offending
+# value and the fix so humans and agents get a next step, not raw backend text.
+if [[ ! -d "$root" ]]; then
+    root_err="search root does not exist or is not a directory: $root (pass an existing directory as the 2nd positional argument)"
+    if [[ "$AI_ENVELOPE" == "1" ]]; then
+        jq -n \
+            --arg schema "ai.fd-files/v1" \
+            --arg tool "fd-files" \
+            --arg root "$root" \
+            --arg query "$query" \
+            --arg error "$root_err" \
+            '{schema:$schema, status:"error", tool:$tool, root:$root, query:$query, count:0, files:[], error:$error}'
+        exit 1
+    fi
+    die "$root_err"
+fi
+
 args=(
+    --fixed-strings
     -E vendor
     -E node_modules
     -E dist
@@ -116,7 +167,11 @@ run_discovery() {
     local path base ext wanted include
     while IFS= read -r path; do
         base="${path##*/}"
-        [[ "$base" == *"$query"* || "$path" == *"$query"* ]] || continue
+        # Match QUERY as a literal substring of the basename only, mirroring the
+        # fd backend (which runs with --fixed-strings and no -p/--full-path): the
+        # fd and rg-fallback backends must present one identical contract
+        # regardless of which is installed.
+        [[ "$base" == *"$query"* ]] || continue
 
         if [[ ${#EXTRA_TYPES[@]} -gt 0 ]]; then
             ext="${base##*.}"
@@ -134,7 +189,20 @@ run_discovery() {
     done < <(rg "${rg_args[@]}" "$root")
 }
 
-if [[ "$OUTPUT_FORMAT" == "json" ]]; then
+if [[ "$AI_ENVELOPE" == "1" ]]; then
+    # Self-describing envelope: a stable schema/status the consumer can trust,
+    # so an empty result reads as status "ok" with count 0 rather than being
+    # mistaken for the error case (which carries status "error" above).
+    files_json="$(run_discovery | jq -R . | jq -s . 2>/dev/null || true)"
+    [[ -n "$files_json" ]] || files_json="[]"
+    jq -n \
+        --arg schema "ai.fd-files/v1" \
+        --arg tool "fd-files" \
+        --arg root "$root" \
+        --arg query "$query" \
+        --argjson files "$files_json" \
+        '{schema:$schema, status:"ok", tool:$tool, root:$root, query:$query, count:($files|length), files:$files}'
+elif [[ "$OUTPUT_FORMAT" == "json" ]]; then
     run_discovery | jq -R . | jq -s .
 else
     run_discovery

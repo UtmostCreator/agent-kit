@@ -2,9 +2,23 @@
 # Production-grade code search wrapper with repo-aware defaults.
 #
 # Example:
-#   agent-kit rg-code "TODO" .                 # find every TODO under the current directory
-#   agent-kit rg-code "function" src --files   # list files under src/ that contain "function"
-#   agent-kit rg-code "config" . --mode php    # search only PHP files for "config"
+#   restsift rg-code "TODO" .                 # find every TODO under the current directory
+#   restsift rg-code "function" src --files   # list files under src/ that contain "function"
+#   restsift rg-code "config" . --mode php    # search only PHP files for "config"
+#
+# Smart-case: a pattern with no uppercase letters is searched case-insensitively
+#   (so "todo" matches TODO); a pattern with any uppercase letter stays
+#   case-sensitive. Pass --ignore-case/-i to force insensitivity regardless.
+#
+# Exit codes: 0 = at least one match; 1 = ran cleanly with no match; 2 = ripgrep
+#   or usage error; 128 = git error (only reachable in --mode tracked; a
+#   non-git root is caught first and reported via die with exit 1).
+#
+# Set AI_OUTPUT=json for a self-describing envelope (schema ai.rg-code/v1) with
+#   status/exit_code/count/files/matches; the legacy --json flag still emits the
+#   bare match array for backward compatibility.
+#
+# Modes: default all tracked php js blade kotlin config
 
 set -euo pipefail
 
@@ -21,10 +35,20 @@ Usage:
 Modes: default | all | tracked | php | js | blade | kotlin | config
 Output: --json | --files | --count
 Options: --context N | --type EXT[,EXT] | --mode MODE | --ignore-case
+
+Smart-case: a lowercase-only pattern matches case-insensitively; add uppercase
+  (or pass --ignore-case/-i) to control case. Exit codes: 0=match, 1=no match,
+  2=ripgrep/usage error, 128=git error (tracked mode only).
+
+Set AI_OUTPUT=json for a self-describing envelope (schema ai.rg-code/v1);
+  --json still emits the bare match array.
 EOF
 }
 
-pattern="${1:?pattern required}"
+if [[ $# -eq 0 || -z "${1:-}" ]]; then
+    die "pattern required (usage: rg-code <pattern> [root] [options])"
+fi
+pattern="$1"
 shift || true
 
 root="."
@@ -89,6 +113,29 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# AI_OUTPUT=json is the toolkit-wide "give me machine JSON" signal. When set it
+# selects a self-describing envelope (schema ai.rg-code/v1) around whatever the
+# search finds. This is purely additive and default-off: the legacy --json flag
+# and every human output mode keep their exact prior stdout.
+AI_ENVELOPE=0
+[[ "${AI_OUTPUT:-}" == "json" ]] && AI_ENVELOPE=1
+
+# Emit an ai.rg-code/v1 error envelope and exit with the given code. Used for the
+# structured-output path so a consumer never has to parse free-text die() output.
+rgcode_error_envelope() {
+    local code="$1" msg="$2"
+    jq -n \
+        --arg schema "ai.rg-code/v1" \
+        --arg tool "rg-code" \
+        --arg pattern "$pattern" \
+        --arg root "$root" \
+        --arg mode "$MODE" \
+        --argjson exit_code "$code" \
+        --arg error "$msg" \
+        '{schema:$schema, status:"error", tool:$tool, pattern:$pattern, root:$root, mode:$mode, exit_code:$exit_code, count:0, files:[], matches:[], error:$error}'
+    exit "$code"
+}
+
 case_args=()
 if [[ "$IGNORE_CASE" == "1" ]] || [[ ! "$pattern" =~ [[:upper:]] ]]; then
     case_args=(-i)
@@ -112,6 +159,28 @@ case "$MODE" in
     default) mode_args=(--hidden) ;;
     all) mode_args=(-uuu) ;;
     tracked)
+        # git grep only honors smart-case; it cannot apply rg's output
+        # selectors, context lines, type filters, or BASE_EXCLUDES. Fail fast so
+        # a caller asking for those does not silently get plain git-grep text it
+        # cannot distinguish from the requested (e.g. JSON) contract.
+        if [[ "$AI_ENVELOPE" == "1" ]]; then
+            rgcode_error_envelope 2 "--mode tracked does not support the AI_OUTPUT=json envelope (git grep cannot emit structured matches); drop --mode tracked to use the ripgrep-backed envelope"
+        fi
+        if [[ "$OUT_MODE" != "matches" ]]; then
+            die "--mode tracked does not support --json/--files/--count"
+        fi
+        if [[ "$CONTEXT_LINES" != "0" ]]; then
+            die "--mode tracked does not support --context"
+        fi
+        if ((${#EXTRA_TYPES[@]})); then
+            die "--mode tracked does not support --type"
+        fi
+        # Catch a non-git root here so the caller gets an actionable next step
+        # instead of git's raw 'fatal: not a git repository' leaking to stderr
+        # with exit 128.
+        if ! git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+            die "--mode tracked needs a git repository, but '$root' is not inside one (run inside a git repo, or drop '--mode tracked' to search the filesystem with ripgrep)"
+        fi
         git -C "$root" grep "${case_args[@]}" -n "$pattern"
         exit $?
         ;;
@@ -127,20 +196,72 @@ for ext in "${EXTRA_TYPES[@]+${EXTRA_TYPES[@]}}"; do
     mode_args+=(-g "*.$ext")
 done
 
+if [[ ! "$CONTEXT_LINES" =~ ^[0-9]+$ ]]; then
+    die "invalid --context value: $CONTEXT_LINES (expected a non-negative integer)"
+fi
 if ((CONTEXT_LINES > 0)); then
     mode_args+=(-C "$CONTEXT_LINES")
 fi
 
+if [[ "$AI_ENVELOPE" == "1" ]]; then
+    # Structured envelope (opt-in via AI_OUTPUT=json). One rg --json pass feeds a
+    # uniform result the consumer can trust across every OUT_MODE: matches[],
+    # unique files[], and count. Process exit code still follows the documented
+    # convention (0=match, 1=no match, >=2=error) and is mirrored in exit_code.
+    rg_out=""
+    rg_rc=0
+    rg_out="$(rg "${case_args[@]}" "${mode_args[@]}" "${BASE_EXCLUDES[@]}" \
+        --json -n "$pattern" "$root")" || rg_rc=$?
+    if ((rg_rc >= 2)); then
+        # Hard rg error (e.g. invalid regex): report it, never launder it into an
+        # empty-match result a consumer would read as a clean zero-match search.
+        rgcode_error_envelope "$rg_rc" "ripgrep failed (exit $rg_rc) for pattern '$pattern' under '$root'"
+    fi
+    matches_json="$(printf '%s' "$rg_out" | jq -sc '[.[] | select(.type == "match") | {
+      file: .data.path.text,
+      line: .data.line_number,
+      col: .data.submatches[0].start,
+      text: .data.lines.text
+    }]')"
+    files_json="$(printf '%s' "$matches_json" | jq -c '[.[].file] | unique')"
+    count="$(printf '%s' "$matches_json" | jq 'length')"
+    status="ok"
+    ((rg_rc == 1)) && status="no_match"
+    jq -n \
+        --arg schema "ai.rg-code/v1" \
+        --arg status "$status" \
+        --arg tool "rg-code" \
+        --arg pattern "$pattern" \
+        --arg root "$root" \
+        --arg mode "$MODE" \
+        --argjson exit_code "$rg_rc" \
+        --argjson count "$count" \
+        --argjson files "$files_json" \
+        --argjson matches "$matches_json" \
+        '{schema:$schema, status:$status, tool:$tool, pattern:$pattern, root:$root, mode:$mode, exit_code:$exit_code, count:$count, files:$files, matches:$matches}'
+    exit "$rg_rc"
+fi
+
 case "$OUT_MODE" in
     json)
-        rg "${case_args[@]}" "${mode_args[@]}" "${BASE_EXCLUDES[@]}" \
-            --json -n "$pattern" "$root" |
-            jq -sc '[.[] | select(.type == "match") | {
+        # Capture rg separately so a hard rg failure (exit >=2, e.g. an invalid
+        # regex) does not get laundered into a well-formed '[]' by jq slurping an
+        # empty stream — which a structured-output consumer cannot tell apart from
+        # a legitimate zero-match result. Exit 1 (no match) still prints '[]'.
+        rg_out=""
+        rg_rc=0
+        rg_out="$(rg "${case_args[@]}" "${mode_args[@]}" "${BASE_EXCLUDES[@]}" \
+            --json -n "$pattern" "$root")" || rg_rc=$?
+        if ((rg_rc >= 2)); then
+            exit "$rg_rc"
+        fi
+        printf '%s' "$rg_out" | jq -sc '[.[] | select(.type == "match") | {
           file: .data.path.text,
           line: .data.line_number,
           col: .data.submatches[0].start,
           text: .data.lines.text
         }]'
+        exit "$rg_rc"
         ;;
     files)
         rg "${case_args[@]}" "${mode_args[@]}" "${BASE_EXCLUDES[@]}" -l -n "$pattern" "$root"

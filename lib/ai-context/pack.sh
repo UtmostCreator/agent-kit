@@ -10,7 +10,7 @@
 ai_context_pack_usage() {
     cat <<'EOF'
 Usage:
-  agent-kit context pack [auto|repomix|files-to-prompt|code2prompt] [tool args...]
+  restsift context pack [auto|repomix|files-to-prompt|code2prompt] [tool args...]
 
 Environment:
   OUTPUT_DIR=.repomix-context/manual
@@ -20,9 +20,13 @@ Environment:
   TOKEN_BUDGET=80000
 
 Examples:
-  agent-kit context pack auto --include "docs/ai/**/*.md,tools/**/*.php"
-  OUTPUT_FILE=.repomix-context/manual/docs.xml agent-kit context pack repomix --include "docs/**/*.md"
-  agent-kit context pack files-to-prompt docs/ai/cli-tools.md docs/ai/tools/tool-map.md
+  restsift context pack auto --include "docs/ai/**/*.md,tools/**/*.php"
+  OUTPUT_FILE=.repomix-context/manual/docs.xml restsift context pack repomix --include "docs/**/*.md"
+  restsift context pack files-to-prompt docs/ai/cli-tools.md docs/ai/tools/tool-map.md
+
+Exit codes:
+  0  ok — context packed (path printed to stdout)
+  1  error — no packer found, secrets detected, or output not produced
 EOF
 }
 
@@ -83,6 +87,10 @@ ai_context_pack_main() {
             ;;
         *)
             # Backward-compatible behaviour: first arg is probably a tool arg; use auto backend.
+            # Warn (to stderr only) so a mistyped backend name isn't silently
+            # reinterpreted as a tool arg, which otherwise surfaces as a confusing
+            # downstream packer failure. stdout (the output path) is unchanged.
+            log_warn "unrecognized backend '$backend'; using auto backend and forwarding '$backend' as a tool argument"
             backend="auto"
             ;;
     esac

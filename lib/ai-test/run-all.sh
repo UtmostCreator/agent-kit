@@ -12,11 +12,11 @@
 # entrypoint.
 #
 # Usage:
-#   agent-kit test all             run every discovered suite (heavy)
+#   restsift test all             run every discovered suite (heavy)
 #
 # Example:
-#   agent-kit test all --help           # see options and defaults before running (safe)
-#   PARATEST_PROCS=8 agent-kit test all # run the full suite with 8 parallel workers
+#   restsift test all --help           # see options and defaults before running (safe)
+#   PARATEST_PROCS=8 restsift test all # run the full suite with 8 parallel workers
 #
 # Requires: git
 
@@ -61,8 +61,16 @@ ai_test_all_main() {
         exec env AI_OUTPUT=json bash "$AI_TEST_LIBEXEC_DIR/sh-introspect" "$AI_TEST_LIBEXEC_DIR/../lib/ai-test/run-all.sh"
     fi
 
+    # Resolve the CALLER's repository root (where the user invoked the command),
+    # NOT the toolkit's own install dir. Prefer the canonical repo_root() helper
+    # from lib/paths.sh (loaded via common.sh on the CLI path); fall back to the
+    # same git logic when this module is sourced bare (e.g. focused unit tests).
     local ROOT
-    ROOT="$(cd "$AI_TEST_LIBEXEC_DIR/.." && pwd)"
+    if declare -F repo_root >/dev/null 2>&1; then
+        ROOT="$(repo_root)"
+    else
+        ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+    fi
     cd "$ROOT" || exit 1
 
     local PARATEST_PROCS="${PARATEST_PROCS:-16}"
@@ -95,7 +103,13 @@ ai_test_all_main() {
 
     local TMP_DIR
     TMP_DIR="$(mktemp -d)"
-    trap 'rm -rf "$TMP_DIR"' EXIT
+    # Bake the path into the trap at set time: TMP_DIR is `local` to this
+    # function and is out of scope when the EXIT trap fires (after the function
+    # returns), so a deferred `$TMP_DIR` reference would trip `set -u` with an
+    # unbound-variable error. Single-quoting the expansion here captures the
+    # concrete path now.
+    # shellcheck disable=SC2064 # intentional early expansion of $TMP_DIR
+    trap "rm -rf '$TMP_DIR'" EXIT
 
     local JOBS=()
     local NAMES=()

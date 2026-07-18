@@ -16,7 +16,7 @@
 ai_context_ensure_usage() {
     cat <<'EOF'
 Usage:
-  agent-kit context ensure [root] [--regen] [--no-regen]
+  restsift context ensure [root] [--regen] [--no-regen]
 
 Options:
   --regen        permit regeneration of stale/expired/missing context
@@ -33,7 +33,7 @@ Behaviour:
   with a recommended command instead.
 
 Regeneration always runs against the repository root only:
-  agent-kit context generate .
+  restsift context generate .
 EOF
 }
 
@@ -104,7 +104,7 @@ ai_context_ensure_main() {
 
     local root_abs
     root_abs="$(cd "$ROOT" && pwd)"
-    local regen_cmd="agent-kit context generate ."
+    local regen_cmd="restsift context generate ."
 
     # Determine freshness state via the dedicated checker (deterministic exit codes).
     set +e

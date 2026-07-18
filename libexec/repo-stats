@@ -2,10 +2,15 @@
 # Count the files Git currently tracks in this repository.
 #
 # Usage:
-#   agent-kit repo-stats
+#   restsift repo-stats            print the tracked-file count (bare integer)
+#   restsift repo-stats --json     print an ai.repo-stats/v1 JSON envelope
+#   Exits 0 when counted, 1 outside a git work tree, 2 on an unexpected argument
+#
+# Flags: --json
 #
 # Example:
-#   agent-kit repo-stats   # print how many files Git currently tracks in this repository
+#   restsift repo-stats            # print how many files Git currently tracks
+#   restsift repo-stats --json     # same count, machine-readable envelope
 
 set -euo pipefail
 
@@ -26,6 +31,47 @@ if [[ "${1:-}" == "--introspect" ]]; then
     _self="${BASH_SOURCE[0]}"
     _here="$(cd "$(dirname "$_self")" && pwd)"
     exec env AI_OUTPUT=json bash "$_here/sh-introspect" "$_self"
+fi
+
+# Machine-readable output is opt-in and additive: --json (explicit) or the
+# repo-wide AI_OUTPUT=json convention. Default/human output stays a bare integer
+# so existing callers and scripts see byte-identical stdout.
+emit_json=0
+case "${AI_OUTPUT:-}" in
+    json) emit_json=1 ;;
+esac
+if [[ "${1:-}" == "--json" ]]; then
+    emit_json=1
+    shift
+fi
+
+# This command takes no further arguments. Reject unknown flags and stray
+# positional arguments with a specific error and a nonzero exit, rather than
+# silently ignoring them and printing a plausible-looking success.
+if [[ $# -gt 0 ]]; then
+    printf 'repo-stats: unexpected argument: %s\n' "$1" >&2
+    printf 'usage: restsift repo-stats [--json]\n' >&2
+    exit 2
+fi
+
+# Validate we are inside a git work tree before counting. Without this guard,
+# `git ls-files` fails (fatal on stderr) but `wc -l` still succeeds on the empty
+# stream and prints a misleading '0' to stdout, masking the failure from callers
+# that capture only stdout.
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    if ((emit_json)); then
+        printf '{"schema":"ai.repo-stats/v1","status":"error","tool":"repo-stats","error":"not inside a git repository"}\n'
+        exit 1
+    fi
+    printf 'repo-stats: not inside a git repository\n' >&2
+    printf 'repo-stats: run inside a git work tree, or run `git init` first\n' >&2
+    exit 1
+fi
+
+if ((emit_json)); then
+    count="$(git ls-files | wc -l | tr -d '[:space:]')"
+    printf '{"schema":"ai.repo-stats/v1","status":"ok","tool":"repo-stats","tracked_files":%d}\n' "$count"
+    exit 0
 fi
 
 git ls-files | wc -l

@@ -18,7 +18,7 @@ AI_GIT_ORIGIN_DEFAULT_BASE_PATTERNS='main master develop dev release/* releases/
 ai_git_origin_usage() {
     cat <<'EOF'
 Usage:
-  agent-kit git origin [--json] [--field name|base|count|all]
+  restsift git origin [--json] [--field name|base|count|all]
 
 Detects the branch the current branch was most likely created from.
 
@@ -34,6 +34,10 @@ Environment:
   GIT_ORIGIN_REF       force a specific base ref, skip detection
   GIT_BASE_PATTERNS    override preferred base-branch glob patterns
   GIT_ORIGIN_INCLUDE_REMOTE   set to 0 to skip remote-tracking branches
+
+Exit codes:
+  0    success
+  1    usage/validation error (invalid --field, not a git repo, no origin found)
 EOF
 }
 
@@ -85,7 +89,8 @@ ai_git_origin_main() {
                 shift
                 ;;
             --field)
-                field="${2:?--field requires a value}"
+                [[ $# -ge 2 ]] || die "--field requires a value (name|base|count|all)"
+                field="$2"
                 shift 2
                 ;;
             --field=*)

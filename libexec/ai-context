@@ -13,22 +13,22 @@
 # has no public subcommand here (private routing engine only).
 #
 # Usage:
-#   agent-kit context diff <since|unstaged|pr|recent|touched> [options]  (fused)
-#   agent-kit context pack [auto|repomix|files-to-prompt|code2prompt] [args]  (fused)
-#   agent-kit context file [ROOT] FILE [options]                        (fused)
-#   agent-kit context generate [root] [options]                         (isolated engine)
-#   agent-kit context tree <analyze|plan|pack|all|clean|purge> [root] [options]  (isolated engine)
-#   agent-kit context status [root]                                     (fused)
-#   agent-kit context ensure [root] [--regen|--no-regen]                (fused)
-#   agent-kit context estimate [path] [options]                         (fused)
+#   restsift context diff <since|unstaged|pr|recent|touched> [options]  (fused)
+#   restsift context pack [auto|repomix|files-to-prompt|code2prompt] [args]  (fused)
+#   restsift context file [ROOT] FILE [options]                        (fused)
+#   restsift context generate [root] [options]                         (isolated engine)
+#   restsift context tree <analyze|plan|pack|all|clean|purge> [root] [options]  (isolated engine)
+#   restsift context status [root]                                     (fused)
+#   restsift context ensure [root] [--regen|--no-regen]                (fused)
+#   restsift context estimate [path] [options]                         (fused)
 #
 # Modes: diff pack file generate tree status ensure estimate
 #
 # Example:
-#   agent-kit context diff unstaged --dry-run             # preview a bundle for uncommitted changes
-#   agent-kit context pack auto --include "docs/**/*.md"  # bundle docs into one context file
-#   agent-kit context status .                            # check whether the generated bundle is stale
-#   agent-kit context estimate README.md                  # estimate the token cost of a file
+#   restsift context diff unstaged --dry-run             # preview a bundle for uncommitted changes
+#   restsift context pack auto --include "docs/**/*.md"  # bundle docs into one context file
+#   restsift context status .                            # check whether the generated bundle is stale
+#   restsift context estimate README.md                  # estimate the token cost of a file
 
 set -euo pipefail
 
@@ -99,7 +99,7 @@ case "${1:-}" in
         exit 0
         ;;
     *)
-        echo "agent-kit context: unknown mode '$1' (expected diff|pack|file|generate|tree|status|ensure|estimate)" >&2
+        echo "restsift context: unknown mode '$1' (expected diff|pack|file|generate|tree|status|ensure|estimate)" >&2
         exit 2
         ;;
 esac

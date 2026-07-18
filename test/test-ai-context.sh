@@ -1068,6 +1068,72 @@ test_estimate_unknown_option() {
 }
 run_test "estimate: unknown option fails" test_estimate_unknown_option
 
+# Regression: a directory that is NOT inside a git repo must still produce a
+# byte/token estimate instead of silently crashing (git ls-files exits 128
+# outside a repo; pipefail + set -e used to abort before any output).
+test_estimate_non_git_dir() {
+    local non_git_dir out rc=0
+    non_git_dir="$(mktemp -d "${TMPDIR:-/tmp}/ai-context-nongit.XXXXXX")"
+    printf 'hello\n' >"$non_git_dir/f.txt"
+    out="$("$BASH_BIN" "$SCRIPT" estimate "$non_git_dir")" || rc=$?
+    rm -rf "$non_git_dir"
+    ((rc == 0)) && [[ "$out" == *"query_usage:"* && "$out" == *"bytes:"* ]]
+}
+run_test "estimate: non-git directory still produces an estimate" test_estimate_non_git_dir
+
+# Regression: an empty directory INSIDE a git repo must report bytes:0 via the
+# rg --files fallback (rg exits 1 on no files; pipefail + set -e used to abort).
+test_estimate_empty_dir_in_git_repo() {
+    local empty_dir out rc=0
+    empty_dir="$REPO_ROOT/.tmp-probe-empty-$$"
+    mkdir -p "$empty_dir"
+    out="$("$BASH_BIN" "$SCRIPT" estimate "$empty_dir")" || rc=$?
+    rmdir "$empty_dir" 2>/dev/null || rm -rf "$empty_dir"
+    ((rc == 0)) && [[ "$out" == *"bytes: 0"* ]]
+}
+run_test "estimate: empty dir inside git repo reports bytes:0" test_estimate_empty_dir_in_git_repo
+
+# estimate: AI_OUTPUT=json emits a parseable ai.context-estimate/v1 envelope
+# (opt-in; default text output is covered by the query_usage tests above).
+test_estimate_json_envelope() {
+    local tmp out
+    tmp="$(mktemp -d)"
+    printf 'abcd%.0s' {1..100} >"$tmp/j.txt" # 400 bytes -> 100 tokens
+    out="$(AI_OUTPUT=json "$BASH_BIN" "$SCRIPT" estimate "$tmp/j.txt")"
+    rm -rf "$tmp"
+    printf '%s' "$out" | jq -e '.schema == "ai.context-estimate/v1" and .status == "ok" and .raw_estimated_tokens == 100 and .bytes == 400' >/dev/null
+}
+run_test "estimate: AI_OUTPUT=json emits ai.context-estimate/v1 envelope" test_estimate_json_envelope
+
+# estimate: JSON error path for a missing PATH still yields a valid envelope
+# with status:"error" and exit 1.
+test_estimate_json_missing_path() {
+    local out rc=0
+    out="$(AI_OUTPUT=json "$BASH_BIN" "$SCRIPT" estimate "$TMP/definitely-missing-$$" 2>&1)" || rc=$?
+    ((rc == 1)) && printf '%s' "$out" | jq -e '.schema == "ai.context-estimate/v1" and .status == "error"' >/dev/null
+}
+run_test "estimate: AI_OUTPUT=json missing path emits error envelope, exit 1" test_estimate_json_missing_path
+
+# tree: a mistyped subcommand is rejected with a targeted message + exit 2
+# before the engine's secrets scan runs (no misleading 'secrets detected').
+test_tree_unknown_subcommand() {
+    local out rc=0
+    out="$("$BASH_BIN" "$SCRIPT" tree badsubcommand 2>&1)" || rc=$?
+    ((rc == 2)) &&
+        grep -q 'unknown tree subcommand: badsubcommand' <<<"$out" &&
+        ! grep -qi 'secrets detected' <<<"$out"
+}
+run_test "tree: unknown subcommand rejected with exit 2 (no secrets message)" test_tree_unknown_subcommand
+
+# diff: a bare `context diff` with no subcommand emits an explicit stderr
+# diagnostic (in addition to the usage block) and exits 1.
+test_diff_missing_subcommand() {
+    local err rc=0
+    err="$("$BASH_BIN" "$SCRIPT" diff 2>&1 1>/dev/null)" || rc=$?
+    ((rc == 1)) && grep -q 'a diff subcommand is required' <<<"$err"
+}
+run_test "diff: missing subcommand emits stderr diagnostic, exit 1" test_diff_missing_subcommand
+
 # ===========================================================================
 # status / ensure (formerly test-repomix-freshness.sh, which also covered
 # repomix-ensure-fresh)
@@ -1174,6 +1240,17 @@ test_status_missing_ts_field() {
     ((rc == 4)) && printf '%s' "$out" | jq -e '.status == "missing"' >/dev/null
 }
 run_test "status: manifest with no ts field is treated as missing, exit 4" test_status_missing_ts_field
+
+# Regression: a nonexistent root must emit a clean missing message and the
+# documented exit 4, not leak a raw bash `cd: ... No such file` trace / exit 1.
+test_status_nonexistent_root() {
+    local out rc=0
+    out="$("$BASH_BIN" "$SCRIPT" status "$TMP/definitely/not/here" 2>&1)" || rc=$?
+    ((rc == 4)) &&
+        grep -q '^missing:' <<<"$out" &&
+        ! grep -qi 'No such file or directory' <<<"$out"
+}
+run_test "status: nonexistent root emits clean missing message, exit 4" test_status_nonexistent_root
 
 # ---------------------------------------------------------------------------
 # ensure: additional coverage (Phase 3b, lib/ai-context/ensure.sh) — fresh

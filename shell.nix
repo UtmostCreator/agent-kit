@@ -9,7 +9,7 @@
 { pkgs ? import <nixpkgs> { } }:
 
 pkgs.mkShell {
-  name = "agent-kit-coverage";
+  name = "restsift-coverage";
 
   buildInputs = [
     pkgs.kcov

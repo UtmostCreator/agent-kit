@@ -1,8 +1,10 @@
 {
-  "name": "@utmostcreator/agent-kit",
+  "name": "@utmostcreator/restsift",
   "version": "0.1.0",
   "description": "Safety-first CLI toolkit for coding agents: scoped search, context packing, guarded edits, rollback, test selection, and repository verification.",
   "bin": {
+    "restsift": "npm/cli.js",
+    "res": "npm/cli.js",
     "agent-kit": "npm/cli.js",
     "ak": "npm/cli.js"
   },
@@ -48,13 +50,13 @@
     "repomix",
     "ripgrep"
   ],
-  "homepage": "https://github.com/UtmostCreator/agent-kit#readme",
+  "homepage": "https://github.com/UtmostCreator/restsift#readme",
   "bugs": {
-    "url": "https://github.com/UtmostCreator/agent-kit/issues"
+    "url": "https://github.com/UtmostCreator/restsift/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/UtmostCreator/agent-kit.git"
+    "url": "git+https://github.com/UtmostCreator/restsift.git"
   },
   "author": "Utmost Creator",
   "license": "Apache-2.0"

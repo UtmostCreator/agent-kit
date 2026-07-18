@@ -35,7 +35,7 @@ run_kcov() {
     mkdir -p -- "$out_dir"
 
     # One kcov run per test file, all merged into $out_dir. kcov follows the
-    # child processes each test spawns (bin/agent-kit -> libexec/* -> lib/*),
+    # child processes each test spawns (bin/restsift -> libexec/* -> lib/*),
     # so coverage accumulates across the whole toolkit.
     local i=0 test_file
     for test_file in "${tests[@]}"; do
@@ -72,8 +72,8 @@ run_native() {
     rm -rf -- "$out_dir"
     mkdir -p -- "$out_dir/hits"
 
-    export AK_COV_ROOT="$repo_root"
-    export AK_COV_DIR="$repo_root/$out_dir/hits"
+    export RES_COV_ROOT="$repo_root"
+    export RES_COV_DIR="$repo_root/$out_dir/hits"
     export BASH_ENV="$repo_root/scripts/lib/cov-hook.sh"
     # test-ai-search.sh has ~269 already-written Phase 3-6 assertions gated
     # behind this var (off by default; scripts/check.sh does not set it
@@ -92,7 +92,7 @@ run_native() {
         }
     done
 
-    unset BASH_ENV AK_COV_ROOT AK_COV_DIR AI_SEARCH_RUN_P1_TESTS
+    unset BASH_ENV RES_COV_ROOT RES_COV_DIR AI_SEARCH_RUN_P1_TESTS
 
     local hit_file="$out_dir/hits.txt"
     cat -- "$out_dir"/hits/*.cov 2>/dev/null | sort -u >"$hit_file" || : >"$hit_file"

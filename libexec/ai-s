@@ -1,33 +1,38 @@
 #!/usr/bin/env bash
 # Short repository search: default to text mode and auto-detect the search root.
 #
-# `agent-kit s QUERY` (or `ak s QUERY`) searches file contents for QUERY across
+# `restsift s QUERY` (or `ak s QUERY`) searches file contents for QUERY across
 # the repository, resolving the root automatically (explicit ROOT > Git top-level
 # > current dir) so the common case needs no mode word and no trailing `.`. A
 # mode-selecting flag switches families; every other flag is forwarded verbatim
-# to `agent-kit search`. This is sugar over `agent-kit search text QUERY <root>`.
+# to `restsift search`. This is sugar over `restsift search text QUERY <root>`.
 #
 # Usage:
-#   agent-kit s QUERY [ROOT] [flags]         text search (default mode)
-#   agent-kit s QUERY --tracked              search only git-tracked files
-#   agent-kit s QUERY --changed              search only changed (worktree) files
-#   agent-kit s QUERY --staged               search only staged files
-#   agent-kit s QUERY --diff [--base REF]    search this branch's diff
-#   agent-kit s QUERY --history [--messages] pickaxe git history for QUERY
-#   agent-kit s QUERY --docs|--tests|--config|--deps   surface-scoped text search
+#   restsift s QUERY [ROOT] [flags]         text search (default mode)
+#   restsift s QUERY --tracked              search only git-tracked files
+#   restsift s QUERY --changed              search only changed (worktree) files
+#   restsift s QUERY --staged               search only staged files
+#   restsift s QUERY --diff [--base REF]    search this branch's diff
+#   restsift s QUERY --history [--messages] pickaxe git history for QUERY
+#   restsift s QUERY --docs|--tests|--config|--deps   surface-scoped text search
 #
 # Example:
-#   agent-kit s TODO                         # every TODO in the repo, no '.' needed
-#   agent-kit s emit_json libexec            # scope the search to a subdirectory
-#   agent-kit s export --changed             # only the files you changed
-#   agent-kit s AgentKit --history --messages
-#   AI_OUTPUT=json agent-kit s emit_json     # stable JSON envelope for agents
+#   restsift s TODO                         # every TODO in the repo, no '.' needed
+#   restsift s emit_json libexec            # scope the search to a subdirectory
+#   restsift s export --changed             # only the files you changed
+#   restsift s RestSift --history --messages
+#   AI_OUTPUT=json restsift s emit_json     # stable JSON envelope for agents
 #
-# Canonical equivalent: `agent-kit s TODO` == `agent-kit search text TODO <root>`.
+# Canonical equivalent: `restsift s TODO` == `restsift search text TODO <root>`.
 #
 # Requires: git (root auto-detection; falls back to '.' outside a repo)
 #
-# Exit codes: mirror `agent-kit search`; 2 on a shorthand usage error.
+# Modes: text tracked changed-text staged-text diff history docs tests config deps
+#
+# Exit codes: mirror `restsift search`; 2 on a shorthand usage error. A search
+#   that finds no matches still exits 0 (not grep-style 1) — an absent QUERY and a
+#   match-all QUERY both return 0, so branch on the result set (stdout / the JSON
+#   `results` array), not on exit status, to tell found-vs-not-found apart.
 
 set -euo pipefail
 
@@ -51,11 +56,11 @@ SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SEARCH="$SELF_DIR/ai-search"
 
 fail() {
-    printf 'agent-kit s: %s\n' "$1" >&2
+    printf 'restsift s: %s\n' "$1" >&2
     exit 2
 }
 
-# Flags that consume the following token as their value in `agent-kit search`.
+# Flags that consume the following token as their value in `restsift search`.
 # Kept in lockstep with lib/ai-search/parse-flags.sh so we forward "--flag value"
 # as a pair and never mistake a flag value for a positional query/root.
 value_flag() {
@@ -103,9 +108,14 @@ resolve_root() {
     git rev-parse --show-toplevel 2>/dev/null || printf '.'
 }
 
+# An empty/whitespace-only QUERY is a usage error, not a match-everything search.
+if ((${#positionals[@]} > 0)) && [[ -z "${positionals[0]//[[:space:]]/}" ]]; then
+    fail "a non-empty QUERY is required (e.g. 'restsift s TODO')"
+fi
+
 case "${#positionals[@]}" in
     0)
-        fail "a QUERY is required (e.g. 'agent-kit s TODO')"
+        fail "a QUERY is required (e.g. 'restsift s TODO')"
         ;;
     1)
         exec "${BASH:-bash}" "$SEARCH" "$mode" "${positionals[0]}" "$(resolve_root)" \
@@ -113,7 +123,7 @@ case "${#positionals[@]}" in
         ;;
     *)
         # Query + an explicit root (and any extras) — forward as-is so
-        # `agent-kit search` applies its own positional validation.
+        # `restsift search` applies its own positional validation.
         exec "${BASH:-bash}" "$SEARCH" "$mode" "${positionals[@]}" \
             ${passthrough[@]+"${passthrough[@]}"}
         ;;

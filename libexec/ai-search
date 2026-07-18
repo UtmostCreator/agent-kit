@@ -36,32 +36,48 @@ set -euo pipefail
 # relative to scripts/ai/ rather than scripts/ai/internal/search/.
 #
 # Usage:
-#   agent-kit search <mode> [query] [root] [flags]
+#   restsift search <mode> [query] [root] [flags]
 #   content modes (need a query): text tracked docs tests config deps diff history struct symbols class
 #   file-list modes (no query):   files changed-files staged-files
 #   curated modes (no query):     todo unsafe-patterns
 #   special:                      doctor
-#   batch:                        agent-kit search batch MODE QUERY [QUERY ...] [root] [flags]
+#   batch:                        restsift search batch MODE QUERY [QUERY ...] [root] [flags]
 #
 # Example:
-#   agent-kit search text "TODO" .                          # find every TODO across the tree (human output)
-#   AI_OUTPUT=json agent-kit search text "emit_json" libexec # same search as the stable JSON envelope agents consume
-#   agent-kit search tracked "ai_search_main" .             # search only git-tracked files (git grep, not rg)
-#   agent-kit search changed-text "export" .                # grep ONLY the files you changed in the worktree
-#   agent-kit search diff "emit_json" . --base main         # search this branch's diff against main
-#   agent-kit search history "AgentKit" . --messages        # pickaxe commit history for a string
-#   agent-kit search text "function" libexec --count        # per-file match counts + summary{}
-#   agent-kit search text "emit_json" libexec -C 2          # add 2 lines of context around each match
-#   agent-kit search files config .                         # find files whose NAME contains "config" (fd)
-#   agent-kit search todo .                                 # list curated TODO/FIXME/HACK/XXX markers
-#   agent-kit search doctor                                 # check which search backends are available
-#   agent-kit search capabilities                           # full mode/flag/env capability map
-#   agent-kit search batch text foo bar .                   # run one MODE against several queries
+#   restsift search text "TODO" .                          # find every TODO across the tree (human output)
+#   AI_OUTPUT=json restsift search text "emit_json" libexec # same search as the stable JSON envelope agents consume
+#   restsift search tracked "ai_search_main" .             # search only git-tracked files (git grep, not rg)
+#   restsift search changed-text "export" .                # grep ONLY the files you changed in the worktree
+#   restsift search diff "emit_json" . --base main         # search this branch's diff against main
+#   restsift search history "RestSift" . --messages        # pickaxe commit history for a string
+#   restsift search text "function" libexec --count        # per-file match counts + summary{}
+#   restsift search text "emit_json" libexec -C 2          # add 2 lines of context around each match
+#   restsift search files config .                         # find files whose NAME contains "config" (fd)
+#   restsift search todo .                                 # list curated TODO/FIXME/HACK/XXX markers
+#   restsift search doctor                                 # check which search backends are available
+#   restsift search capabilities                           # full mode/flag/env capability map
+#   restsift search batch text foo bar .                   # run one MODE against several queries
 #
 # Modes: text tracked docs tests config config-key deps route changed-text
 #   staged-text diff history struct symbols class function method interface
 #   enum files changed-files staged-files todo unsafe-patterns doctor
 #   capabilities batch
+#
+# Flags: --fixed --regex --pcre2 --ignore-case -i --case-sensitive --smart-case
+#   --glob --type --exclude --max-depth --absolute --no-ignore --no-ignore-vcs
+#   --no-ignore-global --no-ignore-parent --no-ignore-dot --context -C
+#   --before-context -B --after-context -A --files-with-matches -l --count
+#   --count-matches --max-results --max-bytes --staged --base --messages --patch
+#   --lang --dry-run --introspect --help -h
+#
+# The flag list is declared explicitly (not left to sh-introspect's auto-scan)
+# because that scan's regex skips any flag containing a digit, such as --pcre2;
+# keep this list in sync with lib/ai-search/parse-flags.sh case labels.
+#
+# Exit codes: 0 = ok | no_matches | dry_run | blocked | unavailable (read the
+#   envelope status field to distinguish these; an empty result set is
+#   status=no_matches at exit 0, NOT an error); 1 = error (bad flag/mode,
+#   missing required tool, not a git repository, invalid regex).
 AI_SEARCH_ENTRYPOINT="${BASH_SOURCE[0]}"
 export AI_SEARCH_ENTRYPOINT
 

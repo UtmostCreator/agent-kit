@@ -2,16 +2,28 @@
 # Review and apply repository-local rollback snapshots created by AI tooling sessions.
 #
 # Usage:
-#   agent-kit rollback list                       list available restore points
-#   agent-kit rollback show SESSION_OR_SNAPSHOT   inspect one snapshot
-#   agent-kit rollback apply SESSION_OR_SNAPSHOT  restore files from a snapshot (mutating)
-#   agent-kit rollback prune [--days N]           delete old snapshots
+#   restsift rollback list                            list available restore points
+#   restsift rollback show SESSION_OR_SNAPSHOT|INDEX  inspect one snapshot
+#   restsift rollback apply SESSION_OR_SNAPSHOT|INDEX restore files from a snapshot (mutating)
+#   restsift rollback prune [--days N]                delete old snapshots
 #
 # Example:
-#   agent-kit rollback list                       # list restore points (read-only, safe)
-#   agent-kit rollback show SNAPSHOT_ID           # preview one snapshot's files (id from `list`)
+#   restsift rollback list                       # list restore points (read-only, safe)
+#   restsift rollback show SNAPSHOT_ID           # preview one snapshot's files (id from `list`)
+#   restsift rollback list --json                # machine-readable envelope for agents
+#   restsift rollback show 1                      # select by the "index" field from `list --json`
+#   AI_OUTPUT=json restsift rollback show 1      # env form of the JSON envelope
 #
 # Modes: list show apply prune
+#
+# Exit codes:
+#   0  success (including an empty snapshot set)
+#   1  usage error, unknown mode/option, or a resolve/apply/prune failure (die)
+#      An aborted interactive confirmation also exits 0 (nothing was changed).
+#
+# The `--json` flag (or AI_OUTPUT=json) makes `list` and `show` emit a stable
+# ai.rollback/v1 envelope instead of the human table; it is additive and
+# default-off, so existing invocations keep their exact human output.
 #
 # Requires: git
 
@@ -22,16 +34,37 @@ source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
 SNAPSHOT_DIR="${AI_SNAPSHOT_DIR:-.ai-logs/snapshots}"
 
+# Opt-in machine-readable output for `list`/`show`. Default-off so every
+# existing invocation keeps its exact human output; flipped on by `--json`
+# (stripped in the dispatcher below) or AI_OUTPUT=json.
+JSON_OUTPUT=0
+[[ "${AI_OUTPUT:-}" == "json" ]] && JSON_OUTPUT=1
+
 usage() {
     cat <<'EOF'
 Usage:
-  ai-rollback.sh list
-  ai-rollback.sh show SESSION_OR_SNAPSHOT
-  ai-rollback.sh apply SESSION_OR_SNAPSHOT
+  ai-rollback.sh list [--json]
+  ai-rollback.sh show SESSION_OR_SNAPSHOT|INDEX [--json]
+  ai-rollback.sh apply SESSION_OR_SNAPSHOT|INDEX
   ai-rollback.sh prune [--days N]
 
+INDEX is the "index" field from `list --json` (1 = most recent, git-stash-style);
+the human `list` table is unchanged and does not print it.
+
+Flags:
+  --json    emit a stable ai.rollback/v1 JSON envelope (list/show); default-off.
+            Equivalent to AI_OUTPUT=json.
+
 Environment:
-  ROLLBACK_REMOVE_CREATED_UNTRACKED=1
+  ROLLBACK_REMOVE_CREATED_UNTRACKED=1   drop untracked files created since the
+                                        snapshot when applying (see lib/snapshot).
+  AI_SNAPSHOT_DIR                       snapshot directory (default .ai-logs/snapshots).
+  AI_OUTPUT=json                        JSON envelope for list/show (as --json).
+  CI=true                               skip the interactive confirmation prompt.
+
+Exit codes:
+  0  success (an empty snapshot set is still success)
+  1  usage error, unknown mode/option, or a resolve/apply/prune failure
 EOF
 }
 
@@ -47,6 +80,12 @@ confirm_mutation() {
             log_info "Aborted."
             exit 0
         }
+    else
+        # Non-interactive (no TTY, or CI=true): the confirmation prompt is
+        # skipped and the mutation proceeds unconditionally. Announce that
+        # explicitly so an agent/CI run is not surprised by a working-tree
+        # reset or snapshot deletion it never got to confirm.
+        log_warn "non-interactive stdin (or CI=true): proceeding without confirmation"
     fi
 }
 
@@ -62,17 +101,40 @@ resolve_snapshot() {
     fi
 
     if [[ ! -d "$SNAPSHOT_DIR" ]]; then
-        die "snapshot directory not found: $SNAPSHOT_DIR"
+        die "snapshot directory not found: $SNAPSHOT_DIR (no snapshots have been created yet, or set AI_SNAPSHOT_DIR to the right path)"
     fi
 
-    match="$(
-        find "$SNAPSHOT_DIR" -maxdepth 1 \
-            \( -name "${input}*.manifest.json" -o -name "${input}*.patch" -o -name "${input}*.ref" \) |
-            sort -r |
-            head -1
-    )"
+    # git-stash-style numeric selection: 1 is the most recent restore point,
+    # matching the "#" column `rollback list` prints (both walk
+    # _ai_snapshot_entries in the same order).
+    if [[ "$input" =~ ^[0-9]+$ ]]; then
+        match="$(_ai_snapshot_entries | sed -n "${input}p")"
+        [[ -n "$match" ]] || die "no snapshot at index $input (see 'restsift rollback list')"
+        printf '%s\n' "$match"
+        return 0
+    fi
 
-    [[ -n "$match" ]] || die "no snapshot found matching: $input"
+    # Session/label prefix selection must resolve to the SAME canonical
+    # artifact that `list` and numeric-index selection use for a restore
+    # point, so `show`/`apply <prefix>` and `show`/`apply <index>` never
+    # disagree. Walk _ai_snapshot_entries (one entry per restore point, newest
+    # first, with each manifest's ".patch" sidecar already excluded) and take
+    # the first basename that starts with the prefix -- picking the owning
+    # ".manifest.json" over its bookkeeping ".patch" sidecar. A raw
+    # `find ... | sort -r | head -1` would instead surface the ".patch"
+    # sidecar, because ".patch" sorts after ".manifest.json".
+    local snap
+    while IFS= read -r snap; do
+        [[ -n "$snap" ]] || continue
+        case "$(basename "$snap")" in
+            "$input"*)
+                match="$snap"
+                break
+                ;;
+        esac
+    done < <(_ai_snapshot_entries)
+
+    [[ -n "$match" ]] || die "no snapshot found matching: $input (see 'restsift rollback list' for valid indexes and session prefixes)"
     printf '%s\n' "$match"
 }
 
@@ -88,7 +150,200 @@ snapshot_date() {
         printf '-'
 }
 
+# Classify a snapshot artifact path into the same TYPE label the human `list`
+# table prints, so the JSON envelope and the table never disagree.
+snapshot_type() {
+    case "$1" in
+        *.manifest.json) printf 'manifest' ;;
+        *.patch) printf 'legacy-patch' ;;
+        *.ref) printf 'legacy-ref' ;;
+        *) printf 'unknown' ;;
+    esac
+}
+
+# ai.rollback/v1 envelope for `list`: one object per restore point, walking the
+# SAME _ai_snapshot_entries ordering the human table uses (so `index` here
+# equals the "#" column and the numeric selector in resolve_snapshot).
+_rollback_list_json() {
+    local count=0 snap base type size date session label objs='[]'
+    local -a rows=()
+
+    if [[ -d "$SNAPSHOT_DIR" ]]; then
+        while IFS= read -r snap; do
+            [[ -n "$snap" ]] || continue
+            count=$((count + 1))
+            base="$(basename "$snap")"
+            type="$(snapshot_type "$snap")"
+            size="$(snapshot_size "$snap")"
+            date="$(snapshot_date "$snap")"
+            session=""
+            label=""
+            if [[ "$type" == "manifest" ]]; then
+                session="$(jq -r '.session // empty' "$snap" 2>/dev/null || true)"
+                label="$(jq -r '.label // empty' "$snap" 2>/dev/null || true)"
+            fi
+            rows+=("$(jq -cn \
+                --argjson index "$count" \
+                --arg snapshot "$base" \
+                --arg path "$snap" \
+                --arg type "$type" \
+                --arg size "$size" \
+                --arg date "$date" \
+                --arg session "$session" \
+                --arg label "$label" \
+                '{
+                    index: $index,
+                    snapshot: $snapshot,
+                    path: $path,
+                    type: $type,
+                    size: (if $size == "" then null else $size end),
+                    date: (if $date == "" then null else $date end),
+                    session: (if $session == "" then null else $session end),
+                    label: (if $label == "" then null else $label end)
+                }')")
+        done < <(_ai_snapshot_entries)
+    fi
+
+    if ((count > 0)); then
+        objs="$(printf '%s\n' "${rows[@]}" | jq -s '.')"
+    fi
+
+    jq -n \
+        --argjson snapshots "$objs" \
+        --argjson count "$count" \
+        --arg dir "$SNAPSHOT_DIR" \
+        '{
+            schema: "ai.rollback/v1",
+            status: "ok",
+            tool: "ai-rollback",
+            mode: "list",
+            snapshot_dir: $dir,
+            count: $count,
+            snapshots: $snapshots
+        }'
+}
+
+# ai.rollback/v1 envelope for `show` on an already-resolved snapshot path.
+# "label:" stays in explicit colon form (never the bare shorthand) for the same
+# jq < 1.7 reserved-keyword reason documented in cmd_show_manifest.
+_rollback_show_json() {
+    local snap="$1" type size date
+    type="$(snapshot_type "$snap")"
+    size="$(snapshot_size "$snap")"
+    date="$(snapshot_date "$snap")"
+
+    case "$snap" in
+        *.manifest.json)
+            jq \
+                --arg snap "$snap" \
+                --arg type "$type" \
+                --arg size "$size" \
+                --arg date "$date" \
+                '{
+                    schema: "ai.rollback/v1",
+                    status: "ok",
+                    tool: "ai-rollback",
+                    mode: "show",
+                    snapshot: $snap,
+                    type: $type,
+                    size: (if $size == "" then null else $size end),
+                    date: (if $date == "" then null else $date end),
+                    manifest: {
+                        version: .version,
+                        session: .session,
+                        label: .label,
+                        base_ref: .base_ref,
+                        root: .root,
+                        patch_file: .patch_file,
+                        untracked_list: .untracked_list,
+                        untracked_archive: .untracked_archive,
+                        has_untracked_archive: .has_untracked_archive,
+                        ts: .ts
+                    }
+                }' "$snap"
+            ;;
+        *.ref)
+            local ref
+            ref="$(<"$snap")"
+            jq -n \
+                --arg snap "$snap" \
+                --arg type "$type" \
+                --arg size "$size" \
+                --arg date "$date" \
+                --arg ref "$ref" \
+                '{
+                    schema: "ai.rollback/v1",
+                    status: "ok",
+                    tool: "ai-rollback",
+                    mode: "show",
+                    snapshot: $snap,
+                    type: $type,
+                    size: (if $size == "" then null else $size end),
+                    date: (if $date == "" then null else $date end),
+                    ref: $ref
+                }'
+            ;;
+        *.patch)
+            jq -n \
+                --arg snap "$snap" \
+                --arg type "$type" \
+                --arg size "$size" \
+                --arg date "$date" \
+                '{
+                    schema: "ai.rollback/v1",
+                    status: "ok",
+                    tool: "ai-rollback",
+                    mode: "show",
+                    snapshot: $snap,
+                    type: $type,
+                    size: (if $size == "" then null else $size end),
+                    date: (if $date == "" then null else $date end)
+                }'
+            ;;
+        *)
+            die "unsupported snapshot type: $snap"
+            ;;
+    esac
+}
+
+# Logical, de-duplicated snapshot list: one entry per restore point, newest
+# first. A manifest-based snapshot always has a same-timestamped ".patch"
+# sidecar (see snapshot_create) -- that sidecar is bookkeeping for the
+# manifest, not a separate restore point, so it's excluded whenever its
+# owning manifest is present. Legacy standalone .patch/.ref snapshots (no
+# manifest) are listed as-is. `cmd_list`'s row numbers AND numeric-index
+# selection in `resolve_snapshot` both count against this same ordering, so
+# `rollback list`'s "#" column and `rollback apply N` always agree.
+_ai_snapshot_entries() {
+    [[ -d "$SNAPSHOT_DIR" ]] || return 0
+
+    local manifest stem
+    local -A owned_patches=()
+
+    while IFS= read -r manifest; do
+        [[ -n "$manifest" ]] || continue
+        stem="${manifest%.manifest.json}"
+        owned_patches["${stem}.patch"]=1
+    done < <(find "$SNAPSHOT_DIR" -maxdepth 1 -name '*.manifest.json')
+
+    local snap
+    while IFS= read -r snap; do
+        [[ -n "$snap" ]] || continue
+        [[ -n "${owned_patches[$snap]:-}" ]] && continue
+        printf '%s\n' "$snap"
+    done < <(
+        find "$SNAPSHOT_DIR" -maxdepth 1 \
+            \( -name '*.manifest.json' -o -name '*.patch' -o -name '*.ref' \) |
+            sort -r
+    )
+}
+
 cmd_list() {
+    if ((JSON_OUTPUT)); then
+        _rollback_list_json
+        return 0
+    fi
+
     if [[ ! -d "$SNAPSHOT_DIR" ]]; then
         log_warn "No snapshot directory found at $SNAPSHOT_DIR"
         exit 0
@@ -181,10 +436,20 @@ cmd_show_manifest() {
 }
 
 cmd_show() {
-    local input="${1:?session or snapshot required}"
+    # Route the empty/missing argument through resolve_snapshot's die() (which
+    # also emits the log_json error envelope) instead of a bash `${1:?...}`
+    # guard, which would leak a raw uncolored interpreter error and skip the
+    # structured event -- unlike every other error path in this script.
+    local input="${1:-}"
     local snap
 
     snap="$(resolve_snapshot "$input")"
+
+    if ((JSON_OUTPUT)); then
+        _rollback_show_json "$snap"
+        return 0
+    fi
+
     log_info "Snapshot: $snap"
 
     case "$snap" in
@@ -208,7 +473,13 @@ cmd_show() {
 }
 
 cmd_apply() {
-    local input="${1:?session or snapshot required}"
+    # The apply path honors $ROLLBACK_REMOVE_CREATED_UNTRACKED, consumed in
+    # lib/snapshot.sh's snapshot_apply_manifest: =1 (default) drops untracked
+    # files created since the snapshot, =0 keeps them. Referenced here (not
+    # only in usage()) so --introspect advertises it as a real env input.
+    # See cmd_show: defer the missing-argument error to resolve_snapshot's
+    # die()/log_json path rather than a raw `${1:?...}` bash guard.
+    local input="${1:-}"
     local snap
 
     snap="$(resolve_snapshot "$input")"
@@ -219,6 +490,10 @@ cmd_apply() {
 
     log_ok "Rollback applied"
     git --no-pager diff --stat || true
+    # The rollback overwrites the working tree in place and is NOT itself
+    # snapshotted, so point the operator at how to inspect and, if needed,
+    # recover from an unwanted apply before they move on.
+    log_info "Review the result with 'git diff'; this rollback was not itself snapshotted. Use 'restsift rollback list' to pick a different restore point."
     log_json "rollback.apply" "$(jq -cn --arg snapshot "$snap" '{snapshot:$snapshot}')"
 }
 
@@ -230,7 +505,8 @@ cmd_prune() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --days)
-                days="${2:?days required}"
+                [[ $# -ge 2 ]] || die "--days requires a value"
+                days="$2"
                 shift 2
                 ;;
             --days=*)
@@ -241,6 +517,8 @@ cmd_prune() {
         esac
     done
 
+    [[ "$days" =~ ^[0-9]+$ ]] || die "--days must be a non-negative integer, got: $days"
+
     confirm_mutation "Pruning rollback snapshots older than $days days deletes recovery artifacts."
 
     if [[ ! -d "$SNAPSHOT_DIR" ]]; then
@@ -248,18 +526,30 @@ cmd_prune() {
         exit 0
     fi
 
+    local -a pruned=()
     while IFS= read -r snap; do
         [[ -n "$snap" ]] || continue
         rm -f "$snap"
+        pruned+=("$snap")
         count=$((count + 1))
+        # Name each deleted artifact so an irreversible prune is auditable and
+        # an operator can confirm the right files were removed.
+        log_info "pruned: $snap"
     done < <(
         find "$SNAPSHOT_DIR" -maxdepth 1 \
             \( -name '*.manifest.json' -o -name '*.patch' -o -name '*.ref' -o -name '*.untracked.txt' -o -name '*.untracked.tar.gz' \) \
             -mtime +"$days" 2>/dev/null
     )
 
+    local pruned_json='[]'
+    if ((count > 0)); then
+        pruned_json="$(printf '%s\n' "${pruned[@]}" | jq -R . | jq -s '.')"
+    fi
+
     log_ok "Pruned $count snapshot artifact(s)"
-    log_json "rollback.prune" "$(jq -cn --argjson days "$days" --argjson count "$count" '{days:$days, count:$count}')"
+    log_json "rollback.prune" \
+        "$(jq -cn --argjson days "$days" --argjson count "$count" --argjson pruned "$pruned_json" \
+            '{days:$days, count:$count, pruned:$pruned}')"
 }
 
 agent_session_init "ai-rollback"
@@ -271,6 +561,18 @@ cmd="${1:-}"
     exit 1
 }
 shift || true
+
+# Strip the additive, order-independent --json flag out of the remaining args
+# (turning on the ai.rollback/v1 envelope for list/show) and repass everything
+# else verbatim, so human invocations that never pass --json are unaffected.
+args=()
+for arg in "$@"; do
+    case "$arg" in
+        --json) JSON_OUTPUT=1 ;;
+        *) args+=("$arg") ;;
+    esac
+done
+set -- "${args[@]}"
 
 case "$cmd" in
     list) cmd_list ;;

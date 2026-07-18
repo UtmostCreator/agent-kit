@@ -188,6 +188,82 @@ test_fallback_excludes() {
 }
 run_test "rg --files fallback (no fd) still excludes vendor/" test_fallback_excludes
 
+# REGRESSION (defect 1): the rg fallback must match QUERY against the basename
+# ONLY, exactly like fd's default. A file whose basename lacks QUERY but whose
+# parent directory contains it must NOT leak in, so both backends agree.
+test_fallback_matches_basename_only() {
+    mkdir -p "$TMP/cfg/config-area"
+    echo x >"$TMP/cfg/config.md"
+    echo y >"$TMP/cfg/config-area/note.md"
+    run_discovery_without_fd "config" "$TMP/cfg"
+    [[ "$FD_FALLBACK_RC" -eq 99 ]] && return 0
+    [[ "$FD_FALLBACK_RC" -eq 0 ]] || return 1
+    [[ "$FD_FALLBACK_OUT" == *"config.md"* ]] || return 1
+    [[ "$FD_FALLBACK_OUT" != *"note.md"* ]]
+}
+run_test "rg --files fallback matches basename only (fd parity)" test_fallback_matches_basename_only
+
+# REGRESSION (defect 2): env-configurable inputs advertised by --introspect must
+# actually take effect (they were unconditionally clobbered before flag parsing).
+test_env_output_format_json() {
+    local out
+    out="$(OUTPUT_FORMAT=json "$BASH_BIN" "$SCRIPT" "app" "$TMP/src")"
+    echo "$out" | jq -e '.[0]' >/dev/null
+}
+run_test "OUTPUT_FORMAT=json env switches to JSON output" test_env_output_format_json
+
+test_env_include_hidden() {
+    local out
+    out="$(INCLUDE_HIDDEN=1 "$BASH_BIN" "$SCRIPT" "hidden" "$TMP/src")"
+    [[ "$out" == *".hidden"* ]]
+}
+run_test "INCLUDE_HIDDEN=1 env includes hidden files" test_env_include_hidden
+
+test_env_extra_types() {
+    local out
+    out="$(EXTRA_TYPES=php "$BASH_BIN" "$SCRIPT" "." "$TMP/src")"
+    [[ "$out" == *".php"* && "$out" != *".js"* ]]
+}
+run_test "EXTRA_TYPES env filters by extension" test_env_extra_types
+
+# AI_OUTPUT=json emits the self-describing envelope (new surface); --json and
+# OUTPUT_FORMAT=json keep emitting the legacy bare array (asserted above).
+test_ai_output_envelope() {
+    local out
+    out="$(AI_OUTPUT=json "$BASH_BIN" "$SCRIPT" "app" "$TMP/src")"
+    echo "$out" | jq -e '.schema == "ai.fd-files/v1" and .status == "ok" and .tool == "fd-files"' >/dev/null || return 1
+    echo "$out" | jq -e '.count == 1 and (.files | index("'"$TMP"'/src/app.php") != null)' >/dev/null || return 1
+    echo "$out" | jq -e '.root == "'"$TMP"'/src" and .query == "app"' >/dev/null
+}
+run_test "AI_OUTPUT=json emits ai.fd-files/v1 envelope with status/count/files" test_ai_output_envelope
+
+# A zero-match search under the envelope is status "ok" with count 0 -- NOT an
+# error -- so consumers can tell "no matches" apart from "path errored".
+test_ai_output_envelope_empty() {
+    local out
+    out="$(AI_OUTPUT=json "$BASH_BIN" "$SCRIPT" "zzzznomatch" "$TMP/src")"
+    echo "$out" | jq -e '.status == "ok" and .count == 0 and (.files | length) == 0' >/dev/null
+}
+run_test "AI_OUTPUT=json zero matches is status ok, count 0" test_ai_output_envelope_empty
+
+# A bad search root under the envelope is a status "error" envelope on stdout
+# with a nonzero exit, so an agent gets a reliable failure signal + a hint.
+test_ai_output_envelope_bad_root() {
+    local out rc=0
+    out="$(AI_OUTPUT=json "$BASH_BIN" "$SCRIPT" "app" "$TMP/does-not-exist" 2>/dev/null)" || rc=$?
+    [[ "$rc" -ne 0 ]] || return 1
+    echo "$out" | jq -e '.schema == "ai.fd-files/v1" and .status == "error" and (.error | length) > 0' >/dev/null
+}
+run_test "AI_OUTPUT=json bad root is status error envelope + nonzero exit" test_ai_output_envelope_bad_root
+
+# The human bad-root message names the offending path and how to fix it.
+test_bad_root_actionable_message() {
+    local out
+    out="$("$BASH_BIN" "$SCRIPT" "app" "$TMP/does-not-exist" 2>&1)" && return 1
+    [[ "$out" == *"$TMP/does-not-exist"* && "$out" == *"positional"* ]]
+}
+run_test "bad root prints an actionable message naming the path" test_bad_root_actionable_message
+
 printf '\n=== Results ===\n'
 printf '  Passed: %d  Failed: %d  Skipped: %d\n' "$PASS" "$FAIL" "$SKIP"
 ((FAIL == 0)) && printf '\033[0;32mPASSED\033[0m\n' || {

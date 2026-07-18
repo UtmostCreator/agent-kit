@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # Documentation quality checks (lint, links, drift) folded into the AI
-# verification gate as `agent-kit verify docs`.
+# verification gate as `restsift verify docs`.
 #
 # This module is sourced by scripts/ai/ai-verify.sh's `verify docs` subcommand
 # dispatch, near the top of that file, BEFORE the main --language pipeline is
@@ -10,8 +10,8 @@
 #
 # Fused from the former standalone libexec/ai-doc-check (verify-cluster
 # consolidation): behavior is byte-for-byte identical to that script, only the
-# invocation surface changed (`agent-kit doc-check ...` ->
-# `agent-kit verify docs ...`). Requires: lychee (for the links mode).
+# invocation surface changed (`restsift doc-check ...` ->
+# `restsift verify docs ...`). Requires: lychee (for the links mode).
 #
 # Every helper here is prefixed ai_verify_docs_ (and AI_VERIFY_DOCS_ for the
 # one process-global list variable) so sourcing this module into ai-verify's
@@ -24,8 +24,8 @@
 ai_verify_docs_usage() {
     cat <<'EOF'
 Usage:
-  agent-kit verify docs [all|markdownlint|links|drift] [paths...]
-  agent-kit verify docs --check [paths...]
+  restsift verify docs [all|markdownlint|links|drift] [paths...]
+  restsift verify docs --check [paths...]
 
 Environment:
   DOC_PATHS="README.md docs/**/*.md"
@@ -132,6 +132,14 @@ ai_verify_docs_run_links() {
 }
 
 ai_verify_docs_run_drift() {
+    # drift runs a repo-wide validator battery (repo-tool-inventory,
+    # validate-*.php) that has no per-path filter, so any explicit [paths...]
+    # argument cannot narrow it. Surface that honestly instead of silently
+    # ignoring the documented argument.
+    if (($# > 0)); then
+        log_warn "verify docs drift runs repo-wide validators and cannot filter by path; ignoring: $*"
+    fi
+
     if [[ -f scripts/ai/repo-tool-inventory.sh ]]; then
         ai_verify_docs_run_step "repo-tool-inventory --check" bash scripts/ai/repo-tool-inventory.sh --check
     fi
@@ -231,7 +239,7 @@ ai_verify_docs_main() {
         all)
             ai_verify_docs_run_markdownlint
             ai_verify_docs_run_links
-            ai_verify_docs_run_drift
+            ai_verify_docs_run_drift "$@"
             ;;
         markdownlint)
             ai_verify_docs_run_markdownlint
@@ -240,7 +248,7 @@ ai_verify_docs_main() {
             ai_verify_docs_run_links
             ;;
         drift)
-            ai_verify_docs_run_drift
+            ai_verify_docs_run_drift "$@"
             ;;
         --help | -h)
             ai_verify_docs_usage

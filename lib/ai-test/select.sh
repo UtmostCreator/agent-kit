@@ -12,10 +12,10 @@
 ai_test_select_usage() {
     cat <<'EOF'
 Usage:
-  agent-kit test select changed
-  agent-kit test select file PATH
-  agent-kit test select symbol SYMBOL
-  agent-kit test select json
+  restsift test select changed
+  restsift test select file PATH
+  restsift test select symbol SYMBOL
+  restsift test select json          # alias of 'select changed' (same JSON)
 
 Purpose:
   Select focused tests before running broad verification.
@@ -26,12 +26,25 @@ ai_test_select_repo_files() {
     git ls-files
 }
 
+# Preflight for the git-backed modes (changed/json). Without this, running
+# outside a git worktree let `git diff` dump its multi-line fatal/usage text to
+# stderr while the command still "succeeded" with an empty JSON body — a noisy,
+# misleading result. Detect it up front and emit one clean, parseable line.
+ai_test_select_require_git_worktree() {
+    local mode="$1"
+    if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        echo "ERROR: restsift test select $mode must run inside a git worktree; not a git repository: $PWD" >&2
+        echo "       cd into your project's git repository and retry" >&2
+        exit 1
+    fi
+}
+
 ai_test_select_changed_files() {
     {
         git diff --name-only --diff-filter=ACMRT
         git diff --cached --name-only --diff-filter=ACMRT
         git ls-files --others --exclude-standard
-    } | sort -u | ai_test_select_existing_files_only
+    } | grep -v '^\.ai-logs/' | sort -u | ai_test_select_existing_files_only
 }
 
 ai_test_select_existing_files_only() {
@@ -59,7 +72,7 @@ ai_test_select_find_tests_for_stem() {
 
     {
         ai_test_select_repo_files | grep -E "(^|/)(tests?|spec|__tests__)/.*${stem}.*\.(php|js|ts|jsx|tsx|vue)$" || true
-        ai_test_select_repo_files | grep -E "(^|/)${stem}(Test|Spec)?\.(php|js|ts|jsx|tsx)$" || true
+        ai_test_select_repo_files | grep -E "(^|/)${stem}(Test|Spec)\.(php|js|ts|jsx|tsx)$" || true
         ai_test_select_repo_files | grep -E "(^|/)${stem}\.(test|spec)\.(js|ts|jsx|tsx)$" || true
     } | sort -u
 }
@@ -106,15 +119,27 @@ ai_test_select_emit_json() {
     local tests_json="$2"
     local commands_json="$3"
 
+    # Opt-in (AI_OUTPUT=json only, so default stdout stays byte-identical): when
+    # candidate_tests were found but no runner command could be resolved (no
+    # artisan / vendor/bin/pest / vendor/bin/phpunit / package.json detected),
+    # attach a `hint` so an empty recommended_commands is not misread as
+    # "nothing to run".
+    local emit_hint="no"
+    [[ "${AI_OUTPUT:-}" == "json" ]] && emit_hint="yes"
+
     jq -n \
         --argjson files "$files_json" \
         --argjson tests "$tests_json" \
         --argjson commands "$commands_json" \
+        --arg emit_hint "$emit_hint" \
         '{
           input_files: $files,
           candidate_tests: $tests,
           recommended_commands: $commands
-        }'
+        }
+        + (if ($emit_hint == "yes" and ($tests | length) > 0 and ($commands | length) == 0)
+           then {hint: "candidate_tests were found but no test runner was detected (no artisan, vendor/bin/pest, vendor/bin/phpunit, or package.json in this repo); resolve a runner or run the listed tests manually — an empty recommended_commands does not mean there is nothing to run"}
+           else {} end)'
 }
 
 ai_test_select_for_files() {
@@ -173,17 +198,28 @@ ai_test_select_main() {
 
     case "$mode" in
         changed)
+            ai_test_select_require_git_worktree changed
             mapfile -t files < <(ai_test_select_changed_files)
             ai_test_select_for_files "${files[@]+${files[@]}}"
             ;;
 
         file)
-            file="${1:?file required}"
+            file="${1:-}"
+            if [[ -z "$file" ]]; then
+                echo "ERROR: restsift test select file requires a PATH" >&2
+                echo "       e.g. restsift test select file src/Foo.php" >&2
+                exit 2
+            fi
             ai_test_select_for_files "$file"
             ;;
 
         symbol)
-            symbol="${1:?symbol required}"
+            symbol="${1:-}"
+            if [[ -z "$symbol" ]]; then
+                echo "ERROR: restsift test select symbol requires a SYMBOL" >&2
+                echo "       e.g. restsift test select symbol MyClass" >&2
+                exit 2
+            fi
             mapfile -t tests < <(ai_test_select_find_tests_for_symbol "$symbol")
             commands=()
 
@@ -203,6 +239,7 @@ ai_test_select_main() {
             ;;
 
         json)
+            ai_test_select_require_git_worktree json
             mapfile -t files < <(ai_test_select_changed_files)
             ai_test_select_for_files "${files[@]+${files[@]}}"
             ;;
@@ -212,8 +249,9 @@ ai_test_select_main() {
             ;;
 
         *)
-            ai_test_select_usage
-            die "unknown mode: $mode"
+            ai_test_select_usage >&2
+            echo "ERROR: restsift test select: unknown mode '$mode' (expected changed|file|symbol|json)" >&2
+            exit 2
             ;;
     esac
 

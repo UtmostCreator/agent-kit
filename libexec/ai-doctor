@@ -1,23 +1,31 @@
 #!/usr/bin/env bash
-# Report agent-kit installation and environment health for bug triage.
+# Report restsift installation and environment health for bug triage.
 #
 # Checks the Bash version, required and optional tools, the resolved install
-# root, whether agent-kit is on PATH, and whether the current directory is a Git
+# root, whether restsift is on PATH, and whether the current directory is a Git
 # work tree. Read-only: it inspects the environment and never modifies anything.
 #
 # Usage:
-#   agent-kit doctor            human-readable health summary (default)
-#   agent-kit doctor --json     machine-readable JSON envelope (schema ai.doctor/v1)
-#   AI_OUTPUT=json agent-kit doctor   JSON envelope (env form)
+#   restsift doctor            human-readable health summary (default)
+#   restsift doctor --json     machine-readable JSON envelope (schema ai.doctor/v1)
+#   AI_OUTPUT=json restsift doctor   JSON envelope (env form)
 #
 # Example:
-#   agent-kit doctor            # a quick "is my install healthy?" check
-#   agent-kit doctor --json | jq .status   # paste into a bug report as evidence
+#   restsift doctor            # a quick "is my install healthy?" check
+#   restsift doctor --json | jq .status   # paste into a bug report as evidence
+#
+# Flags: --json --help -h --introspect
 #
 # Requires: (none — degrades gracefully; reports what is missing)
 #
-# Exit codes: 0 when status is "ok" or "degraded"; 1 when status is "error"
-#   (a required tool is missing or Bash is too old). The environment is only read.
+# Exit codes:
+#   0  status "ok" or "degraded" (install usable; some optional tools, or restsift
+#      on PATH, may be missing — the tool still ran and reported)
+#   1  status "error" (a required tool is missing, or Bash is older than 4.4)
+#   2  usage error (an unknown argument was passed)
+# The environment is only read. The "git tree" / repo.inside_work_tree signal is
+# purely informational: it never affects status or the exit code (doctor is
+# read-only and is not scoped to a repository).
 
 set -euo pipefail
 
@@ -39,11 +47,23 @@ fi
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SELF_DIR/.." && pwd)"
-ENTRYPOINT="$ROOT_DIR/bin/agent-kit"
+ENTRYPOINT="$ROOT_DIR/bin/restsift"
 
 json_mode=""
 [[ "${AI_OUTPUT:-}" == "json" ]] && json_mode=1
-for _a in "$@"; do [[ "$_a" == "--json" ]] && json_mode=1; done
+# Only --json is a runtime flag (--help/-h/--introspect are handled above). Reject
+# anything else so typos fail fast instead of silently falling back to text output.
+for _a in "$@"; do
+    case "$_a" in
+        --json) json_mode=1 ;;
+        --help | -h | --introspect) ;;
+        *)
+            printf 'ai-doctor: unknown argument: %s\n' "$_a" >&2
+            printf 'usage: restsift doctor [--json]\n' >&2
+            exit 2
+            ;;
+    esac
+done
 
 # Minimal, dependency-free JSON string escaping (paths may contain quotes).
 json_escape() {
@@ -66,9 +86,9 @@ if ((BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 4)));
     bash_ok=true
 fi
 
-# agent-kit on PATH?
+# restsift on PATH?
 on_path=false
-command -v agent-kit >/dev/null 2>&1 && on_path=true
+command -v restsift >/dev/null 2>&1 && on_path=true
 
 # Git work tree at the current directory?
 inside_work_tree=false
@@ -101,6 +121,8 @@ resolve_tool() {
 
 missing_required=0
 missing_optional=0
+missing_required_names=()
+missing_optional_names=()
 
 # --- JSON renderer -----------------------------------------------------------
 render_tool_json() {
@@ -129,16 +151,34 @@ render_tool_list_json() {
     printf ']'
 }
 
+# Render the hints[] array as a JSON array of strings (empty array when green).
+render_hints_json() {
+    local first=1 h
+    printf '['
+    for h in "${hints[@]+"${hints[@]}"}"; do
+        ((first)) || printf ','
+        first=0
+        printf '"%s"' "$(json_escape "$h")"
+    done
+    printf ']'
+}
+
 # Tally missing tools (separate pass so status is known before rendering).
 for entry in "${required_tools[@]}"; do
     # shellcheck disable=SC2086
     set -- $entry
-    resolve_tool "$@" >/dev/null || missing_required=$((missing_required + 1))
+    if ! resolve_tool "$@" >/dev/null; then
+        missing_required=$((missing_required + 1))
+        missing_required_names+=("$1")
+    fi
 done
 for entry in "${optional_tools[@]}"; do
     # shellcheck disable=SC2086
     set -- $entry
-    resolve_tool "$@" >/dev/null || missing_optional=$((missing_optional + 1))
+    if ! resolve_tool "$@" >/dev/null; then
+        missing_optional=$((missing_optional + 1))
+        missing_optional_names+=("$1")
+    fi
 done
 
 # Overall status.
@@ -149,21 +189,53 @@ elif ((missing_optional > 0)) || [[ "$on_path" != true ]]; then
     status="degraded"
 fi
 
+# Map a logical tool name to a human install hint (package names differ from the
+# command name for a few tools). Falls back to the tool name itself.
+install_hint() {
+    case "$1" in
+        rg) printf 'ripgrep' ;;
+        fd) printf 'fd (fd-find)' ;;
+        ast-grep) printf 'ast-grep' ;;
+        *) printf '%s' "$1" ;;
+    esac
+}
+
+# Actionable remediation hints, computed once and reused by both renderers. Each
+# is a self-service "how to make this green" line. Empty when status is "ok".
+hints=()
+if [[ "$bash_ok" != true ]]; then
+    hints+=("Bash $bash_version is older than 4.4 — upgrade Bash (e.g. 'brew install bash' or your OS package manager)")
+fi
+for _n in "${missing_required_names[@]}"; do
+    hints+=("missing required tool: $_n — install $(install_hint "$_n")")
+done
+if [[ "$on_path" != true ]]; then
+    hints+=("restsift not on PATH — add $ROOT_DIR/bin to PATH")
+fi
+for _n in "${missing_optional_names[@]}"; do
+    hints+=("optional tool missing: $_n — install $(install_hint "$_n") for full functionality")
+done
+
 if [[ -n "$json_mode" ]]; then
     if [[ -n "$commit" ]]; then commit_json="\"$(json_escape "$commit")\""; else commit_json="null"; fi
     printf '{'
-    printf '"schema":"ai.doctor/v1","status":"%s","tool":"agent-kit",' "$status"
+    printf '"schema":"ai.doctor/v1","status":"%s","tool":"restsift",' "$status"
     printf '"version":"%s","commit":%s,' "$(json_escape "$version")" "$commit_json"
     printf '"bash":{"version":"%s","min_required":"4.4","ok":%s},' \
         "$(json_escape "$bash_version")" "$bash_ok"
     printf '"install":{"root":"%s","entrypoint":"%s","on_path":%s},' \
         "$(json_escape "$ROOT_DIR")" "$(json_escape "$ENTRYPOINT")" "$on_path"
-    printf '"repo":{"inside_work_tree":%s},' "$inside_work_tree"
+    printf '"repo":{"inside_work_tree":%s,"note":"informational; never affects status or exit code"},' "$inside_work_tree"
     printf '"tools":{"required":'
     render_tool_list_json required_tools
     printf ',"optional":'
     render_tool_list_json optional_tools
-    printf '}}'
+    printf '},'
+    printf '"summary":{"missing_required":%d,"missing_optional":%d},' \
+        "$missing_required" "$missing_optional"
+    printf '"hints":'
+    render_hints_json
+    printf '}'
     printf '\n'
     [[ "$status" == "error" ]] && exit 1
     exit 0
@@ -172,7 +244,7 @@ fi
 # --- Text renderer -----------------------------------------------------------
 mark() { [[ "$1" == true ]] && printf '\033[0;32m✓\033[0m' || printf '\033[0;31m✗\033[0m'; }
 
-printf 'agent-kit doctor\n\n'
+printf 'restsift doctor\n\n'
 printf '  version   %s' "$version"
 [[ -n "$commit" ]] && printf ' (%s)' "$commit"
 printf '\n'
@@ -220,5 +292,15 @@ for entry in "${optional_tools[@]}"; do
 done
 
 printf '\n  status: %s\n' "$status"
+
+# Actionable remediation on stderr only (keeps stdout byte-identical to the
+# historical human output). Shown when the install is not fully green.
+if [[ "$status" != "ok" ]] && ((${#hints[@]} > 0)); then
+    printf '\nnext steps to reach a green (ok) status:\n' >&2
+    for _h in "${hints[@]}"; do
+        printf '  - %s\n' "$_h" >&2
+    done
+fi
+
 [[ "$status" == "error" ]] && exit 1
 exit 0

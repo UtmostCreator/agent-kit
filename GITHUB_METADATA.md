@@ -2,14 +2,14 @@
 
 ## Primary identity
 
-- **Repository name:** `agent-kit`
-- **Display title:** AgentKit
+- **Repository name:** `restsift`
+- **Display title:** RestSift
 - **Tagline:** Safer repository operations for coding agents.
 - **GitHub description:** Safety-first CLI toolkit for coding agents: scoped search, context packing, guarded edits, rollback, test selection, and repository verification.
 
 ## Expanded description
 
-AgentKit gives AI coding agents a controlled repository interface for finding context, planning changes, editing safely, rolling back, selecting tests, and proving completion. It is agent-agnostic and designed for Claude Code, GitHub Copilot, OpenCode, and compatible tools.
+RestSift gives AI coding agents a controlled repository interface for finding context, planning changes, editing safely, rolling back, selecting tests, and proving completion. It is agent-agnostic and designed for Claude Code, GitHub Copilot, OpenCode, and compatible tools.
 
 ## Suggested topics
 
@@ -55,12 +55,12 @@ OpenCode tools
 ## First release
 
 - **Tag:** `v0.1.0`
-- **Title:** AgentKit v0.1.0 — Initial Public Release
+- **Title:** RestSift v0.1.0 — Initial Public Release
 - **Release summary:** First public release of the safety-first CLI toolkit for scoped repository search, context packing, guarded editing, rollback, test selection, and verification across coding-agent runtimes.
 
 ## Social preview copy
 
-- Header: `AgentKit`
+- Header: `RestSift`
 - Subheader: `Safer repository operations for coding agents`
 - Feature line: `Search · Context · Edit · Rollback · Test · Verify`
 - Recommended image size: `1280 × 640 px`

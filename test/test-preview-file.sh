@@ -256,6 +256,19 @@ if [[ "$no_args_rc" -ne 2 ]] || ! printf '%s' "$no_args_out" | grep -q 'Usage:';
     exit 1
 fi
 
+# Zero arguments under AI_OUTPUT=json must emit a JSON error envelope on stdout
+# (not the human usage() block), matching every other error path in json mode.
+set +e
+no_args_json="$(AI_OUTPUT=json "$BASH_BIN" "$script" 2>/dev/null)"
+no_args_json_rc=$?
+set -e
+if [[ "$no_args_json_rc" -ne 2 ]]; then
+    echo "expected zero args in json mode to exit 2, got rc=$no_args_json_rc" >&2
+    exit 1
+fi
+printf '%s' "$no_args_json" |
+    jq -e '.schema == "1" and .status == "error" and (.errors[0] | contains("missing FILE argument"))' >/dev/null
+
 # Missing file in PLAIN (non-JSON) mode (the JSON envelope variant is already
 # covered above).
 if "$BASH_BIN" "$script" "$tmp/app/Missing.php" 2>/dev/null; then
@@ -300,5 +313,64 @@ printf '%s' "$malformed_range_json" | jq -e '.status == "error" and (.errors[0] 
 # above).
 range_order_json="$(AI_OUTPUT=json "$BASH_BIN" "$script" "$tmp/app/UserService.php" --range 10:2 2>/dev/null || true)"
 printf '%s' "$range_order_json" | jq -e '.status == "error" and (.errors[0] | contains("invalid --range"))' >/dev/null
+
+# Dry-run JSON envelope now carries an explicit previewable:true plus the known
+# size/limits so an agent can trust the pre-flight (a file that clears every
+# gate is previewable; blocked files exit above with status "error").
+AI_OUTPUT=json "$BASH_BIN" "$script" "$tmp/app/UserService.php" --dry-run |
+    jq -e '
+        .status == "dry_run"
+        and .previewable == true
+        and (.meta.size_bytes | type == "number")
+        and (.meta.size_bytes > 0)
+        and (.limits.max_bytes | type == "number")
+    ' >/dev/null
+
+# max-bytes-exceeded error envelope populates meta.size_bytes and
+# limits.max_bytes with the real values instead of hard zeros, so a caller can
+# decide whether to retry with a higher --max-bytes.
+enriched_maxbytes="$(AI_OUTPUT=json "$BASH_BIN" "$script" "$tmp/app/large.txt" --max-bytes 100 2>/dev/null || true)"
+printf '%s' "$enriched_maxbytes" | jq -e '
+    .status == "error"
+    and (.meta.size_bytes == 5000)
+    and (.limits.max_bytes == 100)
+    and (.errors[0] | contains("max-bytes exceeded") and contains("5000"))
+' >/dev/null
+
+# Error text names the offending value and the reason for the several distinct
+# invalid-argument conditions (both plain stderr and JSON errors[]).
+range_order_detail="$(AI_OUTPUT=json "$BASH_BIN" "$script" "$tmp/app/UserService.php" --range 4:2 2>/dev/null || true)"
+printf '%s' "$range_order_detail" | jq -e '.errors[0] | contains("\"4:2\"") and contains("start must be <= end")' >/dev/null
+
+lines_detail="$(AI_OUTPUT=json "$BASH_BIN" "$script" "$tmp/app/UserService.php" --lines abc 2>/dev/null || true)"
+printf '%s' "$lines_detail" | jq -e '.errors[0] | contains("\"abc\"") and contains("non-negative integer")' >/dev/null
+
+lines_detail_plain="$("$BASH_BIN" "$script" "$tmp/app/UserService.php" --lines abc 2>&1 >/dev/null || true)"
+printf '%s' "$lines_detail_plain" | grep -q '"abc"'
+
+# A value-taking flag given with no value emits an actionable JSON error
+# envelope (not a silent set -e abort) and exits 2.
+set +e
+missing_val_json="$(AI_OUTPUT=json "$BASH_BIN" "$script" "$tmp/app/UserService.php" --range 2>/dev/null)"
+missing_val_rc=$?
+set -e
+if [[ "$missing_val_rc" -ne 2 ]]; then
+    echo "expected missing flag value to exit 2, got rc=$missing_val_rc" >&2
+    exit 1
+fi
+printf '%s' "$missing_val_json" | jq -e '.status == "error" and (.errors[0] | contains("missing value for --range"))' >/dev/null
+
+# --introspect exposes named modes so tooling can enumerate capabilities.
+AI_OUTPUT=json "$BASH_BIN" "$script" --introspect |
+    jq -e '(.modes | index("range")) and (.modes | index("dry-run")) and (.modes | length >= 4)' >/dev/null
+
+# --help must not print a doubled "Usage:" heading (the introspector heading plus
+# a repeated one from the script's own usage body).
+help_first="$("$BASH_BIN" "$script" --help 2>&1)"
+usage_count="$(printf '%s\n' "$help_first" | grep -c '^[[:space:]]*Usage:')"
+if [[ "$usage_count" -ne 1 ]]; then
+    echo "expected exactly one 'Usage:' heading in --help, got $usage_count" >&2
+    exit 1
+fi
 
 echo "preview-file tests passed"

@@ -7,9 +7,9 @@
 # Allowed dependencies: 00-env.sh (snapshot/protected dirs), 05-core.sh (die,
 #   log_warn), 20-paths.sh (git_root, require_bins), 30-logging.sh (log_json).
 #
-# Critical boundary: this module is the MECHANISM only. User confirmation,
-# interactive prompts, approval-env checks, and CLI parsing live in
-# ai-rollback.sh, NOT here.
+# Critical boundary: this module is the MECHANISM only. User confirmation
+# (the interactive confirm_mutation prompt) and CLI parsing live in
+# libexec/ai-rollback, NOT here.
 
 [[ "${AI_LIB_SNAPSHOT_LOADED:-0}" == "1" ]] && return 0
 AI_LIB_SNAPSHOT_LOADED=1

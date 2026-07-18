@@ -573,6 +573,63 @@ test_apply_real_mutation_reverts_and_removes_untracked() {
 }
 run_test "cmd_apply performs a real rollback mutation (revert + remove untracked)" test_apply_real_mutation_reverts_and_removes_untracked
 
+# git-stash-style numeric index selection -------------------------------
+
+test_list_human_table_has_no_index_column() {
+    # Backward-compat guard: the default (non-JSON) `list` table keeps its
+    # pre-existing layout -- no leading "#" index column and no "Select by
+    # index" hint line. The git-stash-style index lives ONLY in the --json
+    # envelope, so consumers of the fixed-width table are unaffected.
+    local work="$TMP/cli-list-human" snap_dir="$TMP/cli-list-human-snaps"
+    make_rollback_repo "$work"
+    create_snapshot "$work" "$snap_dir" "sess-human" "only" >/dev/null
+    local out
+    out="$(AI_SNAPSHOT_DIR="$snap_dir" "$BASH_BIN" "$SCRIPT" list)"
+    # Header still starts with the SNAPSHOT column, not a "#" index column.
+    [[ "$out" == "SNAPSHOT"* ]] || return 1
+    [[ "$out" != *"Select by index"* ]] || return 1
+    [[ "$out" == *"snapshot artifact(s) found"* ]]
+}
+run_test "cmd_list default table keeps its pre-existing layout (no index column, no hint)" test_list_human_table_has_no_index_column
+
+test_resolve_snapshot_index_one_is_most_recent() {
+    local work="$TMP/cli-resolve-index" snap_dir="$TMP/cli-resolve-index-snaps"
+    make_rollback_repo "$work"
+    # Labels chosen (as in test_resolve_snapshot_prefix_picks_most_recent
+    # above) so lexicographic filename order agrees with creation order --
+    # snapshot_create's HHMMSS-only timestamp can't be trusted alone to
+    # disambiguate two same-second/near-second creations by sort -r.
+    create_snapshot "$work" "$snap_dir" "sess-idx" "first" >/dev/null
+    sleep 1.1
+    create_snapshot "$work" "$snap_dir" "sess-idx" "second" >/dev/null
+    local out
+    out="$(AI_SNAPSHOT_DIR="$snap_dir" "$BASH_BIN" "$SCRIPT" show 1 2>&1)"
+    [[ "$out" == *'"label": "second"'* ]] || return 1
+    [[ "$out" != *'"label": "first"'* ]] || return 1
+
+    out="$(AI_SNAPSHOT_DIR="$snap_dir" "$BASH_BIN" "$SCRIPT" show 2 2>&1)"
+    [[ "$out" == *'"label": "first"'* ]]
+}
+run_test "resolve_snapshot: index 1 is the most recent snapshot, index 2 the next (git-stash style)" test_resolve_snapshot_index_one_is_most_recent
+
+test_apply_by_index_performs_real_mutation() {
+    local work="$TMP/cli-apply-index" snap_dir="$TMP/cli-apply-index-snaps"
+    make_rollback_repo "$work"
+    create_snapshot "$work" "$snap_dir" "sess-apply-idx" "pre-edit" >/dev/null
+    printf 'line1\nMUTATED\n' >"$work/tracked.txt"
+    (cd "$work" && CI=true AI_SNAPSHOT_DIR="$snap_dir" "$BASH_BIN" "$SCRIPT" apply 1 >/dev/null 2>&1)
+    [[ "$(cat "$work/tracked.txt")" == "$(printf 'line1\nline2')" ]]
+}
+run_test "cmd_apply accepts a numeric index and performs the real rollback" test_apply_by_index_performs_real_mutation
+
+test_resolve_snapshot_index_out_of_range_fails() {
+    local snap_dir="$TMP/cli-resolve-index-oor-snaps" work="$TMP/cli-resolve-index-oor"
+    make_rollback_repo "$work"
+    create_snapshot "$work" "$snap_dir" "sess-idx-oor" "only" >/dev/null
+    ! AI_SNAPSHOT_DIR="$snap_dir" "$BASH_BIN" "$SCRIPT" show 99 2>/dev/null
+}
+run_test "resolve_snapshot: out-of-range index fails with a clear error" test_resolve_snapshot_index_out_of_range_fails
+
 test_prune_real_deletion_with_count() {
     local work="$TMP/cli-prune" snap_dir="$TMP/cli-prune-snaps"
     make_rollback_repo "$work"
@@ -613,6 +670,138 @@ test_prune_days_missing_value() {
     ! AI_SNAPSHOT_DIR="$TMP/prune-missing-days" "$BASH_BIN" "$SCRIPT" prune --days 2>/dev/null
 }
 run_test "cmd_prune --days with no value fails" test_prune_days_missing_value
+
+# --- regression: session-prefix resolution + missing-arg error contract -----
+
+# Defect 1 (show): a bare session/label prefix must resolve to the owning
+# ".manifest.json" (the canonical restore point that `list`/index selection
+# pick), NOT its bookkeeping ".patch" sidecar. Before the fix, resolve_snapshot
+# did `find ... | sort -r | head -1`, and ".patch" sorts after ".manifest.json",
+# so `show <prefix>` rendered the legacy patch (missing session/label/untracked
+# fields) instead of the manifest that `show <index>` returns for the same point.
+test_resolve_prefix_picks_manifest_not_patch_sidecar() {
+    local work="$TMP/cli-prefix-manifest" snap_dir="$TMP/cli-prefix-manifest-snaps" out
+    make_rollback_repo "$work"
+    printf 'line1\nDIRTY\n' >"$work/tracked.txt"
+    create_snapshot "$work" "$snap_dir" "sess-prefix-canon" "pre-edit" >/dev/null
+    out="$(AI_SNAPSHOT_DIR="$snap_dir" NO_COLOR=1 "$BASH_BIN" "$SCRIPT" show "sess-prefix-canon" 2>&1)"
+    # Manifest branch emits the JSON "session" field; the legacy-patch branch
+    # emits "Type: legacy patch" and never the session/label fields.
+    [[ "$out" == *'"session": "sess-prefix-canon"'* ]] || return 1
+    [[ "$out" != *"Type: legacy patch"* ]]
+}
+run_test "resolve_snapshot: session prefix resolves to the owning manifest, not its .patch sidecar" test_resolve_prefix_picks_manifest_not_patch_sidecar
+
+# Defect 1 (apply): because the prefix now resolves to the manifest, `apply
+# <prefix>` restores untracked files from untracked_archive -- exactly like
+# `apply <index>` for the same restore point. Before the fix the prefix landed
+# on the .patch sidecar, whose snapshot_apply arm only runs `git apply` and
+# silently skips untracked-archive restoration.
+test_apply_by_prefix_restores_untracked_archive() {
+    local work="$TMP/cli-prefix-apply" snap_dir="$TMP/cli-prefix-apply-snaps"
+    make_rollback_repo "$work"
+    # Untracked BEFORE the snapshot so it's captured in untracked_archive.
+    printf 'recover me\n' >"$work/archived.txt"
+    create_snapshot "$work" "$snap_dir" "sess-prefix-apply" "pre-edit" >/dev/null
+    rm -f "$work/archived.txt"
+    (cd "$work" && CI=true AI_SNAPSHOT_DIR="$snap_dir" "$BASH_BIN" "$SCRIPT" apply "sess-prefix-apply" >/dev/null 2>&1)
+    [[ -f "$work/archived.txt" ]] || return 1
+    [[ "$(cat "$work/archived.txt")" == "recover me" ]]
+}
+run_test "cmd_apply by session prefix restores untracked files from the manifest archive (not just tracked changes)" test_apply_by_prefix_restores_untracked_archive
+
+# Defect 2: show/apply with no argument must go through die() (colored "[ERROR]"
+# line + structured log_json event), not a raw bash `${1:?...}` parameter
+# error. The old guard printed an uncolored "ai-rollback: line N: 1: ..."
+# interpreter error with no "[ERROR]" prefix and no JSON event.
+test_show_missing_arg_uses_die_contract() {
+    local err
+    err="$(AI_SNAPSHOT_DIR="$TMP/missing-arg-snaps" "$BASH_BIN" "$SCRIPT" show 2>&1 >/dev/null)" && return 1
+    [[ "$err" == *"[ERROR]"* ]] || return 1
+    [[ "$err" == *"session or snapshot required"* ]] || return 1
+    # The raw bash parameter-expansion error would leak a "line N:" interpreter
+    # message; die()'s log_error never does.
+    [[ "$err" != *"line "* ]]
+}
+run_test "cmd_show with no argument fails through die()/[ERROR] contract, not a raw bash guard" test_show_missing_arg_uses_die_contract
+
+test_apply_missing_arg_uses_die_contract() {
+    local err
+    err="$(AI_SNAPSHOT_DIR="$TMP/missing-arg-apply-snaps" "$BASH_BIN" "$SCRIPT" apply 2>&1 >/dev/null)" && return 1
+    [[ "$err" == *"[ERROR]"* ]] || return 1
+    [[ "$err" == *"session or snapshot required"* ]] || return 1
+    [[ "$err" != *"line "* ]]
+}
+run_test "cmd_apply with no argument fails through die()/[ERROR] contract, not a raw bash guard" test_apply_missing_arg_uses_die_contract
+
+# --- ai.rollback/v1 JSON envelope (--json / AI_OUTPUT=json), opt-in -----------
+# These modes are additive and default-off; the human table/show output above is
+# unchanged. Each asserts the stable schema/status keys an agent depends on.
+
+test_list_json_envelope() {
+    local work="$TMP/json-list" snap_dir="$TMP/json-list-snaps" out
+    make_rollback_repo "$work"
+    create_snapshot "$work" "$snap_dir" "sess-json-list" "pre-edit" >/dev/null
+    out="$(AI_SNAPSHOT_DIR="$snap_dir" "$BASH_BIN" "$SCRIPT" list --json 2>/dev/null)" || return 1
+    [[ "$(jq -r '.schema' <<<"$out")" == "ai.rollback/v1" ]] || return 1
+    [[ "$(jq -r '.status' <<<"$out")" == "ok" ]] || return 1
+    [[ "$(jq -r '.tool' <<<"$out")" == "ai-rollback" ]] || return 1
+    [[ "$(jq -r '.mode' <<<"$out")" == "list" ]] || return 1
+    [[ "$(jq -r '.count' <<<"$out")" == "1" ]] || return 1
+    [[ "$(jq -r '.snapshots[0].index' <<<"$out")" == "1" ]] || return 1
+    [[ "$(jq -r '.snapshots[0].type' <<<"$out")" == "manifest" ]] || return 1
+    [[ "$(jq -r '.snapshots[0].session' <<<"$out")" == "sess-json-list" ]] || return 1
+    [[ "$(jq -r '.snapshots[0].label' <<<"$out")" == "pre-edit" ]]
+}
+run_test "list --json emits an ai.rollback/v1 envelope with per-snapshot fields" test_list_json_envelope
+
+test_list_json_empty_dir() {
+    local out
+    out="$(AI_SNAPSHOT_DIR="$TMP/json-list-empty" "$BASH_BIN" "$SCRIPT" list --json 2>/dev/null)" || return 1
+    [[ "$(jq -r '.schema' <<<"$out")" == "ai.rollback/v1" ]] || return 1
+    [[ "$(jq -r '.status' <<<"$out")" == "ok" ]] || return 1
+    [[ "$(jq -r '.count' <<<"$out")" == "0" ]] || return 1
+    [[ "$(jq -c '.snapshots' <<<"$out")" == "[]" ]]
+}
+run_test "list --json on a missing snapshot dir returns status ok, count 0, empty array" test_list_json_empty_dir
+
+test_show_json_env_form() {
+    local work="$TMP/json-show" snap_dir="$TMP/json-show-snaps" out
+    make_rollback_repo "$work"
+    create_snapshot "$work" "$snap_dir" "sess-json-show" "pre-edit" >/dev/null
+    # AI_OUTPUT=json is the env equivalent of --json.
+    out="$(AI_OUTPUT=json AI_SNAPSHOT_DIR="$snap_dir" "$BASH_BIN" "$SCRIPT" show 1 2>/dev/null)" || return 1
+    [[ "$(jq -r '.schema' <<<"$out")" == "ai.rollback/v1" ]] || return 1
+    [[ "$(jq -r '.status' <<<"$out")" == "ok" ]] || return 1
+    [[ "$(jq -r '.mode' <<<"$out")" == "show" ]] || return 1
+    [[ "$(jq -r '.type' <<<"$out")" == "manifest" ]] || return 1
+    [[ "$(jq -r '.manifest.session' <<<"$out")" == "sess-json-show" ]] || return 1
+    [[ "$(jq -r '.manifest.label' <<<"$out")" == "pre-edit" ]]
+}
+run_test "AI_OUTPUT=json show emits an ai.rollback/v1 show envelope with manifest fields" test_show_json_env_form
+
+test_default_list_stays_human_table() {
+    # Backward-compat guard: without --json/AI_OUTPUT the human table is
+    # unchanged and carries no envelope schema on stdout.
+    local work="$TMP/json-default" snap_dir="$TMP/json-default-snaps" out
+    make_rollback_repo "$work"
+    create_snapshot "$work" "$snap_dir" "sess-default" "pre-edit" >/dev/null
+    out="$(AI_SNAPSHOT_DIR="$snap_dir" "$BASH_BIN" "$SCRIPT" list 2>/dev/null)" || return 1
+    [[ "$out" != *"ai.rollback/v1"* ]] || return 1
+    [[ "$out" == *"SNAPSHOT"* ]] || return 1
+    [[ "$out" == *"snapshot artifact(s) found"* ]]
+}
+run_test "default list stays a human table with no JSON envelope (--json is opt-in)" test_default_list_stays_human_table
+
+test_introspect_advertises_json_flag_and_modes() {
+    local out
+    out="$("$BASH_BIN" "$SCRIPT" --introspect 2>/dev/null)" || return 1
+    [[ "$(jq -r '.flags | index("--json")' <<<"$out")" != "null" ]] || return 1
+    [[ "$(jq -r '.modes | sort | join(",")' <<<"$out")" == "apply,list,prune,show" ]] || return 1
+    # AI_OUTPUT is a real input now that the script reads ${AI_OUTPUT}.
+    [[ "$(jq -r '.env | index("AI_OUTPUT")' <<<"$out")" != "null" ]]
+}
+run_test "--introspect advertises --json flag, the four modes, and AI_OUTPUT env" test_introspect_advertises_json_flag_and_modes
 
 printf '\n=== Results ===\n'
 printf '  Passed: %d  Failed: %d  Skipped: %d\n' "$PASS" "$FAIL" "$SKIP"

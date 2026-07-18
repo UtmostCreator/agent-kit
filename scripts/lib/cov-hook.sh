@@ -7,7 +7,7 @@
 # which fails with EPERM in seccomp-restricted sandboxes/containers (verified
 # on this host). This hook uses only Bash's own DEBUG trap instead.
 #
-# Why BASH_ENV: bin/agent-kit resolves a subcommand and `exec`s a fresh Bash
+# Why BASH_ENV: bin/restsift resolves a subcommand and `exec`s a fresh Bash
 # process per libexec/* script, replacing the process image, so a DEBUG trap
 # set in the parent would not survive. BASH_ENV is re-read by every new
 # non-interactive Bash on startup, so exporting it re-installs this hook
@@ -29,18 +29,18 @@
 # + a nested function call). If a `warning: test exited non-zero` appears for
 # a file using this pattern, verify with a plain `bash test/test-X.sh` before
 # assuming a regression.
-if [[ -n ${AK_COV_DIR:-} && -z ${AK_COV_HOOKED:-} ]]; then
+if [[ -n ${RES_COV_DIR:-} && -z ${RES_COV_HOOKED:-} ]]; then
     # Deliberately NOT exported: BASH_ENV is read once per new Bash process,
-    # so each process (including ones bin/agent-kit `exec`s into) needs its
-    # own fresh, unset AK_COV_HOOKED to re-install the trap. Exporting it
+    # so each process (including ones bin/restsift `exec`s into) needs its
+    # own fresh, unset RES_COV_HOOKED to re-install the trap. Exporting it
     # would leak "already hooked" into every child via the environment and
     # silently stop coverage collection at the first exec boundary.
-    AK_COV_HOOKED=1
-    exec {AK_COV_FD}>>"$AK_COV_DIR/$$.cov"
+    RES_COV_HOOKED=1
+    exec {RES_COV_FD}>>"$RES_COV_DIR/$$.cov"
     set -o functrace
     _ak_cov_trap() {
-        [[ $1 == "$AK_COV_ROOT"/* ]] || return 0
-        printf '%s\t%s\n' "$1" "$2" >&"$AK_COV_FD"
+        [[ $1 == "$RES_COV_ROOT"/* ]] || return 0
+        printf '%s\t%s\n' "$1" "$2" >&"$RES_COV_FD"
     }
     # ${BASH_SOURCE:-} guards against `set -u` scripts: at the outermost
     # level of a `bash -c '...'` string (before any source/function call),

@@ -1,13 +1,13 @@
 # Packages per command
 
-What each `agent-kit` command actually shells out to, why, a real captured
+What each `restsift` command actually shells out to, why, a real captured
 example (run against a live clone or an isolated sandbox — see notes per
 command), and why it beats reaching for the raw tool directly. The exact
 supported flags remain authoritative in each command's `--help`/`--introspect`
 output; this file explains *dependencies* and *rationale*, not the full flag
 grammar.
 
-Commands are shown as `agent-kit <command>` (the leading `ai-` in a
+Commands are shown as `restsift <command>` (the leading `ai-` in a
 `libexec/ai-*` filename is optional — see [COMMANDS.md](COMMANDS.md)).
 
 ## Quick reference
@@ -19,7 +19,7 @@ Commands are shown as `agent-kit <command>` (the leading `ai-` in a
 | **Optional — context** | `repomix` (Node), `files-to-prompt`, `code2prompt` | `context pack`/`file`/`generate`/`tree` (auto-detected in that preference order). |
 | **Optional — structured data** | `yq`, `mlr` (Miller) or `csvcut`, `xmllint` | `structured yaml`/`csv`/`xml`, `inspect data`. |
 | **Optional — git/PR** | `gh` (GitHub CLI) | `git pr-context`. |
-| **Optional — verify/test** | `lychee`, `markdownlint`, `vendor/bin/phpunit`/`paratest`, `bats` | `verify docs links`/`markdownlint`, `test run`/`all` (consumer-project test runners, not agent-kit's own suite). |
+| **Optional — verify/test** | `lychee`, `markdownlint`, `vendor/bin/phpunit`/`paratest`, `bats` | `verify docs links`/`markdownlint`, `test run`/`all` (consumer-project test runners, not restsift's own suite). |
 | **Optional — watch/session** | `watchexec` or `entr`, `tar` | `session watch`/`watch-loop`, `session checkpoint`/`session-checkpoint` (untracked-file archive). |
 | **Optional — misc** | `bat`, `just`, `osascript` (macOS) | Prettier `preview-file` output, `repo tasks`/`ai-task` justfile detection, `all-f-into-one` completion notification. |
 
@@ -29,7 +29,7 @@ at a glance.
 
 ---
 
-### `agent-kit context` (`libexec/ai-context`)
+### `restsift context` (`libexec/ai-context`)
 
 **What it does:** Canonical context-building command group — fuses `diff`, `pack`, `file`, `generate`, `tree`, `status`, `ensure`, and `estimate` into one entrypoint for building/checking AI context bundles.
 
@@ -46,15 +46,15 @@ at a glance.
 
 **Real-world example**
 ```bash
-$ agent-kit context status .
+$ restsift context status .
 {
   "schema": "1", "tool": "repomix-freshness", "status": "missing",
-  "manifest": "/home/.../agent-kit/.repomix-context/tree-context/run-manifest.json",
-  "regenerate": "agent-kit context generate .",
+  "manifest": "/home/.../restsift/.repomix-context/tree-context/run-manifest.json",
+  "regenerate": "restsift context generate .",
   "message": "no Repomix context manifest at .repomix-context/tree-context/run-manifest.json"
 }
 
-$ agent-kit context diff unstaged --dry-run
+$ restsift context diff unstaged --dry-run
 {
   "dry_run": true, "label": "unstaged",
   "output": ".repomix-context/diff/unstaged-20260714-013311.xml",
@@ -62,7 +62,7 @@ $ agent-kit context diff unstaged --dry-run
 }
 
 # sandbox only — real write:
-$ agent-kit context pack repomix --include "*.md"
+$ restsift context pack repomix --include "*.md"
 ✔ Packing completed successfully!
 Total Files: 1 files   Total Tokens: 406 tokens
 ```
@@ -71,7 +71,7 @@ Total Files: 1 files   Total Tokens: 406 tokens
 
 ---
 
-### `agent-kit edit` (`libexec/ai-edit`)
+### `restsift edit` (`libexec/ai-edit`)
 
 **What it does:** Guarded repository-edit entrypoint over four modes (`ast-grep`, `comby`, `sd`, `patch`) with a mandatory dry-run-first workflow and automatic pre-apply snapshotting.
 
@@ -89,7 +89,7 @@ Total Files: 1 files   Total Tokens: 406 tokens
 
 **Real-world example**
 ```bash
-$ agent-kit edit sd OldName NewName /tmp/sandbox --dry-run   # AI_OUTPUT=json
+$ restsift edit sd OldName NewName /tmp/sandbox --dry-run   # AI_OUTPUT=json
 {
   "schema": "ai.edit/v1", "status": "dry_run", "mode": "sd",
   "plannedChanges": [
@@ -100,7 +100,7 @@ $ agent-kit edit sd OldName NewName /tmp/sandbox --dry-run   # AI_OUTPUT=json
 }
 
 # real apply, sandbox only:
-$ agent-kit edit patch /tmp/sandbox/staged.diff . --apply
+$ restsift edit patch /tmp/sandbox/staged.diff . --apply
 {"status": "applied", "mode": "patch",
  "changedFiles": [".ai-logs/snapshots/....pre-edit-013611.patch",
                    ".ai-logs/snapshots/....pre-edit-013611.untracked.tar.gz", "sample.md"]}
@@ -110,7 +110,7 @@ $ agent-kit edit patch /tmp/sandbox/staged.diff . --apply
 
 ---
 
-### `agent-kit file-freshness` (`libexec/ai-file-freshness`)
+### `restsift file-freshness` (`libexec/ai-file-freshness`)
 
 **What it does:** Prints `git status --short` scoped to `docs`, `.github`, `.opencode`, and `AGENTS.md` — a quick check for uncommitted changes to agent-facing files.
 
@@ -123,7 +123,7 @@ $ agent-kit edit patch /tmp/sandbox/staged.diff . --apply
 
 **Real-world example**
 ```bash
-$ agent-kit file-freshness
+$ restsift file-freshness
 (no output — docs/.github/.opencode/AGENTS.md all clean)
 ```
 
@@ -131,7 +131,7 @@ $ agent-kit file-freshness
 
 ---
 
-### `agent-kit git` (`libexec/ai-git`)
+### `restsift git` (`libexec/ai-git`)
 
 **What it does:** Canonical git-inspection command group — fuses branch-origin detection, commit-history search (`-S`/`-G`/`-L`), `blame`, and GitHub PR context.
 
@@ -146,20 +146,20 @@ $ agent-kit file-freshness
 
 **Real-world example**
 ```bash
-$ agent-kit git origin --json
+$ restsift git origin --json
 {"status":"ok","current_branch":"release/v0.1.0-prep","origin_branch":"main",
  "merge_base":"e79e3ed0...","distance":2}
 
-$ agent-kit git blame 1,5 README.md
+$ restsift git blame 1,5 README.md
 55699711 (Utmost Creator 2026-07-13 17:50:47 +0100 1) <div align="center">
-55699711 (Utmost Creator 2026-07-13 17:50:47 +0100 3) # 🧰 AgentKit
+55699711 (Utmost Creator 2026-07-13 17:50:47 +0100 3) # 🧰 RestSift
 ```
 
 **Why this beats the raw command:** `origin` ranks multiple candidate parent branches by commit distance and returns the winner plus every candidate considered — a single raw `git merge-base` call can't do that without the caller already knowing the right branch name. `pr-context --pack` routes into the context engine to bundle the PR diff as a token-estimated artifact in one call.
 
 ---
 
-### `agent-kit inspect` (`libexec/ai-inspect`)
+### `restsift inspect` (`libexec/ai-inspect`)
 
 **What it does:** Canonical read-only inspection command group — routes `file` (safe preview), `data` (JSON/YAML/CSV/XML query), and `shell` (static shell-script contract introspection).
 
@@ -174,14 +174,14 @@ $ agent-kit git blame 1,5 README.md
 
 **Real-world example**
 ```bash
-$ agent-kit inspect file README.md --range 1:5 --plain
+$ restsift inspect file README.md --range 1:5 --plain
 <div align="center">
 
-# 🧰 AgentKit
+# 🧰 RestSift
 ...
 
-$ agent-kit inspect data json package.json '.name, .version'
-"@utmostcreator/agent-kit"
+$ restsift inspect data json package.json '.name, .version'
+"@utmostcreator/restsift"
 "0.1.0"
 ```
 
@@ -189,7 +189,7 @@ $ agent-kit inspect data json package.json '.name, .version'
 
 ---
 
-### `agent-kit repo` (`libexec/ai-repo`)
+### `restsift repo` (`libexec/ai-repo`)
 
 **What it does:** Canonical repository-metadata command group — routes `tasks`, `stats`, `tools`, and `status`.
 
@@ -204,10 +204,10 @@ $ agent-kit inspect data json package.json '.name, .version'
 
 **Real-world example**
 ```bash
-$ agent-kit repo stats
+$ restsift repo stats
 179
 
-$ agent-kit repo tasks list
+$ restsift repo tasks list
 {"package_manager":"npm","package_scripts":{},"composer_scripts":{},
  "just_tasks":[],"make_tasks":[],"taskfile_tasks":[]}
 ```
@@ -216,9 +216,9 @@ $ agent-kit repo tasks list
 
 ---
 
-### `agent-kit rollback` (`libexec/ai-rollback`)
+### `restsift rollback` (`libexec/ai-rollback`)
 
-**What it does:** Reviews and applies repository-local guarded-edit snapshots (`.ai-logs/snapshots/`) created by other AgentKit tooling.
+**What it does:** Reviews and applies repository-local guarded-edit snapshots (`.ai-logs/snapshots/`) created by other RestSift tooling.
 
 **Safety:** read-only for `list`/`show`; `apply`/`prune` are mutating and gated behind an interactive confirmation.
 
@@ -231,7 +231,7 @@ $ agent-kit repo tasks list
 
 **Real-world example**
 ```bash
-$ agent-kit rollback list
+$ restsift rollback list
 SNAPSHOT                                                      TYPE          SIZE   DATE
 ====================================================================================
 session-checkpoint-20260714-013358-....patch                  legacy-patch  0      2026-07-14 01:33
@@ -243,7 +243,7 @@ ai-edit-20260714-013356-106376-pre-edit-013356.patch          legacy-patch  0   
 
 ---
 
-### `agent-kit search` (`libexec/ai-search`)
+### `restsift search` (`libexec/ai-search`)
 
 **What it does:** Unified repository search entrypoint dispatching to rg/git-grep/fd/git-log/ast-grep backends by named "mode", normalized into a stable envelope.
 
@@ -260,10 +260,10 @@ ai-edit-20260714-013356-106376-pre-edit-013356.patch          legacy-patch  0   
 
 **Real-world example**
 ```bash
-$ agent-kit search doctor
+$ restsift search doctor
 ai-search doctor: ok
 
-$ AI_OUTPUT=json agent-kit search text "TODO" . --files-with-matches
+$ AI_OUTPUT=json restsift search text "TODO" . --files-with-matches
 {"schema":"1","status":"ok","tool":"ai-search","query":"TODO","mode":"text",
  "matches":["./INSTALL.md:122:...","./libexec/ai-git:16:...", ...]}
 ```
@@ -272,7 +272,7 @@ $ AI_OUTPUT=json agent-kit search text "TODO" . --files-with-matches
 
 ---
 
-### `agent-kit search-introspect` (`libexec/ai-search-introspect`)
+### `restsift search-introspect` (`libexec/ai-search-introspect`)
 
 **What it does:** Prints the full mode/flag/env-var capability map for `ai-search`/`ai-search-multi`, parsed live from source.
 
@@ -285,7 +285,7 @@ $ AI_OUTPUT=json agent-kit search text "TODO" . --files-with-matches
 
 **Real-world example**
 ```bash
-$ agent-kit search-introspect
+$ restsift search-introspect
 == MODES (grouped by family, parsed from ai-search.sh) ==
 Content-search (QUERY required): changed-text class config config-key deps diff docs enum files ...
 File-list (no QUERY):            changed-files staged-files
@@ -298,7 +298,7 @@ No-query curated:                todo unsafe-patterns
 
 ---
 
-### `agent-kit search-multi` / `agent-kit search batch` (`libexec/ai-search-multi`)
+### `restsift search-multi` / `restsift search batch` (`libexec/ai-search-multi`)
 
 **What it does:** Runs one `ai-search` mode against multiple queries in a single invocation.
 
@@ -307,11 +307,11 @@ No-query curated:                todo unsafe-patterns
 **Packages used:**
 | Package | Why |
 |---|---|
-| (delegates entirely to `ai-search`) | Re-invokes `libexec/ai-search` as a subprocess per query — same transitive package set as `agent-kit search` (rg, git, fd, ast-grep, jq). |
+| (delegates entirely to `ai-search`) | Re-invokes `libexec/ai-search` as a subprocess per query — same transitive package set as `restsift search` (rg, git, fd, ast-grep, jq). |
 
 **Real-world example**
 ```bash
-$ AI_OUTPUT=json agent-kit search batch text foo bar . --files-with-matches
+$ AI_OUTPUT=json restsift search batch text foo bar . --files-with-matches
 [
   {"schema":"1","status":"ok","query":"foo","matches":["./libexec/all-f-into-one:5:...", ...]},
   {"query":"bar", ...}
@@ -322,7 +322,7 @@ $ AI_OUTPUT=json agent-kit search batch text foo bar . --files-with-matches
 
 ---
 
-### `agent-kit session` (`libexec/ai-session`)
+### `restsift session` (`libexec/ai-session`)
 
 **What it does:** Thin router for `session checkpoint [label]` (save a snapshot) and `session watch <command>` (re-run on file changes, blocks until Ctrl-C).
 
@@ -337,7 +337,7 @@ $ AI_OUTPUT=json agent-kit search batch text foo bar . --files-with-matches
 
 **Real-world example**
 ```bash
-$ agent-kit session checkpoint report-test
+$ restsift session checkpoint report-test
 checkpoint created: .ai-logs/snapshots/session-checkpoint-20260714-013358-....manifest.json
 ```
 (`.ai-logs/` is in `.gitignore`, so `git status --short` shows no change from this.)
@@ -346,7 +346,7 @@ checkpoint created: .ai-logs/snapshots/session-checkpoint-20260714-013358-....ma
 
 ---
 
-### `agent-kit structured` (`libexec/ai-structured`)
+### `restsift structured` (`libexec/ai-structured`)
 
 **What it does:** Structured data query wrapper — one subcommand per format: `json` (jq), `yaml` (yq), `validate-json`/`validate-yaml`, `csv` (miller/csvcut/head), `xml` (xmllint).
 
@@ -362,9 +362,9 @@ checkpoint created: .ai-logs/snapshots/session-checkpoint-20260714-013358-....ma
 
 **Real-world example**
 ```bash
-$ agent-kit structured json package.json '.bin'
+$ restsift structured json package.json '.bin'
 {
-  "agent-kit": "npm/cli.js"
+  "restsift": "npm/cli.js"
 }
 ```
 
@@ -372,7 +372,7 @@ $ agent-kit structured json package.json '.bin'
 
 ---
 
-### `agent-kit task` (`libexec/ai-task`)
+### `restsift task` (`libexec/ai-task`)
 
 **What it does:** Discovers a project's already-defined task commands (npm/composer/just/make/Taskfile) and recommends the right `verify`/`test` command instead of guessing.
 
@@ -387,10 +387,10 @@ $ agent-kit structured json package.json '.bin'
 
 **Real-world example**
 ```bash
-$ agent-kit task test
+$ restsift task test
 scripts/ai/ai-verify.sh .
 
-$ agent-kit task verify
+$ restsift task verify
 scripts/ai/ai-verify.sh .
 ```
 
@@ -398,9 +398,9 @@ scripts/ai/ai-verify.sh .
 
 ---
 
-### `agent-kit test` (`libexec/ai-test`)
+### `restsift test` (`libexec/ai-test`)
 
-**What it does:** Canonical test group — `select` maps changed files/symbols to relevant tests, `run` executes a focused PHPUnit selection, `all` runs every discovered suite (paratest/phpunit/bats) with parallel-first defaults. These target a *consumer* project's own test suite (e.g. this repo's own `scripts/check.sh`/bats tests), not agent-kit's internal test format specifically.
+**What it does:** Canonical test group — `select` maps changed files/symbols to relevant tests, `run` executes a focused PHPUnit selection, `all` runs every discovered suite (paratest/phpunit/bats) with parallel-first defaults. These target a *consumer* project's own test suite (e.g. this repo's own `scripts/check.sh`/bats tests), not restsift's internal test format specifically.
 
 **Safety:** read-only for `select`; `run`/`all` are guarded-mutation (heavy test execution).
 
@@ -417,21 +417,21 @@ scripts/ai/ai-verify.sh .
 
 **Real-world example**
 ```bash
-$ agent-kit test select changed
+$ restsift test select changed
 {"input_files": [...], "candidate_tests": [], "recommended_commands": []}
 
-$ agent-kit test all --help
+$ restsift test all --help
 ai-test/run-all.sh — run the repository's existing test suites with
 parallel-first defaults (the HEAVY, whole-suite runner).
 Example:
-  PARATEST_PROCS=8 agent-kit test all
+  PARATEST_PROCS=8 restsift test all
 ```
 
 **Why this beats the raw command:** `select changed` only recommends tests actually touched by the current diff instead of blindly running the whole suite; `run`/`all` centralize timeout-wrapping and paratest/phpunit auto-detection that a hand-typed `vendor/bin/phpunit` command doesn't have.
 
 ---
 
-### `agent-kit verify` (`libexec/ai-verify`)
+### `restsift verify` (`libexec/ai-verify`)
 
 **What it does:** Project-aware verification gate; the root command runs a full change-scoped pipeline, `verify docs` checks markdown lint/links/drift, `verify refs` finds orphaned tracked files.
 
@@ -448,10 +448,10 @@ Example:
 
 **Real-world example**
 ```bash
-$ agent-kit verify docs links README.md
+$ restsift verify docs links README.md
 🔍 23 Total 🔗 21 Unique ✅ 11 OK 🚫 0 Errors 👻 12 Excluded
 
-$ agent-kit verify refs docs --ext md
+$ restsift verify refs docs --ext md
 docs/SECURITY_MODEL.md
 ```
 
@@ -459,7 +459,7 @@ docs/SECURITY_MODEL.md
 
 ---
 
-### `agent-kit all-f-into-one` (`libexec/all-f-into-one`)
+### `restsift all-f-into-one` (`libexec/all-f-into-one`)
 
 **What it does:** Recursively collects tracked-tree files (pruning `.git`/`node_modules`/`dist`/etc.) and writes their contents into one `combined_output.txt` at the current project root.
 
@@ -488,7 +488,7 @@ Some text.
 
 ---
 
-### `agent-kit fd-files` (`libexec/fd-files`)
+### `restsift fd-files` (`libexec/fd-files`)
 
 **What it does:** Repo-aware file discovery wrapper around `fd` (falling back to `rg --files` if `fd`/`fdfind` isn't installed), pre-excluding `vendor`, `node_modules`, `dist`, `.git`, `.repomix-context`.
 
@@ -503,10 +503,10 @@ Some text.
 
 **Real-world example**
 ```bash
-$ agent-kit fd-files README .
+$ restsift fd-files README .
 ./README.md
 
-$ agent-kit fd-files SECURITY docs --type md --json
+$ restsift fd-files SECURITY docs --type md --json
 ["docs/SECURITY_MODEL.md"]
 ```
 
@@ -514,7 +514,7 @@ $ agent-kit fd-files SECURITY docs --type md --json
 
 ---
 
-### `agent-kit preview-file` (`libexec/preview-file`)
+### `restsift preview-file` (`libexec/preview-file`)
 
 **What it does:** Safely previews a bounded slice of a text file (`--range`, `--around`/`--context`, or `--lines`, default first 200 lines) with size/binary/`.git`-path guardrails and per-line column truncation.
 
@@ -532,10 +532,10 @@ $ agent-kit fd-files SECURITY docs --type md --json
 
 **Real-world example**
 ```bash
-$ agent-kit preview-file README.md --range 1:20 --plain
+$ restsift preview-file README.md --range 1:20 --plain
 <div align="center">
 
-# 🧰 AgentKit
+# 🧰 RestSift
 ...
 ```
 
@@ -543,7 +543,7 @@ $ agent-kit preview-file README.md --range 1:20 --plain
 
 ---
 
-### `agent-kit repo-stats` (`libexec/repo-stats`)
+### `restsift repo-stats` (`libexec/repo-stats`)
 
 **What it does:** Counts the files Git currently tracks in this repository.
 
@@ -557,7 +557,7 @@ $ agent-kit preview-file README.md --range 1:20 --plain
 
 **Real-world example**
 ```bash
-$ agent-kit repo-stats
+$ restsift repo-stats
 179
 ```
 
@@ -565,7 +565,7 @@ $ agent-kit repo-stats
 
 ---
 
-### `agent-kit repo-tool-inventory` (`libexec/repo-tool-inventory`)
+### `restsift repo-tool-inventory` (`libexec/repo-tool-inventory`)
 
 **What it does:** Lists every toolkit command with its one-line summary, statically parsed from each script's header comment (never executed).
 
@@ -578,7 +578,7 @@ $ agent-kit repo-stats
 
 **Real-world example**
 ```bash
-$ agent-kit repo-tool-inventory | head -3
+$ restsift repo-tool-inventory | head -3
   ai-context               ai-context — canonical context-building command group (thin loader).
   ai-edit                  Guarded edit wrapper for broad repository modifications (thin loader).
   ai-file-freshness        Show which docs/config files have uncommitted changes (git status of key paths).
@@ -588,7 +588,7 @@ $ agent-kit repo-tool-inventory | head -3
 
 ---
 
-### `agent-kit rg-code` (`libexec/rg-code`)
+### `restsift rg-code` (`libexec/rg-code`)
 
 **What it does:** Production-grade code search wrapper with repo-aware defaults, built on `rg`.
 
@@ -603,7 +603,7 @@ $ agent-kit repo-tool-inventory | head -3
 
 **Real-world example**
 ```bash
-$ agent-kit rg-code "snapshot_create" . --files
+$ restsift rg-code "snapshot_create" . --files
 ./libexec/session-checkpoint
 ./lib/snapshot.sh
 ./lib/ai-edit/main.sh
@@ -613,7 +613,7 @@ $ agent-kit rg-code "snapshot_create" . --files
 
 ---
 
-### `agent-kit session-checkpoint` (`libexec/session-checkpoint`)
+### `restsift session-checkpoint` (`libexec/session-checkpoint`)
 
 **What it does:** Creates a repository-local checkpoint (patch + manifest + untracked-file archive) using the shared snapshot system.
 
@@ -628,15 +628,15 @@ $ agent-kit rg-code "snapshot_create" . --files
 
 **Real-world example**
 ```bash
-$ agent-kit session-checkpoint doc-research-test
+$ restsift session-checkpoint doc-research-test
 checkpoint created: .ai-logs/snapshots/session-checkpoint-20260714-013356-....manifest.json
 ```
 
-**Why this beats the raw command:** A raw `git diff`/`git stash` only covers tracked-file changes; this also snapshots *untracked* files (via the `tar` archive) and writes a structured, session-tagged JSON manifest that `agent-kit rollback` can later parse to restore both tracked and untracked state.
+**Why this beats the raw command:** A raw `git diff`/`git stash` only covers tracked-file changes; this also snapshots *untracked* files (via the `tar` archive) and writes a structured, session-tagged JSON manifest that `restsift rollback` can later parse to restore both tracked and untracked state.
 
 ---
 
-### `agent-kit sh-introspect` (`libexec/sh-introspect`)
+### `restsift sh-introspect` (`libexec/sh-introspect`)
 
 **What it does:** Universal shell-script introspector — statically parses a Bash/Zsh script's header comments to report description, usage, examples, flags, env vars, and required commands, without ever executing the target.
 
@@ -651,18 +651,18 @@ checkpoint created: .ai-logs/snapshots/session-checkpoint-20260714-013356-....ma
 
 **Real-world example**
 ```bash
-$ agent-kit sh-introspect libexec/ai-search | head -4
+$ restsift sh-introspect libexec/ai-search | head -4
 ai-search
 ai-search.sh — unified repository search entrypoint (thin facade).
 Usage:
-  agent-kit search <mode> [query] [root] [flags]
+  restsift search <mode> [query] [root] [flags]
 ```
 
 **Why this beats the raw command:** `--help` on a shell script normally means either reading raw source (risky for scripts with side effects like `edit`/`rollback`) or trusting that script's own flag parser; `sh-introspect` guarantees the target is **never executed** and produces the same output whether rendered as a human report, a compact `--help` snippet, or a stable JSON contract.
 
 ---
 
-### `agent-kit watch-loop` (`libexec/watch-loop`)
+### `restsift watch-loop` (`libexec/watch-loop`)
 
 **What it does:** Re-runs a command automatically whenever watched files change (blocks until Ctrl-C).
 
@@ -678,7 +678,7 @@ Usage:
 
 **Real-world example**
 ```bash
-$ timeout 3 agent-kit watch-loop "echo hi" README.md
+$ timeout 3 restsift watch-loop "echo hi" README.md
 [Running: bash -lc echo hi]
 
 [Command was successful]

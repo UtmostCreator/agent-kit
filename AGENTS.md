@@ -6,12 +6,12 @@ This repository provides safety-focused shell tools for coding agents working in
 
 ## Repository map
 
-- `bin/agent-kit`: public command entry point.
+- `bin/restsift`: public command entry point.
 - `libexec/`: executable commands.
 - `lib/`: shared implementation modules.
 - `hooks/`: optional agent and Git hooks.
-- `integrations/`: runtime-specific integration assets.
-- `share/`: completions, configuration, and wrappers.
+- `share/`: shared configuration data files.
+- `completions/`: generated shell completions.
 - `test/`: shell test suite.
 
 ## Required workflow

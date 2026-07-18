@@ -68,9 +68,54 @@ if command -v jq >/dev/null 2>&1; then
             '.status == "ok" and .name == "ai-search-introspect"' >/dev/null
     }
     run_test "--introspect emits a valid JSON contract" test_json
+
+    # --introspect now advertises the real --probe/--json flags (populated via the
+    # header's `# Flags:` line) so an agent can discover them machine-readably.
+    test_introspect_flags() {
+        local out
+        out="$("$BASH_BIN" "$SCRIPT" --introspect 2>/dev/null || true)"
+        printf '%s' "$out" | jq -e \
+            '(.flags | index("--probe")) and (.flags | index("--json"))' >/dev/null
+    }
+    run_test "--introspect flags[] advertises --probe and --json" test_introspect_flags
+
+    # --json emits the parsed capability surface under the sibling ai.<tool>/v1
+    # envelope convention (schema + status + tool), with mode families populated.
+    test_json_capabilities() {
+        local out
+        out="$("$BASH_BIN" "$SCRIPT" --json 2>/dev/null || true)"
+        printf '%s' "$out" | jq -e '
+            .schema == "ai.ai-search-introspect/v1" and
+            .status == "ok" and
+            .tool == "ai-search-introspect" and
+            (.modes.content | length) > 0 and
+            (.flags | length) > 0 and
+            (.env | index("AI_OUTPUT"))' >/dev/null
+    }
+    run_test "--json emits the ai.ai-search-introspect/v1 capability envelope" test_json_capabilities
+
+    # The AI_OUTPUT=json env var is the repo-wide activation and must match --json.
+    test_json_env_form() {
+        local out
+        out="$(AI_OUTPUT=json "$BASH_BIN" "$SCRIPT" 2>/dev/null || true)"
+        printf '%s' "$out" | jq -e \
+            '.schema == "ai.ai-search-introspect/v1" and .status == "ok"' >/dev/null
+    }
+    run_test "AI_OUTPUT=json env form emits the JSON capability envelope" test_json_env_form
 else
     skip_test "--introspect emits a valid JSON contract" "jq not available"
+    skip_test "--introspect flags[] advertises --probe and --json" "jq not available"
+    skip_test "--json emits the ai.ai-search-introspect/v1 capability envelope" "jq not available"
+    skip_test "AI_OUTPUT=json env form emits the JSON capability envelope" "jq not available"
 fi
+
+# An unrecognized argument fails (exit 2) and prints an actionable valid-args hint.
+test_unknown_arg_hint() {
+    local err _rc=0
+    err="$("$BASH_BIN" "$SCRIPT" --bogus 2>&1 >/dev/null)" || _rc=$?
+    [[ "$_rc" -eq 2 ]] && printf '%s' "$err" | grep -q 'valid args:'
+}
+run_test "unknown argument exits 2 with a valid-args hint" test_unknown_arg_hint
 
 printf '\n=== Results ===\n'
 printf '  Passed: %d  Failed: %d  Skipped: %d\n' "$PASS" "$FAIL" "$SKIP"

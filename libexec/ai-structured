@@ -1,18 +1,31 @@
 #!/usr/bin/env bash
 # Structured data query wrapper for AI agents.
+# CSV mode auto-uses mlr or csvcut when present, else falls back to plain head.
+# Set AI_OUTPUT=json to make validate-json/validate-yaml emit a machine-readable
+# ai.ai-structured/v1 envelope on stdout (the human [OK] line stays on stderr).
 #
 # Usage:
-#   agent-kit structured json FILE QUERY
-#   agent-kit structured yaml FILE QUERY
-#   agent-kit structured validate-json FILE
-#   agent-kit structured csv FILE [--head N]
+#   restsift structured json FILE QUERY
+#   restsift structured yaml FILE QUERY
+#   restsift structured validate-json FILE
+#   restsift structured validate-yaml FILE
+#   restsift structured csv FILE [--head N]
+#   restsift structured xml FILE [XPATH]
 #
 # Modes: json yaml validate-json validate-yaml csv xml
 #
+# Requires: jq yq xmllint
+#
+# Exit codes:
+#   0  success
+#   1  usage/validation error via die() (missing arg, file not found, invalid data, unknown mode)
+#   2  no mode given
+#   5  raw jq/yq parser error on malformed input in the json/yaml query modes
+#
 # Example:
-#   agent-kit structured json package.json '.scripts'    # print the "scripts" section of package.json with jq
-#   agent-kit structured validate-json composer.json     # check that composer.json is valid JSON
-#   agent-kit structured csv data.csv --head 20          # preview the first 20 rows of a CSV file
+#   restsift structured json package.json '.scripts'    # print the "scripts" section of package.json with jq
+#   restsift structured validate-json composer.json     # check that composer.json is valid JSON
+#   restsift structured csv data.csv --head 20          # preview the first 20 rows of a CSV file
 
 set -euo pipefail
 
@@ -50,46 +63,67 @@ agent_session_init "ai-structured"
 case "$mode" in
     json)
         require_bins jq
-        file="${1:?file required}"
-        query="${2:?jq query required}"
-        [[ -f "$file" ]] || die "file not found: $file"
+        file="${1:-}"
+        [[ -n "$file" ]] || die "file required"
+        query="${2:-}"
+        [[ -n "$query" ]] || die "jq query required"
+        [[ -f "$file" ]] || die "file not found: $file (cwd: $PWD)"
         jq "$query" "$file"
         ;;
 
     yaml | yml)
         require_bins yq
-        file="${1:?file required}"
-        query="${2:?yq query required}"
-        [[ -f "$file" ]] || die "file not found: $file"
+        file="${1:-}"
+        [[ -n "$file" ]] || die "file required"
+        query="${2:-}"
+        [[ -n "$query" ]] || die "yq query required"
+        [[ -f "$file" ]] || die "file not found: $file (cwd: $PWD)"
         yq "$query" "$file"
         ;;
 
     validate-json)
         require_bins jq
-        file="${1:?file required}"
-        [[ -f "$file" ]] || die "file not found: $file"
-        jq empty "$file"
+        file="${1:-}"
+        [[ -n "$file" ]] || die "file required"
+        [[ -f "$file" ]] || die "file not found: $file (cwd: $PWD)"
+        count="$(jq -n --slurpfile x "$file" '$x | length' 2>/dev/null)" || die "invalid JSON: $file"
+        [[ "${count:-0}" -ge 1 ]] || die "no JSON value in: $file"
+        if [[ "${AI_OUTPUT:-}" == "json" ]]; then
+            root_type="$(jq -rs '.[0] | type' "$file" 2>/dev/null)"
+            [[ -n "$root_type" ]] || root_type="unknown"
+            jq -cn --arg file "$file" --arg rt "$root_type" \
+                '{schema:"ai.ai-structured/v1", status:"ok", tool:"ai-structured", mode:"validate-json", file:$file, valid:true, root_type:$rt}'
+        fi
         log_ok "valid JSON: $file"
         ;;
 
     validate-yaml | validate-yml)
         require_bins yq
-        file="${1:?file required}"
-        [[ -f "$file" ]] || die "file not found: $file"
+        file="${1:-}"
+        [[ -n "$file" ]] || die "file required"
+        [[ -f "$file" ]] || die "file not found: $file (cwd: $PWD)"
         yq '.' "$file" >/dev/null
+        if [[ "${AI_OUTPUT:-}" == "json" ]]; then
+            root_type="$(yq -o=json '.' "$file" 2>/dev/null | jq -rs '.[0] | type' 2>/dev/null)"
+            [[ -n "$root_type" ]] || root_type="unknown"
+            jq -cn --arg file "$file" --arg rt "$root_type" \
+                '{schema:"ai.ai-structured/v1", status:"ok", tool:"ai-structured", mode:"validate-yaml", file:$file, valid:true, root_type:$rt}'
+        fi
         log_ok "valid YAML: $file"
         ;;
 
     csv)
-        file="${1:?file required}"
+        file="${1:-}"
+        [[ -n "$file" ]] || die "file required"
         shift || true
-        [[ -f "$file" ]] || die "file not found: $file"
+        [[ -f "$file" ]] || die "file not found: $file (cwd: $PWD)"
 
         head_count=20
         while (($# > 0)); do
             case "$1" in
                 --head)
-                    head_count="${2:?head count required}"
+                    head_count="${2:-}"
+                    [[ -n "$head_count" ]] || die "head count required"
                     shift 2
                     ;;
                 --head=*)
@@ -99,6 +133,7 @@ case "$mode" in
                 *) die "unknown option: $1" ;;
             esac
         done
+        [[ "$head_count" =~ ^[0-9]+$ ]] || die "--head requires a numeric value"
 
         if command -v mlr >/dev/null 2>&1; then
             mlr --icsv --opprint head -n "$head_count" "$file"
@@ -110,9 +145,10 @@ case "$mode" in
         ;;
 
     xml)
-        file="${1:?file required}"
+        file="${1:-}"
+        [[ -n "$file" ]] || die "file required"
         xpath="${2:-}"
-        [[ -f "$file" ]] || die "file not found: $file"
+        [[ -f "$file" ]] || die "file not found: $file (cwd: $PWD)"
 
         if command -v xmllint >/dev/null 2>&1; then
             if [[ -n "$xpath" ]]; then
@@ -121,7 +157,7 @@ case "$mode" in
                 xmllint --format "$file"
             fi
         else
-            die "xmllint not installed"
+            die "xmllint not installed; install it (Debian/Ubuntu: apt-get install libxml2-utils; macOS: brew install libxml2) to enable xml mode"
         fi
         ;;
 

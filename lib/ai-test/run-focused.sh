@@ -10,13 +10,13 @@
 # libexec/ entrypoint.
 #
 # Usage:
-#   agent-kit test run --filter <Pattern>
-#   agent-kit test run <path/to/SomeTest.php>
-#   agent-kit test run <path/to/SomeTest.php> --filter <method>
+#   restsift test run --filter <Pattern>
+#   restsift test run <path/to/SomeTest.php>
+#   restsift test run <path/to/SomeTest.php> --filter <method>
 #
 # Example:
-#   agent-kit test run --help                 # see accepted forms before running (safe)
-#   agent-kit test run --filter MyThingTest   # run only tests matching MyThingTest
+#   restsift test run --help                 # see accepted forms before running (safe)
+#   restsift test run --filter MyThingTest   # run only tests matching MyThingTest
 
 ai_test_run_usage() {
     sed -n '2,19p' "${AI_TEST_LIBEXEC_DIR:?AI_TEST_LIBEXEC_DIR must be set by the loader}/../lib/ai-test/run-focused.sh" | sed 's/^# \{0,1\}//'
@@ -39,16 +39,24 @@ ai_test_run_main() {
         exec env AI_OUTPUT=json bash "$AI_TEST_LIBEXEC_DIR/sh-introspect" "$AI_TEST_LIBEXEC_DIR/../lib/ai-test/run-focused.sh"
     fi
 
+    # Resolve the CALLER's repository root (where the user invoked the command),
+    # NOT the toolkit's own install dir. Prefer the canonical repo_root() helper
+    # from lib/paths.sh (loaded via common.sh on the CLI path); fall back to the
+    # same git logic when this module is sourced bare (e.g. focused unit tests).
     local ROOT
-    ROOT="$(cd "$AI_TEST_LIBEXEC_DIR/.." && pwd)"
+    if declare -F repo_root >/dev/null 2>&1; then
+        ROOT="$(repo_root)"
+    else
+        ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+    fi
     cd "$ROOT" || exit 1
 
     local TEST_TIMEOUT="${TEST_TIMEOUT:-120}"
     local PHP_BIN="${PHP_BIN:-}"
 
     if [[ "$#" -eq 0 ]]; then
-        echo "ERROR: agent-kit test run requires a --filter <pattern> or a test file path" >&2
-        echo "       e.g. agent-kit test run --filter ToolGatewayTest" >&2
+        echo "ERROR: restsift test run requires a --filter <pattern> or a test file path" >&2
+        echo "       e.g. restsift test run --filter ToolGatewayTest" >&2
         exit 2
     fi
 

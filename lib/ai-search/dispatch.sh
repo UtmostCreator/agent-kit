@@ -26,7 +26,8 @@ run_backend() {
         function | method | interface | enum) backend_shortcut_text ;;
         files) backend_files ;;
         *)
-            fail "error" "unknown mode: $mode"
+            fail "error" "unknown mode: $mode" 1 \
+                "unknown_mode" "run 'restsift search --help' to list valid modes"
             ;;
     esac
 }
@@ -37,18 +38,20 @@ run_backend() {
 emit_results() {
     local matches_json root_abs source_tool results_bytes count final
 
+    # Routing key shared by the JSON and plain branches. text/docs/tests/config/
+    # deps and the function/method/interface/enum shortcuts stream rg --json in
+    # `out`; tracked/changed-text/staged-text and text degraded to git grep are
+    # line-oriented path:line:text. Use a local key so the reported g_mode
+    # ("text") is not clobbered.
+    local route_mode="$mode"
+    if [[ "$mode" == "text" && "${g_text_fallback:-0}" == "1" ]]; then
+        route_mode="__text_fallback"
+    fi
+
     if [[ "$json_mode" == "json" ]]; then
         # Phase 3A/3B/3C: additive structured results for content searches.
         # text/docs come from an rg --json stream (accurate column, colon-safe
         # paths); tracked/changed-text/staged-text are line-oriented.
-        # text mode degraded to git grep (rg absent) is line-oriented, so route
-        # it through the line parser below instead of the rg --json parser. Use a
-        # local routing key so the reported g_mode ("text") is not clobbered.
-        local route_mode="$mode"
-        if [[ "$mode" == "text" && "${g_text_fallback:-0}" == "1" ]]; then
-            route_mode="__text_fallback"
-        fi
-
         case "$route_mode" in
             text | docs | tests | config | deps | route | config-key | function | method | interface | enum)
                 root_abs="$(canonical_root "$root")"
@@ -169,21 +172,45 @@ emit_results() {
             emit_json "ok" "$matches_json"
         fi
     else
-        # Plain (non-JSON) output. The JSON branch caps matches at g_max_results;
-        # mirror that here so a degenerate match-everything query (e.g.
-        # `tracked .`) cannot dump every line of every tracked file. Without this
-        # cap, plain mode streams the entire backend output unbounded.
-        local total_lines capped
-        if [[ -z "$out" ]]; then
+        # Aggregation flags shape only the AI_OUTPUT=json envelope (results[]/
+        # summary{}); plain terminal output prints match lines instead. Warn on
+        # stderr so a human running `--count`/`--count-matches`/-l does not
+        # silently get a raw match dump. stdout stays byte-identical.
+        if [[ "${count_mode:-none}" != "none" ]]; then
+            printf 'note: --count/--count-matches/--files-with-matches shape only AI_OUTPUT=json output; printing match lines. Re-run with AI_OUTPUT=json for counts.\n' >&2
+        fi
+
+        # Plain (non-JSON) output. The rg --json backends emit an NDJSON wire
+        # stream in `out`; render it to human/agent-readable path:line:text first
+        # so plain mode never dumps raw ripgrep JSON. Line-oriented backends
+        # (tracked/changed-text/staged-text and text degraded to git grep) are
+        # already path:line:text.
+        local plain_out="$out"
+        case "$route_mode" in
+            text | docs | tests | config | deps | route | config-key | function | method | interface | enum)
+                plain_out="$(printf '%s' "$out" | rg_json_to_matches | jq -r '.[]')"
+                ;;
+        esac
+
+        # The JSON branch caps matches at g_max_results; mirror that here so a
+        # degenerate match-everything query (e.g. `tracked .`) cannot dump every
+        # line of every tracked file. Without this cap, plain mode streams the
+        # entire backend output unbounded.
+        local total_lines
+        if [[ -z "$plain_out" ]]; then
             return 0
         fi
-        total_lines="$(printf '%s\n' "$out" | wc -l | tr -d ' ')"
+        total_lines="$(printf '%s\n' "$plain_out" | wc -l | tr -d ' ')"
         if [[ "$total_lines" -gt "$g_max_results" ]]; then
-            printf '%s\n' "$out" | head -n "$g_max_results"
+            # awk (not `head`) prints the first N lines but keeps reading to EOF,
+            # so the upstream printf never takes SIGPIPE. Under `set -o pipefail`
+            # a `head` that closes the pipe early turns printf's SIGPIPE into a
+            # fatal 141 exit for the whole script instead of a clean truncation.
+            printf '%s\n' "$plain_out" | awk -v n="$g_max_results" 'NR <= n'
             printf '... (truncated: showed %s of %s matches; use --max-results N or a narrower query)\n' \
                 "$g_max_results" "$total_lines" >&2
         else
-            printf '%s\n' "$out"
+            printf '%s\n' "$plain_out"
         fi
     fi
 }

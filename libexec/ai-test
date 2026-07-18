@@ -6,22 +6,27 @@
 # here in load order; each mode is dispatched to its module's *_main function.
 #
 # Usage:
-#   agent-kit test select changed          tests touched by the current diff
-#   agent-kit test select file PATH        tests related to one file
-#   agent-kit test select symbol SYMBOL    tests related to a symbol
-#   agent-kit test select json             machine-readable selection
-#   agent-kit test run --filter <Pattern>  run a focused PHPUnit selection
-#   agent-kit test run <path/to/Test.php>  run a focused PHPUnit selection
-#   agent-kit test all                     run every discovered suite (heavy)
+#   restsift test select changed          tests touched by the current diff
+#   restsift test select file PATH        tests related to one file
+#   restsift test select symbol SYMBOL    tests related to a symbol
+#   restsift test select json             alias of 'select changed' (same JSON)
+#   restsift test run --filter <Pattern>  run a focused PHPUnit selection
+#   restsift test run <path/to/Test.php>  run a focused PHPUnit selection
+#   restsift test all                     run every discovered suite (heavy)
 #
 # Example:
-#   agent-kit test select changed          # list tests for your current changes (read-only)
-#   agent-kit test run --filter FooTest    # run only tests matching FooTest
-#   agent-kit test all --help              # see options and defaults before running (safe)
+#   restsift test select changed          # list tests for your current changes (read-only)
+#   restsift test run --filter FooTest    # run only tests matching FooTest
+#   restsift test all --help              # see options and defaults before running (safe)
 #
 # Modes: select run all
 #
 # Flags: --filter --help -h --introspect
+#
+# Exit codes:
+#   0  success
+#   2  usage error (unknown mode, or a missing required argument)
+#   1  runtime/environment error (not inside a git worktree, missing test runner, failed suite)
 
 set -euo pipefail
 
@@ -62,7 +67,7 @@ case "${1:-}" in
         exit 0
         ;;
     *)
-        echo "agent-kit test: unknown mode '$1' (expected select|run|all)" >&2
+        echo "restsift test: unknown mode '$1' (expected select|run|all)" >&2
         exit 2
         ;;
 esac

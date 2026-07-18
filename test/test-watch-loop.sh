@@ -122,6 +122,9 @@ test_watchexec_branch() {
     [[ -f "$marker" ]] || return 1
     grep -q -- "--debounce" "$args_file" || return 1
     grep -q "777" "$args_file" || return 1
+    # Regression (defect 2): debounce value must carry an explicit time unit
+    # (watchexec 2.x deprecates bare/unitless spans). Pre-fix this was bare "777".
+    grep -q -- "777ms" "$args_file" || return 1
     grep -q "sh,md" "$args_file" || return 1
     local log_file="$TMP/logs-watchexec/watch-loop.jsonl"
     [[ -f "$log_file" ]] || return 1
@@ -161,11 +164,81 @@ test_entr_branch() {
         "$BASH_BIN" "$SCRIPT" "touch '$marker'" || return 1
     [[ -f "$marker" ]] || return 1
     grep -q -- "-r" "$args_file" || return 1
+    # Regression (defect 1): entr must be invoked with -n so the fallback works
+    # in non-TTY (agent/CI/subshell) contexts. Pre-fix -n was never passed.
+    grep -qx -- "-n" "$args_file" || return 1
     local log_file="$TMP/logs-entr/watch-loop.jsonl"
     [[ -f "$log_file" ]] || return 1
     jq -e '.event == "watch.start.entr"' "$log_file" >/dev/null
 }
 run_test "entr branch runs command and logs event (watchexec absent)" test_entr_branch
+
+# Missing command emits a friendly, tool-namespaced usage hint (not a raw
+# `${1:?}` file:line message) and exits 1.
+test_missing_command_message() {
+    local out rc=0
+    out="$(AI_LOG_DIR="$TMP/logs-nocmd" "$BASH_BIN" "$SCRIPT" 2>&1)" && rc=0 || rc=$?
+    [[ "$rc" == 1 ]] || return 1
+    [[ "$out" == *"watch-loop: command required"* ]] || return 1
+    [[ "$out" == *"Usage: watch-loop"* ]] || return 1
+    # Must NOT leak the internal parameter-expansion file:line reference.
+    [[ "$out" != *"line "* ]]
+}
+run_test "missing command prints friendly usage hint" test_missing_command_message
+
+# --json (opt-in) prints a one-line ai.watch-loop/v1 start envelope on stdout
+# BEFORE the watcher runs; the log side effect is preserved.
+test_json_envelope_watchexec() {
+    local marker="$TMP/wx-json-ran"
+    local args_file="$TMP/wx-json-args.txt"
+    local out
+    rm -f "$marker" "$args_file"
+    out="$(PATH="$FAKE_WATCHEXEC_DIR:$BINBASE" \
+        AI_LOG_DIR="$TMP/logs-json" \
+        WATCH_DEBOUNCE_MS=321 \
+        FAKE_WATCHEXEC_ARGS_FILE="$args_file" \
+        "$BASH_BIN" "$SCRIPT" --json "touch '$marker'" "sh,md" 2>/dev/null)" || return 1
+    [[ -f "$marker" ]] || return 1
+    local envelope
+    envelope="$(printf '%s\n' "$out" | head -n1)"
+    printf '%s' "$envelope" | jq -e '
+        .schema == "ai.watch-loop/v1"
+        and .status == "ok"
+        and .tool == "watch-loop"
+        and .backend == "watchexec"
+        and .debounceMs == 321
+        and (.extensions == ["sh","md"])
+        and (.logFile | endswith("watch-loop.jsonl"))' >/dev/null
+}
+run_test "--json emits ai.watch-loop/v1 start envelope" test_json_envelope_watchexec
+
+# AI_OUTPUT=json is an equivalent opt-in path to the --json flag.
+test_ai_output_json_envelope() {
+    local marker="$TMP/wx-aiout-ran"
+    local out
+    rm -f "$marker"
+    out="$(PATH="$FAKE_WATCHEXEC_DIR:$BINBASE" \
+        AI_LOG_DIR="$TMP/logs-aiout" \
+        AI_OUTPUT=json \
+        FAKE_WATCHEXEC_ARGS_FILE="$TMP/wx-aiout-args.txt" \
+        "$BASH_BIN" "$SCRIPT" "touch '$marker'" 2>/dev/null)" || return 1
+    printf '%s\n' "$out" | head -n1 | jq -e '.schema == "ai.watch-loop/v1" and .status == "ok"' >/dev/null
+}
+run_test "AI_OUTPUT=json emits start envelope" test_ai_output_json_envelope
+
+# Backward compat: default (human) mode prints NO JSON envelope on stdout.
+test_default_no_envelope() {
+    local marker="$TMP/wx-human-ran"
+    local out
+    rm -f "$marker"
+    out="$(PATH="$FAKE_WATCHEXEC_DIR:$BINBASE" \
+        AI_LOG_DIR="$TMP/logs-human" \
+        FAKE_WATCHEXEC_ARGS_FILE="$TMP/wx-human-args.txt" \
+        "$BASH_BIN" "$SCRIPT" "touch '$marker'" 2>/dev/null)" || return 1
+    [[ -f "$marker" ]] || return 1
+    [[ "$out" != *"ai.watch-loop/v1"* ]]
+}
+run_test "default mode prints no JSON envelope" test_default_no_envelope
 
 # Default extensions (no 2nd arg) are recorded in the watch log.
 test_default_extensions_logged() {

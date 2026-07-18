@@ -17,23 +17,23 @@ Target public surface before first stable release: approximately 9 command group
 - [ ] Keep implementation engines separate when responsibilities differ; merge only the public command surface.
 - [ ] Prefer pre-stable removal or de-publicization over permanent compatibility aliases.
 - [ ] Do not delete or move tracked files without explicit approval for the exact paths.
-- [ ] If deletion is not approved, move engines behind canonical commands, hide them from `agent-kit --list`, and exclude them from shipped public surfaces.
+- [ ] If deletion is not approved, move engines behind canonical commands, hide them from `restsift --list`, and exclude them from shipped public surfaces.
 - [ ] Update docs, generated examples, tests, install payloads, npm package contents, Homebrew formula, and release packaging together.
 - [ ] Add a publishability gate so duplicate public command names cannot reappear.
 
 ## Cross-cutting implementation tasks
 
 - [ ] Define a public command allowlist or duplicate-command denylist for pre-stable release.
-- [ ] Update `bin/agent-kit --list` / `libexec/sh-introspect --list` so internal or compatibility engines are not presented as public commands.
-- [ ] Decide internal engine location, for example `libexec/internal/`, that `bin/agent-kit` cannot dispatch directly.
+- [ ] Update `bin/restsift --list` / `libexec/sh-introspect --list` so internal or compatibility engines are not presented as public commands.
+- [ ] Decide internal engine location, for example `libexec/internal/`, that `bin/restsift` cannot dispatch directly.
 - [ ] Update `scripts/gen-examples.sh` so docs are generated only from public commands.
-- [ ] Update packaging surfaces: `install.sh`, `scripts/package-release.sh`, `package.json`, `npm/cli.js`, `Formula/agent-kit.rb`.
+- [ ] Update packaging surfaces: `install.sh`, `scripts/package-release.sh`, `package.json`, `npm/cli.js`, `Formula/restsift.rb`.
 - [ ] Extend `scripts/check-publishable.sh` to fail when removed/de-publicized names are shipped.
 
 Verification for cross-cutting work:
 
 ```bash
-bash test/test-bin-agent-kit.sh
+bash test/test-bin-restsift.sh
 bash test/test-install.sh
 ./scripts/check-publishable.sh
 ```
@@ -45,25 +45,25 @@ bash test/test-install.sh
 Canonical interface:
 
 ```bash
-agent-kit search text PATTERN [ROOT]
-agent-kit search files QUERY [ROOT]
-agent-kit search batch MODE QUERY...
-agent-kit search capabilities [--probe]
+restsift search text PATTERN [ROOT]
+restsift search files QUERY [ROOT]
+restsift search batch MODE QUERY...
+restsift search capabilities [--probe]
 ```
 
 Current state:
 
-- [x] `agent-kit search capabilities` exists in the current working tree.
+- [x] `restsift search capabilities` exists in the current working tree.
 - [ ] `ai-search-introspect` remains public unless removed/de-publicized.
 - [ ] `ai-search-multi`, `rg-code`, and `fd-files` remain public duplicate APIs.
 
 Tasks:
 
 - [ ] Keep `ai-search` as the canonical search engine.
-- [ ] Internalize `ai-search-introspect`; public replacement is `agent-kit search capabilities`.
-- [x] Add or confirm `agent-kit search batch` before internalizing `ai-search-multi`.
-- [ ] Prove `agent-kit search text` covers `rg-code` use cases; then remove/de-publicize `rg-code`.
-- [ ] Prove `agent-kit search files` covers `fd-files` use cases; then remove/de-publicize `fd-files`.
+- [ ] Internalize `ai-search-introspect`; public replacement is `restsift search capabilities`.
+- [x] Add or confirm `restsift search batch` before internalizing `ai-search-multi`.
+- [ ] Prove `restsift search text` covers `rg-code` use cases; then remove/de-publicize `rg-code`.
+- [ ] Prove `restsift search files` covers `fd-files` use cases; then remove/de-publicize `fd-files`.
 - [ ] Stop shipping `rg-code` and `fd-files` as parallel public search APIs.
 
 Verification:
@@ -72,7 +72,7 @@ Verification:
 bash test/test-ai-search.sh
 bash test/test-rg-code.sh
 bash test/test-fd-files.sh
-bash test/test-bin-agent-kit.sh
+bash test/test-bin-restsift.sh
 ./scripts/check.sh
 ./scripts/check-publishable.sh
 ```
@@ -82,34 +82,34 @@ bash test/test-bin-agent-kit.sh
 Canonical interface:
 
 ```bash
-agent-kit verify [ROOT]
-agent-kit verify --language php [ROOT]
-agent-kit verify --language js [ROOT]
-agent-kit verify docs [PATH...]
-agent-kit verify refs [PATH]
+restsift verify [ROOT]
+restsift verify --language php [ROOT]
+restsift verify --language js [ROOT]
+restsift verify docs [PATH...]
+restsift verify refs [PATH]
 ```
 
 Current state:
 
 - [x] `libexec/ai-verify` supports `--language`.
 - [x] `ai-verify-html`, `ai-verify-js`, `ai-verify-php`, `ai-verify-ts`, and `ai-verify-vue` deleted; `--language <lang>` is the only route.
-- [x] Docs promote `agent-kit verify --language <lang>` / `verify docs` / `verify refs`; no wrapper commands remain.
+- [x] Docs promote `restsift verify --language <lang>` / `verify docs` / `verify refs`; no wrapper commands remain.
 - [x] `ai-doc-check` and `check-file-refs` fused into `libexec/ai-verify` (`lib/ai-verify/{docs-check,file-refs}.sh`); no longer separate public commands.
 
 Tasks:
 
 - [x] Keep `ai-verify` as the canonical verification engine.
-- [x] Use `agent-kit verify --language <lang>` in docs and tests.
+- [x] Use `restsift verify --language <lang>` in docs and tests.
 - [x] Existing `--language html|js|php|ts|vue` coverage carried over unchanged in `test/test-ai-verify.sh`.
 - [x] Remove `ai-verify-html`, `ai-verify-js`, `ai-verify-php`, `ai-verify-ts`, and `ai-verify-vue`.
-- [x] Add `agent-kit verify docs` and internalize `ai-doc-check`.
-- [x] Add `agent-kit verify refs` and internalize `check-file-refs`.
+- [x] Add `restsift verify docs` and internalize `ai-doc-check`.
+- [x] Add `restsift verify refs` and internalize `check-file-refs`.
 
 Verification:
 
 ```bash
 bash test/test-ai-verify.sh   # ported every ai-doc-check/check-file-refs assertion; 48 passed / 0 failed / 2 skipped (env-gated)
-bash test/test-bin-agent-kit.sh
+bash test/test-bin-restsift.sh
 ./scripts/check.sh
 ./scripts/check-publishable.sh
 ```
@@ -119,18 +119,18 @@ bash test/test-bin-agent-kit.sh
 Canonical interface:
 
 ```bash
-agent-kit test select changed
-agent-kit test select file src/Foo.php
-agent-kit test run tests/FooTest.php
-agent-kit test run --filter FooTest
-agent-kit test all
+restsift test select changed
+restsift test select file src/Foo.php
+restsift test run tests/FooTest.php
+restsift test run --filter FooTest
+restsift test all
 ```
 
 Tasks:
 
-- [x] Add `agent-kit test select` backed by fused `lib/ai-test/select.sh` (was `ai-test-select`).
-- [x] Add `agent-kit test run` backed by fused `lib/ai-test/run-focused.sh` (was `run-test-focused`).
-- [x] Add `agent-kit test all` backed by fused `lib/ai-test/run-all.sh` (was `run-repo-tests`).
+- [x] Add `restsift test select` backed by fused `lib/ai-test/select.sh` (was `ai-test-select`).
+- [x] Add `restsift test run` backed by fused `lib/ai-test/run-focused.sh` (was `run-test-focused`).
+- [x] Add `restsift test all` backed by fused `lib/ai-test/run-all.sh` (was `run-repo-tests`).
 - [x] Kept selection, focused execution, and full-suite execution as separate internal modules/functions (`ai_test_select_main` / `ai_test_run_main` / `ai_test_all_main`).
 - [x] Removed `ai-test-select`, `run-test-focused`, and `run-repo-tests` from the shipped public surface.
 
@@ -138,7 +138,7 @@ Verification:
 
 ```bash
 bash test/test-ai-test.sh   # 16 passed / 0 failed / 0 skipped
-bash test/test-bin-agent-kit.sh
+bash test/test-bin-restsift.sh
 ./scripts/check.sh
 ./scripts/check-publishable.sh
 ```
@@ -148,27 +148,27 @@ bash test/test-bin-agent-kit.sh
 Canonical interface:
 
 ```bash
-agent-kit context diff ...
-agent-kit context pack ...
-agent-kit context file PATH
-agent-kit context generate
-agent-kit context tree
-agent-kit context status
-agent-kit context ensure [--regen]
-agent-kit context estimate PATH
+restsift context diff ...
+restsift context pack ...
+restsift context file PATH
+restsift context generate
+restsift context tree
+restsift context status
+restsift context ensure [--regen]
+restsift context estimate PATH
 ```
 
 Tasks:
 
-- [x] Add `agent-kit context diff` backed by fused `lib/ai-context/diff.sh` (wraps unchanged `lib/ai-diff-context/*.sh`; was `ai-diff-context`).
-- [x] Add `agent-kit context pack` backed by fused `lib/ai-context/pack.sh` (was `pack-context`).
-- [x] Add `agent-kit context file` backed by fused `lib/ai-context/file.sh` (was `run-repomix-file`).
-- [x] Add `agent-kit context generate` backed by `lib/ai-context/generate.sh`, which execs the relocated (not fused) `libexec/internal/run-repomix-context`.
-- [x] Add `agent-kit context tree` backed by `lib/ai-context/tree.sh`, which execs the relocated (not fused) `libexec/internal/repomix-context-tree`. `generate`/`tree` were deliberately kept as separate processes rather than fused, per a confirmed `die()`/`log()`/`estimate_tokens()` name-collision risk between `lib/repomix-context-tree/helpers.sh` and `lib/core.sh`/`lib/tokens.sh` if merged into the shared `ai-context` process.
-- [x] Add `agent-kit context status` backed by fused `lib/ai-context/status.sh` (was `repomix-freshness`).
-- [x] Add `agent-kit context ensure` backed by fused `lib/ai-context/ensure.sh` (was `repomix-ensure-fresh`).
-- [x] Add `agent-kit context estimate` backed by fused `lib/ai-context/estimate.sh` (was `query-usage`).
-- [x] `repomix-scc-router` relocated to `libexec/internal/repomix-scc-router`: hidden from `agent-kit --list` and public dispatch, left fully unwired (no public route added, matching this exact instruction).
+- [x] Add `restsift context diff` backed by fused `lib/ai-context/diff.sh` (wraps unchanged `lib/ai-diff-context/*.sh`; was `ai-diff-context`).
+- [x] Add `restsift context pack` backed by fused `lib/ai-context/pack.sh` (was `pack-context`).
+- [x] Add `restsift context file` backed by fused `lib/ai-context/file.sh` (was `run-repomix-file`).
+- [x] Add `restsift context generate` backed by `lib/ai-context/generate.sh`, which execs the relocated (not fused) `libexec/internal/run-repomix-context`.
+- [x] Add `restsift context tree` backed by `lib/ai-context/tree.sh`, which execs the relocated (not fused) `libexec/internal/repomix-context-tree`. `generate`/`tree` were deliberately kept as separate processes rather than fused, per a confirmed `die()`/`log()`/`estimate_tokens()` name-collision risk between `lib/repomix-context-tree/helpers.sh` and `lib/core.sh`/`lib/tokens.sh` if merged into the shared `ai-context` process.
+- [x] Add `restsift context status` backed by fused `lib/ai-context/status.sh` (was `repomix-freshness`).
+- [x] Add `restsift context ensure` backed by fused `lib/ai-context/ensure.sh` (was `repomix-ensure-fresh`).
+- [x] Add `restsift context estimate` backed by fused `lib/ai-context/estimate.sh` (was `query-usage`).
+- [x] `repomix-scc-router` relocated to `libexec/internal/repomix-scc-router`: hidden from `restsift --list` and public dispatch, left fully unwired (no public route added, matching this exact instruction).
 - [ ] Remove `all-f-into-one` from the shipped public surface — not yet done.
 
 Verification:
@@ -178,7 +178,7 @@ bash test/test-ai-context.sh                 # 26 passed / 0 failed / 0 skipped 
 bash test/test-run-repomix-context.sh        # 3 passed (relocated engine, path updated)
 bash test/test-repomix-context-tree.sh       # 4 passed (relocated engine, path updated)
 bash test/test-repomix-scc-router.sh         # 9 passed (relocated engine, path updated)
-bash test/test-bin-agent-kit.sh
+bash test/test-bin-restsift.sh
 ./scripts/check.sh
 ./scripts/check-publishable.sh
 ```
@@ -190,18 +190,18 @@ bash test/test-bin-agent-kit.sh
 Canonical interface:
 
 ```bash
-agent-kit git origin
-agent-kit git history --string VALUE
-agent-kit git history --regex VALUE
-agent-kit git blame FILE --lines 10,20
-agent-kit git pr-context NUMBER
+restsift git origin
+restsift git history --string VALUE
+restsift git history --regex VALUE
+restsift git blame FILE --lines 10,20
+restsift git pr-context NUMBER
 ```
 
 Tasks:
 
-- [x] Add `agent-kit git origin` backed by fused `lib/ai-git/origin.sh` (was `git-branch-origin`).
-- [x] Add `agent-kit git history` and `agent-kit git blame` backed by fused `lib/ai-git/forensics.sh` (was `git-forensics`).
-- [x] Add `agent-kit git pr-context` backed by fused `lib/ai-git/pr-context.sh` (was `gh-pr-context`).
+- [x] Add `restsift git origin` backed by fused `lib/ai-git/origin.sh` (was `git-branch-origin`).
+- [x] Add `restsift git history` and `restsift git blame` backed by fused `lib/ai-git/forensics.sh` (was `git-forensics`).
+- [x] Add `restsift git pr-context` backed by fused `lib/ai-git/pr-context.sh` (was `gh-pr-context`).
 - [x] Removed `git-branch-origin`, `git-forensics`, and `gh-pr-context` from the shipped public surface.
 
 Note: implemented as a real fused engine (`libexec/ai-git` sources `lib/ai-git/*.sh` and calls each
@@ -213,7 +213,7 @@ Verification:
 
 ```bash
 bash test/test-ai-git.sh   # 20 passed / 0 failed / 0 skipped (ports every assertion from the 3 old test files)
-bash test/test-bin-agent-kit.sh
+bash test/test-bin-restsift.sh
 ./scripts/check-publishable.sh
 ```
 
@@ -222,18 +222,18 @@ bash test/test-bin-agent-kit.sh
 Canonical interface:
 
 ```bash
-agent-kit repo tasks
-agent-kit repo stats
-agent-kit repo tools
-agent-kit repo status
+restsift repo tasks
+restsift repo stats
+restsift repo tools
+restsift repo status
 ```
 
 Tasks:
 
-- [x] Add `agent-kit repo tasks` backed by `ai-task` (routed via `libexec/ai-repo`, engine kept separate — not yet physically fused).
-- [x] Add `agent-kit repo stats` backed by `repo-stats` (routed).
-- [x] Add `agent-kit repo tools` backed by `repo-tool-inventory` (routed).
-- [x] `agent-kit repo status` routes to `ai-file-freshness` as-is (no `--surface docs` filter added; that remains a future enhancement, not a rename).
+- [x] Add `restsift repo tasks` backed by `ai-task` (routed via `libexec/ai-repo`, engine kept separate — not yet physically fused).
+- [x] Add `restsift repo stats` backed by `repo-stats` (routed).
+- [x] Add `restsift repo tools` backed by `repo-tool-inventory` (routed).
+- [x] `restsift repo status` routes to `ai-file-freshness` as-is (no `--surface docs` filter added; that remains a future enhancement, not a rename).
 - [ ] Remove/de-publicize old top-level public names (`ai-task`, `repo-stats`, `repo-tool-inventory`, `ai-file-freshness` still exist as separate public commands; only routing was added, not fusion+deletion).
 
 Verification:
@@ -242,7 +242,7 @@ Verification:
 bash test/test-ai-task.sh
 bash test/test-repo-tool-inventory.sh
 bash test/test-misc-wrappers.sh
-bash test/test-bin-agent-kit.sh
+bash test/test-bin-restsift.sh
 ./scripts/check-publishable.sh
 ```
 
@@ -251,23 +251,23 @@ bash test/test-bin-agent-kit.sh
 Canonical interface:
 
 ```bash
-agent-kit edit apply ...
-agent-kit edit rollback ...
+restsift edit apply ...
+restsift edit rollback ...
 ```
 
 Tasks:
 
 - [x] Kept `ai-edit` and `ai-rollback` as fully separate engines (zero changes to `ai-rollback`) because rollback must remain independently recoverable.
-- [x] Add `agent-kit edit apply` as the canonical edit route (thin `apply` token shift; bare `agent-kit edit MODE ...` still works unchanged).
-- [x] Add `agent-kit edit rollback` as the canonical rollback route (early-exit `exec` shim into unchanged `ai-rollback`, same pattern as `ai-search`'s `capabilities` shim).
-- [x] `agent-kit rollback` remains as the primary/documented route (not just a compatibility shim); `agent-kit edit rollback` is additive.
+- [x] Add `restsift edit apply` as the canonical edit route (thin `apply` token shift; bare `restsift edit MODE ...` still works unchanged).
+- [x] Add `restsift edit rollback` as the canonical rollback route (early-exit `exec` shim into unchanged `ai-rollback`, same pattern as `ai-search`'s `capabilities` shim).
+- [x] `restsift rollback` remains as the primary/documented route (not just a compatibility shim); `restsift edit rollback` is additive.
 
 Verification:
 
 ```bash
 bash test/test-ai-edit.sh
 bash test/test-ai-rollback.sh
-bash test/test-bin-agent-kit.sh
+bash test/test-bin-restsift.sh
 ./scripts/check-publishable.sh
 ```
 
@@ -278,17 +278,17 @@ bash test/test-bin-agent-kit.sh
 Canonical interface:
 
 ```bash
-agent-kit inspect file PATH
-agent-kit inspect data json FILE QUERY
-agent-kit inspect data yaml FILE QUERY
-agent-kit inspect shell SCRIPT
+restsift inspect file PATH
+restsift inspect data json FILE QUERY
+restsift inspect data yaml FILE QUERY
+restsift inspect shell SCRIPT
 ```
 
 Tasks:
 
-- [x] Add `agent-kit inspect file` backed by `preview-file` (routed via `libexec/ai-inspect`, engine kept separate).
-- [x] Add `agent-kit inspect data` backed by `ai-structured` (routed).
-- [x] Add `agent-kit inspect shell` backed by `sh-introspect` (routed).
+- [x] Add `restsift inspect file` backed by `preview-file` (routed via `libexec/ai-inspect`, engine kept separate).
+- [x] Add `restsift inspect data` backed by `ai-structured` (routed).
+- [x] Add `restsift inspect shell` backed by `sh-introspect` (routed).
 - [x] Decision: these stay as separate top-level dispatcher commands too (human review flagged this cluster as "not one coherent engine" — search-ish tools like `fd-files`/`rg-code` belong under `search`, not `inspect`; that reclassification is not yet implemented).
 
 Verification:
@@ -297,7 +297,7 @@ Verification:
 bash test/test-preview-file.sh
 bash test/test-ai-structured.sh
 bash test/test-sh-introspect.sh
-bash test/test-bin-agent-kit.sh
+bash test/test-bin-restsift.sh
 ```
 
 ### 9. Session family — urgency 52/100
@@ -305,27 +305,27 @@ bash test/test-bin-agent-kit.sh
 Canonical interface:
 
 ```bash
-agent-kit session checkpoint
-agent-kit session watch
+restsift session checkpoint
+restsift session watch
 ```
 
 Tasks:
 
-- [x] Add `agent-kit session checkpoint` backed by `session-checkpoint` (routed via `libexec/ai-session`, engine kept separate).
-- [x] Add `agent-kit session watch` backed by `watch-loop` (routed as-is; watching-scope confirmation not separately re-verified).
+- [x] Add `restsift session checkpoint` backed by `session-checkpoint` (routed via `libexec/ai-session`, engine kept separate).
+- [x] Add `restsift session watch` backed by `watch-loop` (routed as-is; watching-scope confirmation not separately re-verified).
 
 Verification:
 
 ```bash
 bash test/test-session-checkpoint.sh
 bash test/test-watch-loop.sh
-bash test/test-bin-agent-kit.sh
+bash test/test-bin-restsift.sh
 ```
 
 ## Final shipped public CLI target
 
 ```text
-agent-kit
+restsift
 ├── search
 │   ├── text
 │   ├── files
@@ -375,7 +375,7 @@ agent-kit
 
 ## Final release gate
 
-- [ ] `agent-kit --list` shows only approved public commands.
+- [ ] `restsift --list` shows only approved public commands.
 - [ ] Docs promote only canonical command groups.
 - [ ] Release packages do not expose duplicate public names.
 - [ ] All approved removals/internalizations have recorded human approval.

@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # Orphaned-file (unreferenced tracked file) detection folded into the AI
-# verification gate as `agent-kit verify refs`. Read-only: surfaces orphaned
+# verification gate as `restsift verify refs`. Read-only: surfaces orphaned
 # docs and unused assets. No mutation.
 #
 # This module is sourced by scripts/ai/ai-verify.sh's `verify refs` subcommand
@@ -11,8 +11,8 @@
 #
 # Fused from the former standalone libexec/check-file-refs (verify-cluster
 # consolidation): behavior is byte-for-byte identical to that script, only the
-# invocation surface changed (`agent-kit check-file-refs ...` ->
-# `agent-kit verify refs ...`).
+# invocation surface changed (`restsift check-file-refs ...` ->
+# `restsift verify refs ...`).
 #
 # Every helper here is prefixed ai_verify_refs_ so sourcing this module into
 # ai-verify's shared process can never silently override an unrelated
@@ -21,7 +21,7 @@
 ai_verify_refs_usage() {
     cat <<'EOF'
 Usage:
-  agent-kit verify refs [path] [--format json|plain] [--ext EXT[,EXT]] [--all]
+  restsift verify refs [path] [--format json|plain] [--ext EXT[,EXT]] [--all]
                          [--exclude PATTERN]...
 
 Find tracked files whose basename is not referenced by any other tracked file
@@ -148,8 +148,17 @@ ai_verify_refs_main() {
     for pat in "${excludes[@]+${excludes[@]}}"; do
         [[ -n "$pat" ]] && pathspec_excludes+=(":!$pat")
     done
-    local -a candidates
-    mapfile -t candidates < <(git ls-files -- "$scan_path" "${pathspec_excludes[@]}")
+    # Capture git ls-files via command substitution (not process substitution):
+    # a `mapfile < <(git ls-files ...)` pipe swallows git's exit status, so an
+    # invalid path silently degrades to an empty candidate list and a false
+    # "no orphans" clean result. Command substitution propagates the exit code.
+    local ls_output ls_rc=0
+    ls_output="$(git ls-files -- "$scan_path" "${pathspec_excludes[@]}")" || ls_rc=$?
+    if ((ls_rc != 0)); then
+        die "verify refs: cannot list tracked files under '$scan_path' (git ls-files exit $ls_rc)"
+    fi
+    local -a candidates=()
+    [[ -n "$ls_output" ]] && mapfile -t candidates <<<"$ls_output"
 
     local -a orphans=()
     local path base ext want e hits other_refs

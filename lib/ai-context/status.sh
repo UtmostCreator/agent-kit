@@ -8,7 +8,7 @@
 ai_context_status_usage() {
     cat <<'EOF'
 Usage:
-  agent-kit context status [root]
+  restsift context status [root]
 
 Options (env):
   REPOMIX_WARN_DAYS   warn threshold in days (default 2)
@@ -21,7 +21,7 @@ Exit codes:
   4  missing manifest — generate context first
 
 Regenerate with:
-  agent-kit context generate .
+  restsift context generate .
 EOF
 }
 
@@ -67,11 +67,19 @@ ai_context_status_main() {
             ;;
     esac
 
-    local root_abs
-    root_abs="$(cd "$ROOT" && pwd)"
     local context_dir="${AI_CONTEXT_DIR:-.repomix-context}"
-    local manifest="$root_abs/$context_dir/tree-context/run-manifest.json"
-    local regen_cmd="agent-kit context generate ."
+    local regen_cmd="restsift context generate ."
+    local manifest
+
+    # A nonexistent root has no manifest; emit the same clean missing-manifest
+    # message (exit 4) instead of leaking a raw bash `cd: ... No such file` trace.
+    local root_abs
+    if ! root_abs="$(cd "$ROOT" 2>/dev/null && pwd)"; then
+        manifest="$context_dir/tree-context/run-manifest.json"
+        ai_context_status_emit "missing" 0 "root path not found: $ROOT"
+        return 4
+    fi
+    manifest="$root_abs/$context_dir/tree-context/run-manifest.json"
 
     if [[ ! -f "$manifest" ]]; then
         ai_context_status_emit "missing" 0 "no Repomix context manifest at $context_dir/tree-context/run-manifest.json"
